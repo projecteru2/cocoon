@@ -1,5 +1,5 @@
 #!/bin/sh
-# Filename: cocoon-boot.sh
+# Filename: hack.sh
 # Target path: /etc/initramfs-tools/scripts/cocoon
 
 . /scripts/functions
