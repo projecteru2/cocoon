@@ -6,6 +6,11 @@ on:
     paths:
       - "os-image/**"
   workflow_dispatch:
+    inputs:
+      no-cache:
+        description: "Force rebuild without cache"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -115,5 +120,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           secret-files: |
             cocoon_script=os-image/${{ matrix.name }}/cocoon-boot.sh
-          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.tag }}
+          no-cache: ${{ github.event.inputs.no-cache == 'true' }}
+          cache-from: ${{ github.event.inputs.no-cache == 'true' && '' || format('type=gha,scope={0}-{1}', matrix.name, matrix.tag) }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}
