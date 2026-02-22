@@ -1,5 +1,5 @@
 #!/bin/sh
-# Filename: hack.sh
+# Filename: cocoon-boot.sh
 # Target path: /etc/initramfs-tools/scripts/cocoon
 
 . /scripts/functions
@@ -70,14 +70,16 @@ mountroot() {
     # Mount COW disk
     cow_dev=$(resolve_disk "$COW") || panic "COW device ${COW} not found"
     mkdir -p "${COCOON_INTERNAL}/cow"
-    mount -t ext4 "$cow_dev" "${COCOON_INTERNAL}/cow" || panic "mount COW failed"
+    # [Performance] Added noatime to reduce unnecessary write operations on the COW disk.
+    mount -t ext4 -o noatime "$cow_dev" "${COCOON_INTERNAL}/cow" || panic "mount COW failed"
     mkdir -p "${COCOON_INTERNAL}/cow/upper" "${COCOON_INTERNAL}/cow/work"
 
     # Assemble Overlayfs
     # [Optimized OverlayFS Options]
     # index=on: Prevents broken file handles and ensures inode consistency during copy-up.
     # redirect_dir=on: Enables renaming of directories that exist in the lower (read-only) layers.
-    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work,index=on,redirect_dir=on"
+    # metacopy=on: Optimizes metadata-only changes (like chmod/chown) to avoid full file copy-up.
+    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work,index=on,redirect_dir=on,metacopy=on"
     
     mount -t overlay overlay -o "$OVL_OPTS" "${rootmnt}" || panic "overlay failed"
 
