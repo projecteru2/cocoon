@@ -113,7 +113,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          secrets: |
-            "cocoon_script=./cocoon-boot.sh"
+          secret-files: |
+            cocoon_script=os-image/${{ matrix.name }}/cocoon-boot.sh
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}

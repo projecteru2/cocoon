@@ -4,8 +4,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Combined System Setup & Optimization (Single Layer)
-# We use --mount=type=secret to pull the boot script without creating a permanent layer.
-RUN --mount=type=secret,id=cocoon_script,target=/etc/initramfs-tools/scripts/cocoon \
+# Secret mounts are read-only, so we copy it to the target path first.
+RUN --mount=type=secret,id=cocoon_script \
+    cp /run/secrets/cocoon_script /etc/initramfs-tools/scripts/cocoon && \
     chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
     apt-get update && apt-get install -y --no-install-recommends \
         linux-image-virtual \
