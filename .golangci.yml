@@ -74,5 +74,5 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/CMGS/cocoon
+        - github.com/projecteru2/cocoon
 
