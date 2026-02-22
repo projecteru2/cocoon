@@ -119,7 +119,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secret-files: |
-            cocoon_script=os-image/${{ matrix.name }}/cocoon-boot.sh
+            cocoon_script=os-image/${{ matrix.name }}/hack.sh
           no-cache: ${{ github.event.inputs.no-cache == 'true' }}
           cache-from: ${{ github.event.inputs.no-cache == 'true' && '' || format('type=gha,scope={0}-{1}', matrix.name, matrix.tag) }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}
