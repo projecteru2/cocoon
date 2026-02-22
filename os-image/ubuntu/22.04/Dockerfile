@@ -3,11 +3,9 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Combined System Setup (No COPY used)
-# Secret mounts are read-only, so we copy it to the target path first.
+# Combined System Setup (Single Layer)
+# Install packages first so /etc/initramfs-tools/scripts/ exists, then inject the hook.
 RUN --mount=type=secret,id=cocoon_script \
-    cp /run/secrets/cocoon_script /etc/initramfs-tools/scripts/cocoon && \
-    chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
     apt-get update && apt-get install -y --no-install-recommends \
         linux-image-virtual \
         initramfs-tools \
@@ -17,6 +15,8 @@ RUN --mount=type=secret,id=cocoon_script \
         kmod \
         iproute2 \
     && \
+    cp /run/secrets/cocoon_script /etc/initramfs-tools/scripts/cocoon && \
+    chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
     # [Kernel Config]
     printf "erofs\noverlay\next4\nvirtio_blk\nvirtio_pci\nvirtio_ring\nvirtio_net\n" >> /etc/initramfs-tools/modules && \
     sed -i 's/^COMPRESS=.*/COMPRESS=gzip/' /etc/initramfs-tools/initramfs.conf && \
