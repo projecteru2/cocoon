@@ -84,7 +84,8 @@ echo "[5/5] Igniting Cloud Hypervisor..."
 "$CH_BIN" --kernel "$KERNEL" --initramfs "$INITRD" \
     --disk "${DISK_CONFIGS[@]}" \
     --cmdline "console=ttyS0 boot=cocoon cocoon.layers=${COCOON_LAYERS} cocoon.cow=cocoon-cow" \
-    --cpus boot=2 --memory size=1024M \
-    --rng \
-    --balloon "size=1024M,deflate_on_oom=on,free_page_reporting=on" \
+    --cpus boot=2 \
+    --memory "size=1024M" \
+    --rng "src=/dev/urandom" \
+    --balloon "size=512M,deflate_on_oom=on,free_page_reporting=on" \
     --serial tty --console off
