@@ -106,6 +106,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
           tags: |
             type=raw,value=${{ matrix.tag }}
+            type=raw,value=latest
             type=sha,prefix=${{ matrix.tag }}-
 
       - name: Build and push
