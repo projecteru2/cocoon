@@ -3,13 +3,10 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Inject the Cocoon hook script FIRST
-# Moving COPY up allows us to run update-initramfs in the same giant RUN layer.
-COPY cocoon-boot.sh /etc/initramfs-tools/scripts/cocoon
-
-# 2. Combined System Setup & Optimization
-# We merge all installations, configurations, and cleanups into a single atomic layer.
-RUN chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
+# Combined System Setup & Optimization (Single Layer)
+# We use --mount=type=secret to pull the boot script without creating a permanent layer.
+RUN --mount=type=secret,id=cocoon_script,target=/etc/initramfs-tools/scripts/cocoon \
+    chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
     apt-get update && apt-get install -y --no-install-recommends \
         linux-image-virtual \
         initramfs-tools \
@@ -23,7 +20,7 @@ RUN chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
     # [Kernel Setup] Force critical modules and set gzip compression
     printf "erofs\noverlay\next4\nvirtio_blk\nvirtio_pci\nvirtio_ring\nvirtio_net\n" >> /etc/initramfs-tools/modules && \
     sed -i 's/^COMPRESS=.*/COMPRESS=gzip/' /etc/initramfs-tools/initramfs.conf && \
-    # Regenerate initramfs inside this layer
+    # Regenerate initramfs inside this layer (consumes the secret script)
     update-initramfs -u -k all && \
     # [Shift-Left Hacks] Neuter systemd to avoid boot-time filesystem checks
     truncate -s 0 /etc/fstab && \
@@ -37,6 +34,5 @@ RUN chmod 0755 /etc/initramfs-tools/scripts/cocoon && \
     # [Cleanup] Purge APT cache to minimize EROFS size
     rm -rf /var/lib/apt/lists/*
 
-# 3. Final configuration
-# Default systemd boot target
+# Final configuration
 CMD ["/sbin/init"]

@@ -27,19 +27,15 @@ jobs:
         id: set-matrix
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # On manual trigger, build everything
             changed=$(find os-image -name Dockerfile -type f)
           else
             BEFORE="${{ github.event.before }}"
-            # Handle initial push (before is all zeros)
             if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
               changed=$(find os-image -name Dockerfile -type f)
             else
               changed=$(git diff --name-only "$BEFORE" "${{ github.sha }}" -- 'os-image/' | sort -u)
-              # For any changed file under os-image/{name}/, find all Dockerfiles in that name group
               declare -A names
               for f in $changed; do
-                # Extract the name part: os-image/{name}/...
                 name=$(echo "$f" | cut -d'/' -f2)
                 if [[ -n "$name" ]]; then
                   names[$name]=1
@@ -57,7 +53,6 @@ jobs:
           matrix_entries=()
           while IFS= read -r dockerfile; do
             [[ -z "$dockerfile" ]] && continue
-            # Expected: os-image/{name}/{tag}/Dockerfile
             name=$(echo "$dockerfile" | cut -d'/' -f2)
             tag=$(echo "$dockerfile" | cut -d'/' -f3)
             if [[ -n "$name" && -n "$tag" ]]; then
@@ -118,5 +113,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            "cocoon_script=./cocoon-boot.sh"
           cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.tag }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}
