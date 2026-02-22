@@ -31,39 +31,71 @@ jobs:
       - name: Find changed Dockerfiles
         id: set-matrix
         run: |
+          # Determine if manual no-cache was requested
+          MANUAL_NO_CACHE="${{ github.event.inputs.no-cache }}"
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            changed=$(find os-image -name Dockerfile -type f)
+            # On manual trigger, build everything
+            declare -A names
+            while IFS= read -r dockerfile; do
+              [[ -z "$dockerfile" ]] && continue
+              name=$(echo "$dockerfile" | cut -d'/' -f2)
+              names[$name]=1
+            done <<< "$(find os-image -name Dockerfile -type f)"
+            # Use all changed files (empty for dispatch = treat all as changed)
+            all_changed=""
           else
             BEFORE="${{ github.event.before }}"
             if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
-              changed=$(find os-image -name Dockerfile -type f)
-            else
-              changed=$(git diff --name-only "$BEFORE" "${{ github.sha }}" -- 'os-image/' | sort -u)
               declare -A names
-              for f in $changed; do
+              while IFS= read -r dockerfile; do
+                [[ -z "$dockerfile" ]] && continue
+                name=$(echo "$dockerfile" | cut -d'/' -f2)
+                names[$name]=1
+              done <<< "$(find os-image -name Dockerfile -type f)"
+              all_changed=""
+            else
+              all_changed=$(git diff --name-only "$BEFORE" "${{ github.sha }}" -- 'os-image/' | sort -u)
+              declare -A names
+              for f in $all_changed; do
                 name=$(echo "$f" | cut -d'/' -f2)
                 if [[ -n "$name" ]]; then
                   names[$name]=1
                 fi
               done
-
-              changed=""
-              for name in "${!names[@]}"; do
-                found=$(find "os-image/$name" -name Dockerfile -type f)
-                changed="$changed"$'\n'"$found"
-              done
             fi
           fi
 
+          # Build matrix with per-entry no-cache flag
           matrix_entries=()
-          while IFS= read -r dockerfile; do
-            [[ -z "$dockerfile" ]] && continue
-            name=$(echo "$dockerfile" | cut -d'/' -f2)
-            tag=$(echo "$dockerfile" | cut -d'/' -f3)
-            if [[ -n "$name" && -n "$tag" ]]; then
-              matrix_entries+=("{\"name\":\"$name\",\"tag\":\"$tag\"}")
+          for name in "${!names[@]}"; do
+            # Check if any non-Dockerfile file changed under os-image/{name}/
+            # i.e. shared files like scripts that affect all tags
+            needs_no_cache="false"
+            if [[ "$MANUAL_NO_CACHE" == "true" ]]; then
+              needs_no_cache="true"
+            elif [[ -n "$all_changed" ]]; then
+              # Files directly under os-image/{name}/ (not in tag subdirs) changed
+              while IFS= read -r f; do
+                [[ -z "$f" ]] && continue
+                # Count path components: os-image/{name}/{file} = 3 parts (not in a tag subdir)
+                depth=$(echo "$f" | awk -F'/' '{print NF}')
+                if [[ "$depth" -eq 3 ]]; then
+                  needs_no_cache="true"
+                  break
+                fi
+              done <<< "$(echo "$all_changed" | grep "^os-image/$name/")"
             fi
-          done <<< "$changed"
+
+            # Find all Dockerfiles for this name
+            while IFS= read -r dockerfile; do
+              [[ -z "$dockerfile" ]] && continue
+              tag=$(echo "$dockerfile" | cut -d'/' -f3)
+              if [[ -n "$tag" ]]; then
+                matrix_entries+=("{\"name\":\"$name\",\"tag\":\"$tag\",\"no_cache\":\"$needs_no_cache\"}")
+              fi
+            done <<< "$(find "os-image/$name" -name Dockerfile -type f)"
+          done
 
           if [[ ${#matrix_entries[@]} -eq 0 ]]; then
             echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
@@ -120,6 +152,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           secret-files: |
             cocoon_script=os-image/${{ matrix.name }}/hack.sh
-          no-cache: ${{ github.event.inputs.no-cache == 'true' }}
-          cache-from: ${{ github.event.inputs.no-cache == 'true' && '' || format('type=gha,scope={0}-{1}', matrix.name, matrix.tag) }}
+          no-cache: ${{ matrix.no_cache == 'true' }}
+          cache-from: ${{ matrix.no_cache == 'true' && '' || format('type=gha,scope={0}-{1}', matrix.name, matrix.tag) }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}
