@@ -21,7 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Find changed Dockerfiles
         id: set-matrix
@@ -30,22 +30,28 @@ jobs:
             # On manual trigger, build everything
             changed=$(find os-image -name Dockerfile -type f)
           else
-            changed=$(git diff --name-only HEAD~1 HEAD -- 'os-image/' | sort -u)
-            # For any changed file under os-image/{name}/, find all Dockerfiles in that name group
-            declare -A names
-            for f in $changed; do
-              # Extract the name part: os-image/{name}/...
-              name=$(echo "$f" | cut -d'/' -f2)
-              if [[ -n "$name" ]]; then
-                names[$name]=1
-              fi
-            done
+            BEFORE="${{ github.event.before }}"
+            # Handle initial push (before is all zeros)
+            if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+              changed=$(find os-image -name Dockerfile -type f)
+            else
+              changed=$(git diff --name-only "$BEFORE" "${{ github.sha }}" -- 'os-image/' | sort -u)
+              # For any changed file under os-image/{name}/, find all Dockerfiles in that name group
+              declare -A names
+              for f in $changed; do
+                # Extract the name part: os-image/{name}/...
+                name=$(echo "$f" | cut -d'/' -f2)
+                if [[ -n "$name" ]]; then
+                  names[$name]=1
+                fi
+              done
 
-            changed=""
-            for name in "${!names[@]}"; do
-              found=$(find "os-image/$name" -name Dockerfile -type f)
-              changed="$changed"$'\n'"$found"
-            done
+              changed=""
+              for name in "${!names[@]}"; do
+                found=$(find "os-image/$name" -name Dockerfile -type f)
+                changed="$changed"$'\n'"$found"
+              done
+            fi
           fi
 
           matrix_entries=()
