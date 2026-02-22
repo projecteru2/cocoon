@@ -74,7 +74,11 @@ mountroot() {
     mkdir -p "${COCOON_INTERNAL}/cow/upper" "${COCOON_INTERNAL}/cow/work"
 
     # Assemble Overlayfs
-    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work"
+    # [Optimized OverlayFS Options]
+    # index=on: Prevents broken file handles and ensures inode consistency during copy-up.
+    # redirect_dir=on: Enables renaming of directories that exist in the lower (read-only) layers.
+    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work,index=on,redirect_dir=on"
+    
     mount -t overlay overlay -o "$OVL_OPTS" "${rootmnt}" || panic "overlay failed"
 
     mkdir -p "${rootmnt}/dev" "${rootmnt}/proc" "${rootmnt}/sys" "${rootmnt}/run"
