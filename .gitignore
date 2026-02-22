@@ -1,0 +1,46 @@
+
+# Internal review documents (contain sensitive information)
+docs/P0-RESOLVED.md
+docs/P0-VERIFICATION-SUMMARY.md
+docs/P1-TODO.md
+
+# Build artifacts
+/cocoon
+cocoon-linux
+cocoon-linux-*
+cocoon-darwin
+cocoon-darwin-*
+bin/
+dist/
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Test
+*.test
+*.out
+coverage.txt
+coverage.html
+coverage/
+
+# Test cache
+.testcache/
+
+# Local dev environment (macOS)
+dev/
+
+# Implementation plan (internal)
+TODO
