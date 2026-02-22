@@ -33,7 +33,7 @@ resolve_disk() {
 }
 
 mountroot() {
-    log_begin_msg "Cocoon: mounting native overlay rootfs"
+    log_begin_msg "Cocoon: mounting stealth overlay rootfs"
 
     # Native environment: modprobe automatically resolves all underlying dependencies.
     modprobe erofs 2>/dev/null || true
@@ -51,15 +51,15 @@ mountroot() {
     [ -z "$LAYERS" ] && panic "cocoon.layers= not set"
     [ -z "$COW" ]    && panic "cocoon.cow= not set"
 
-    COCOON="/run/cocoon/storage"
-    mkdir -p "$COCOON"
+    COCOON_INTERNAL="/.cocoon"
+    mkdir -p "$COCOON_INTERNAL"
 
     # Mount read-only EROFS layers
     LOWER=""
     IFS=,
     for serial in $LAYERS; do
         dev=$(resolve_disk "$serial") || panic "device ${serial} not found"
-        mnt="${COCOON}/layers/${serial}"
+        mnt="${COCOON_INTERNAL}/layers/${serial}"
         mkdir -p "$mnt"
         mount -t erofs -o ro "$dev" "$mnt" || panic "mount ${serial} failed"
         [ -n "$LOWER" ] && LOWER="${LOWER}:"
@@ -69,12 +69,12 @@ mountroot() {
 
     # Mount COW disk
     cow_dev=$(resolve_disk "$COW") || panic "COW device ${COW} not found"
-    mkdir -p "${COCOON}/cow"
-    mount -t ext4 "$cow_dev" "${COCOON}/cow" || panic "mount COW failed"
-    mkdir -p "${COCOON}/cow/upper" "${COCOON}/cow/work"
+    mkdir -p "${COCOON_INTERNAL}/cow"
+    mount -t ext4 "$cow_dev" "${COCOON_INTERNAL}/cow" || panic "mount COW failed"
+    mkdir -p "${COCOON_INTERNAL}/cow/upper" "${COCOON_INTERNAL}/cow/work"
 
     # Assemble Overlayfs
-    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON}/cow/upper,workdir=${COCOON}/cow/work"
+    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work"
     mount -t overlay overlay -o "$OVL_OPTS" "${rootmnt}" || panic "overlay failed"
 
     mkdir -p "${rootmnt}/dev" "${rootmnt}/proc" "${rootmnt}/sys" "${rootmnt}/run"
@@ -86,5 +86,5 @@ mountroot() {
     rm -f "${rootmnt}/etc/machine-id" 2>/dev/null || true
     : > "${rootmnt}/etc/machine-id"
 
-    log_success_msg "Cocoon: native overlay rootfs ready"
+    log_success_msg "Cocoon: stealth overlay rootfs ready"
 }
