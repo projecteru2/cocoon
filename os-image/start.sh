@@ -79,9 +79,12 @@ done
 # num_queues=2 (Match boot CPUs), queue_size=256 (Deep queue for better throughput)
 DISK_CONFIGS+=("path=cow.raw,readonly=off,direct=on,sparse=on,image_type=raw,num_queues=2,queue_size=256,serial=cocoon-cow")
 
-# 5. Ignite
+# 5. Ignite (Added RNG and Ballooning for production stability)
 echo "[5/5] Igniting Cloud Hypervisor..."
 "$CH_BIN" --kernel "$KERNEL" --initramfs "$INITRD" \
     --disk "${DISK_CONFIGS[@]}" \
     --cmdline "console=ttyS0 boot=cocoon cocoon.layers=${COCOON_LAYERS} cocoon.cow=cocoon-cow" \
-    --cpus boot=2 --memory size=1024M --serial tty --console off
+    --cpus boot=2 --memory size=1024M \
+    --rng \
+    --balloon "size=1024M,deflate_on_oom=on,free_page_reporting=on" \
+    --serial tty --console off

@@ -11,6 +11,7 @@ RUN --mount=type=secret,id=cocoon_script \
         initramfs-tools \
         systemd \
         systemd-sysv \
+        systemd-timesyncd \
         systemd-resolved \
         udev \
         kmod \
@@ -27,7 +28,7 @@ RUN --mount=type=secret,id=cocoon_script \
     truncate -s 0 /etc/fstab && \
     systemctl mask systemd-fsck-root.service systemd-remount-fs.service systemd-fsck@.service && \
     # [Networking] Enable networkd/resolved and configure DHCP
-    systemctl enable systemd-networkd systemd-resolved && \
+    systemctl enable systemd-networkd systemd-resolved systemd-timesyncd && \
     mkdir -p /etc/systemd/network && \
     printf "[Match]\nName=e* v*\n[Network]\nDHCP=yes\n" > /etc/systemd/network/20-wired.network && \
     # [Access] Set root password

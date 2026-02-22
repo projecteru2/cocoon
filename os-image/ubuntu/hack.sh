@@ -83,6 +83,13 @@ mountroot() {
 
     mkdir -p "${rootmnt}/dev" "${rootmnt}/proc" "${rootmnt}/sys" "${rootmnt}/run"
 
+    # [IO Performance Optimization]
+    # Set the deadline scheduler to minimize guest-side CPU overhead for Virtio-Block devices.
+    # Host-side IO optimization (direct=on) already handles the physical scheduling.
+    for dev in /sys/block/vd*; do
+        [ -e "$dev/queue/scheduler" ] && echo "mq-deadline" > "$dev/queue/scheduler" 2>/dev/null || true
+    done
+
     # Note: The systemd compatibility hacks (clearing fstab, masking fsck) 
     # are handled natively in the Dockerfile. The rootfs is clean here.
 
