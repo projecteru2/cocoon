@@ -1,4 +1,4 @@
-package storage
+package images
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/projecteru2/cocoon/types"
 )
 
-type Storage interface {
+type Images interface {
 	Type() string
 
 	Pull(context.Context, string, progress.Tracker) error
