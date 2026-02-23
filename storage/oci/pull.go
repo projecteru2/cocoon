@@ -37,7 +37,7 @@ type pullLayerResult struct {
 func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) error {
 	logger := log.WithFunc("oci.pull")
 
-	ref, digestHex, results, err := fetchAndProcess(ctx, cfg, idx, imageRef)
+	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, cfg, idx, imageRef)
 	if err != nil {
 		return err
 	}
@@ -45,6 +45,8 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 		logger.Infof(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
 		return nil
 	}
+	// Clean up workDir after commit (not before).
+	defer os.RemoveAll(workDir) //nolint:errcheck
 
 	// Commit artifacts and update index atomically under flock.
 	manifestDigest := types.NewDigest(digestHex)
@@ -64,14 +66,15 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 
 // fetchAndProcess downloads the image and processes all layers concurrently.
 // Returns nil results if the image is already up-to-date.
-func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) (string, string, []pullLayerResult, error) {
+// The caller owns workDir cleanup via the returned path (empty when already up-to-date).
+func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
 	logger := log.WithFunc("oci.pull")
 
-	parsedRef, err := name.ParseReference(imageRef)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("invalid image reference %q: %w", imageRef, err)
+	parsedRef, parseErr := name.ParseReference(imageRef)
+	if parseErr != nil {
+		return "", "", "", nil, fmt.Errorf("invalid image reference %q: %w", imageRef, parseErr)
 	}
-	ref := parsedRef.String()
+	ref = parsedRef.String()
 
 	platform := v1.Platform{
 		Architecture: runtime.GOARCH,
@@ -80,24 +83,24 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 
 	logger.Infof(ctx, "Pulling image: %s", ref)
 
-	img, err := remote.Image(parsedRef,
+	img, fetchErr := remote.Image(parsedRef,
 		remote.WithAuthFromKeychain(authn.DefaultKeychain),
 		remote.WithContext(ctx),
 		remote.WithPlatform(platform),
 	)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("fetch image %s: %w", ref, err)
+	if fetchErr != nil {
+		return "", "", "", nil, fmt.Errorf("fetch image %s: %w", ref, fetchErr)
 	}
 
-	manifestDigest, err := img.Digest()
-	if err != nil {
-		return "", "", nil, fmt.Errorf("get manifest digest: %w", err)
+	manifest, digestErr := img.Digest()
+	if digestErr != nil {
+		return "", "", "", nil, fmt.Errorf("get manifest digest: %w", digestErr)
 	}
-	digestHex := manifestDigest.Hex
+	digestHex = manifest.Hex
 
 	// Idempotency: check if already pulled with same manifest and all files intact.
 	var alreadyPulled bool
-	if err := idx.With(ctx, func(idx *imageIndex) error {
+	if withErr := idx.With(ctx, func(idx *imageIndex) error {
 		entry, ok := idx.Images[ref]
 		if !ok || entry.ManifestDigest != types.NewDigest(digestHex) {
 			return nil
@@ -114,30 +117,29 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 		}
 		alreadyPulled = true
 		return nil
-	}); err != nil {
-		return "", "", nil, fmt.Errorf("read image index: %w", err)
+	}); withErr != nil {
+		return "", "", "", nil, fmt.Errorf("read image index: %w", withErr)
 	}
 	if alreadyPulled {
-		return ref, digestHex, nil, nil
+		return ref, digestHex, "", nil, nil
 	}
 
-	layers, err := img.Layers()
-	if err != nil {
-		return "", "", nil, fmt.Errorf("get layers: %w", err)
+	layers, layersErr := img.Layers()
+	if layersErr != nil {
+		return "", "", "", nil, fmt.Errorf("get layers: %w", layersErr)
 	}
 	if len(layers) == 0 {
-		return "", "", nil, fmt.Errorf("image %s has no layers", ref)
+		return "", "", "", nil, fmt.Errorf("image %s has no layers", ref)
 	}
 
-	// Create working directory under temp.
-	workDir, err := os.MkdirTemp(cfg.TempDir(), "pull-*")
-	if err != nil {
-		return "", "", nil, fmt.Errorf("create work dir: %w", err)
+	// Create working directory under temp. Caller is responsible for cleanup.
+	workDir, mkErr := os.MkdirTemp(cfg.TempDir(), "pull-*")
+	if mkErr != nil {
+		return "", "", "", nil, fmt.Errorf("create work dir: %w", mkErr)
 	}
-	defer os.RemoveAll(workDir) //nolint:errcheck
 
 	// Process layers concurrently with bounded parallelism.
-	results := make([]pullLayerResult, len(layers))
+	results = make([]pullLayerResult, len(layers))
 	g, gctx := errgroup.WithContext(ctx)
 	limit := cfg.PoolSize
 	if limit <= 0 {
@@ -153,11 +155,12 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 		})
 	}
 
-	if err := g.Wait(); err != nil {
-		return "", "", nil, fmt.Errorf("process layers: %w", err)
+	if waitErr := g.Wait(); waitErr != nil {
+		os.RemoveAll(workDir) //nolint:errcheck
+		return "", "", "", nil, fmt.Errorf("process layers: %w", waitErr)
 	}
 
-	return ref, digestHex, results, nil
+	return ref, digestHex, workDir, results, nil
 }
 
 // commitAndRecord moves artifacts to shared storage and records the image entry.
@@ -253,14 +256,11 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 		}
 
 		// Best-effort self-heal: re-extract missing/invalid boot files.
-		// Only attempt if this looks like a boot layer (has boot dir or at least one valid boot file).
+		// We scan unconditionally when either file is missing — we cannot know
+		// whether a layer is a boot layer without scanning, and skipping would
+		// leave unrecoverable gaps when the boot dir has been deleted entirely.
 		// Failures are logged, not fatal — commitAndRecord validates at image level.
-		isBootLayer := result.kernelPath != "" || result.initrdPath != ""
-		if !isBootLayer {
-			_, statErr := os.Stat(cfg.BootDir(digestHex))
-			isBootLayer = statErr == nil
-		}
-		if isBootLayer && (result.kernelPath == "" || result.initrdPath == "") {
+		if result.kernelPath == "" || result.initrdPath == "" {
 			logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
 			healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
 			if mkErr := os.MkdirAll(healDir, 0o750); mkErr != nil {

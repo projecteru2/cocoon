@@ -112,10 +112,8 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 			var configs []*types.StorageConfig
 			for j, layer := range entry.Layers {
 				blobPath := o.conf.BlobPath(layer.Digest.Hex())
-				if info, err := os.Stat(blobPath); err != nil {
-					return fmt.Errorf("blob missing for VM %s layer %d (%s): %w", vm.Name, j, layer.Digest, err)
-				} else if info.Size() == 0 {
-					return fmt.Errorf("blob empty for VM %s layer %d (%s)", vm.Name, j, layer.Digest)
+				if !validFile(blobPath) {
+					return fmt.Errorf("blob invalid for VM %s layer %d (%s)", vm.Name, j, layer.Digest)
 				}
 				configs = append(configs, &types.StorageConfig{
 					Path:   blobPath,
@@ -127,15 +125,11 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 
 			kernelPath := o.conf.KernelPath(entry.KernelLayer.Hex())
 			initrdPath := o.conf.InitrdPath(entry.InitrdLayer.Hex())
-			if info, err := os.Stat(kernelPath); err != nil {
-				return fmt.Errorf("kernel missing for VM %s (%s): %w", vm.Name, entry.KernelLayer, err)
-			} else if info.Size() == 0 {
-				return fmt.Errorf("kernel empty for VM %s (%s)", vm.Name, entry.KernelLayer)
+			if !validFile(kernelPath) {
+				return fmt.Errorf("kernel invalid for VM %s (%s)", vm.Name, entry.KernelLayer)
 			}
-			if info, err := os.Stat(initrdPath); err != nil {
-				return fmt.Errorf("initrd missing for VM %s (%s): %w", vm.Name, entry.InitrdLayer, err)
-			} else if info.Size() == 0 {
-				return fmt.Errorf("initrd empty for VM %s (%s)", vm.Name, entry.InitrdLayer)
+			if !validFile(initrdPath) {
+				return fmt.Errorf("initrd invalid for VM %s (%s)", vm.Name, entry.InitrdLayer)
 			}
 			boot[i] = &types.BootConfig{
 				KernelPath: kernelPath,
