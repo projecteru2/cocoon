@@ -7,6 +7,8 @@ import (
 )
 
 type Storage interface {
+	Type() string
+
 	Pull(context.Context, string) error
 	List(context.Context) ([]*types.Storage, error)
 	Delete(context.Context, []string) ([]string, error)
