@@ -6,8 +6,8 @@ require (
 	github.com/gofrs/flock v0.13.0
 	github.com/google/go-containerregistry v0.21.0
 	github.com/google/uuid v1.6.0
-	github.com/panjf2000/ants/v2 v2.11.5
 	github.com/projecteru2/core v0.0.0-20241016125006-ff909eefe04c
+	golang.org/x/sync v0.19.0
 )
 
 require (
@@ -37,7 +37,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/vbatts/tar-split v0.12.2 // indirect
 	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect

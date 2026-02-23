@@ -32,7 +32,6 @@ func main() {
 	if err != nil {
 		fatalf("init storage: %v", err)
 	}
-	defer store.Close()
 
 	switch os.Args[1] {
 	case "pull":

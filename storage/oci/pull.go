@@ -9,14 +9,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/panjf2000/ants/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/types"
@@ -29,19 +28,48 @@ type pullLayerResult struct {
 	index      int
 	digest     types.Digest
 	erofsPath  string
-	cached     bool
 	kernelPath string // non-empty if this layer contains a kernel
 	initrdPath string // non-empty if this layer contains an initrd
 }
 
 // pull downloads an OCI image, extracts boot files, and converts each layer
-// to EROFS concurrently using the provided ants pool.
-func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIndex, imageRef string) error {
+// to EROFS concurrently using errgroup.
+func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) error {
+	logger := log.WithFunc("oci.pull")
+
+	ref, digestHex, results, err := fetchAndProcess(ctx, cfg, idx, imageRef)
+	if err != nil {
+		return err
+	}
+	if results == nil {
+		logger.Infof(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
+		return nil
+	}
+
+	// Commit artifacts and update index atomically under flock.
+	manifestDigest := types.NewDigest(digestHex)
+	if err := idx.Update(ctx, func(idx *imageIndex) error {
+		// Double-check: another process may have completed while we were working.
+		if existing, ok := idx.Images[ref]; ok && existing.ManifestDigest == manifestDigest {
+			return nil
+		}
+		return commitAndRecord(cfg, idx, ref, manifestDigest, results)
+	}); err != nil {
+		return fmt.Errorf("update image index: %w", err)
+	}
+
+	logger.Infof(ctx, "Pulled: %s (digest: sha256:%s, layers: %d)", ref, digestHex, len(results))
+	return nil
+}
+
+// fetchAndProcess downloads the image and processes all layers concurrently.
+// Returns nil results if the image is already up-to-date.
+func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) (string, string, []pullLayerResult, error) {
 	logger := log.WithFunc("oci.pull")
 
 	parsedRef, err := name.ParseReference(imageRef)
 	if err != nil {
-		return fmt.Errorf("invalid image reference %q: %w", imageRef, err)
+		return "", "", nil, fmt.Errorf("invalid image reference %q: %w", imageRef, err)
 	}
 	ref := parsedRef.String()
 
@@ -58,12 +86,12 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 		remote.WithPlatform(platform),
 	)
 	if err != nil {
-		return fmt.Errorf("fetch image %s: %w", ref, err)
+		return "", "", nil, fmt.Errorf("fetch image %s: %w", ref, err)
 	}
 
 	manifestDigest, err := img.Digest()
 	if err != nil {
-		return fmt.Errorf("get manifest digest: %w", err)
+		return "", "", nil, fmt.Errorf("get manifest digest: %w", err)
 	}
 	digestHex := manifestDigest.Hex
 
@@ -75,145 +103,114 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 		}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("read image index: %w", err)
+		return "", "", nil, fmt.Errorf("read image index: %w", err)
 	}
 	if alreadyPulled {
-		logger.Infof(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
-		return nil
+		return ref, digestHex, nil, nil
 	}
 
 	layers, err := img.Layers()
 	if err != nil {
-		return fmt.Errorf("get layers: %w", err)
+		return "", "", nil, fmt.Errorf("get layers: %w", err)
 	}
 	if len(layers) == 0 {
-		return fmt.Errorf("image %s has no layers", ref)
+		return "", "", nil, fmt.Errorf("image %s has no layers", ref)
 	}
 
 	// Create working directory under temp.
 	workDir, err := os.MkdirTemp(cfg.TempDir(), "pull-*")
 	if err != nil {
-		return fmt.Errorf("create work dir: %w", err)
+		return "", "", nil, fmt.Errorf("create work dir: %w", err)
 	}
 	defer os.RemoveAll(workDir) //nolint:errcheck
 
-	// Process layers concurrently.
+	// Process layers concurrently with bounded parallelism.
 	results := make([]pullLayerResult, len(layers))
-	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		errs []error
-	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(cfg.PoolSize)
 
 	for i, layer := range layers {
-		wg.Add(1)
 		layerIdx := i
 		layerRef := layer
-
-		submitErr := pool.Submit(func() {
-			defer wg.Done()
-
-			if err := processLayer(ctx, cfg, layerIdx, layerRef, workDir, &results[layerIdx]); err != nil {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("layer %d: %w", layerIdx, err))
-				mu.Unlock()
-			}
+		g.Go(func() error {
+			return processLayer(gctx, cfg, layerIdx, layerRef, workDir, &results[layerIdx])
 		})
-		if submitErr != nil {
-			wg.Done()
-			mu.Lock()
-			errs = append(errs, fmt.Errorf("submit layer %d: %w", layerIdx, submitErr))
-			mu.Unlock()
-		}
 	}
 
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return fmt.Errorf("layer processing errors: %v", errs)
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if err := g.Wait(); err != nil {
+		return "", "", nil, fmt.Errorf("process layers: %w", err)
 	}
 
-	// Move results and update index atomically under flock.
-	// File moves must be inside the flock to prevent concurrent GC from
-	// removing newly moved blobs before the index references them.
-	manifestDigestFull := types.NewDigest(digestHex)
-	if err := idx.Update(ctx, func(idx *imageIndex) error {
-		// Double-check: another goroutine/process may have completed while we were working.
-		if existing, ok := idx.Images[ref]; ok && existing.ManifestDigest == manifestDigestFull {
-			return nil
+	return ref, digestHex, results, nil
+}
+
+// commitAndRecord moves artifacts to shared storage and records the image entry.
+// Must be called under flock (inside idx.Update).
+func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDigest types.Digest, results []pullLayerResult) error {
+	var (
+		layerEntries []layerEntry
+		kernelLayer  types.Digest
+		initrdLayer  types.Digest
+	)
+
+	for i := range results {
+		r := &results[i]
+		layerDigestHex := r.digest.Hex()
+
+		// Move erofs to shared blob path if not already there.
+		if r.erofsPath != cfg.BlobPath(layerDigestHex) {
+			if err := os.Rename(r.erofsPath, cfg.BlobPath(layerDigestHex)); err != nil {
+				return fmt.Errorf("move layer %d erofs: %w", r.index, err)
+			}
 		}
 
-		var (
-			layerEntries []layerEntry
-			kernelLayer  types.Digest
-			initrdLayer  types.Digest
-		)
-		for i := range results {
-			r := &results[i]
-			layerDigestHex := r.digest.Hex()
-
-			// Move erofs to shared blob path (skip if already cached).
-			if !r.cached {
-				if err := os.Rename(r.erofsPath, cfg.BlobPath(layerDigestHex)); err != nil {
-					return fmt.Errorf("move layer %d erofs: %w", r.index, err)
-				}
+		// Move boot files to shared boot dir if not already there.
+		if r.kernelPath != "" && r.kernelPath != cfg.KernelPath(layerDigestHex) {
+			if err := os.MkdirAll(cfg.BootDir(layerDigestHex), 0o750); err != nil {
+				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
 			}
-
-			// Move boot files to shared boot dir (skip if already cached).
-			if (r.kernelPath != "" || r.initrdPath != "") && !r.cached {
-				bootDir := cfg.BootDir(layerDigestHex)
-				if err := os.MkdirAll(bootDir, 0o750); err != nil {
-					return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
-				}
-				if r.kernelPath != "" {
-					if err := os.Rename(r.kernelPath, filepath.Join(bootDir, "vmlinuz")); err != nil {
-						return fmt.Errorf("move layer %d kernel: %w", r.index, err)
-					}
-				}
-				if r.initrdPath != "" {
-					if err := os.Rename(r.initrdPath, filepath.Join(bootDir, "initrd.img")); err != nil {
-						return fmt.Errorf("move layer %d initrd: %w", r.index, err)
-					}
-				}
+			if err := os.Rename(r.kernelPath, cfg.KernelPath(layerDigestHex)); err != nil {
+				return fmt.Errorf("move layer %d kernel: %w", r.index, err)
 			}
-
-			// Track which layer provides boot files (later layers win per OCI ordering).
-			if r.kernelPath != "" {
-				kernelLayer = r.digest
+		}
+		if r.initrdPath != "" && r.initrdPath != cfg.InitrdPath(layerDigestHex) {
+			if err := os.MkdirAll(cfg.BootDir(layerDigestHex), 0o750); err != nil {
+				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
 			}
-			if r.initrdPath != "" {
-				initrdLayer = r.digest
+			if err := os.Rename(r.initrdPath, cfg.InitrdPath(layerDigestHex)); err != nil {
+				return fmt.Errorf("move layer %d initrd: %w", r.index, err)
 			}
-
-			layerEntries = append(layerEntries, layerEntry{Digest: r.digest})
 		}
 
-		if kernelLayer == "" || initrdLayer == "" {
-			return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
+		// Track which layer provides boot files (later layers win per OCI ordering).
+		if r.kernelPath != "" {
+			kernelLayer = r.digest
+		}
+		if r.initrdPath != "" {
+			initrdLayer = r.digest
 		}
 
-		idx.Images[ref] = &imageEntry{
-			Ref:            ref,
-			ManifestDigest: manifestDigestFull,
-			Layers:         layerEntries,
-			KernelLayer:    kernelLayer,
-			InitrdLayer:    initrdLayer,
-			CreatedAt:      time.Now().UTC(),
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("update image index: %w", err)
+		layerEntries = append(layerEntries, layerEntry{Digest: r.digest})
 	}
 
-	logger.Infof(ctx, "Pulled: %s (digest: sha256:%s, layers: %d)", ref, digestHex, len(layers))
+	if kernelLayer == "" || initrdLayer == "" {
+		return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
+	}
+
+	idx.Images[ref] = &imageEntry{
+		Ref:            ref,
+		ManifestDigest: manifestDigest,
+		Layers:         layerEntries,
+		KernelLayer:    kernelLayer,
+		InitrdLayer:    initrdLayer,
+		CreatedAt:      time.Now().UTC(),
+	}
 	return nil
 }
 
-// processLayer handles a single layer: extracts boot files and converts to EROFS.
-// If the layer's blob already exists in the shared blob store, conversion is skipped.
+// processLayer handles a single layer: extracts boot files and converts to EROFS
+// in a single pass using io.TeeReader. If the layer is already cached, it checks
+// for missing boot files and self-heals by re-extracting them.
 func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Layer, workDir string, result *pullLayerResult) error {
 	logger := log.WithFunc("oci.processLayer")
 
@@ -228,63 +225,96 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 
 	// Check if this layer's blob already exists (shared across images).
 	if _, err := os.Stat(cfg.BlobPath(digestHex)); err == nil {
-		logger.Infof(ctx, "Layer %d: sha256:%s already cached, skipping", idx, digestHex[:12])
+		logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
 		result.erofsPath = cfg.BlobPath(digestHex)
-		result.cached = true
 
 		// Check for cached boot files.
-		bootDir := cfg.BootDir(digestHex)
-		if _, err := os.Stat(filepath.Join(bootDir, "vmlinuz")); err == nil {
-			result.kernelPath = filepath.Join(bootDir, "vmlinuz")
-		}
-		if _, err := os.Stat(filepath.Join(bootDir, "initrd.img")); err == nil {
-			result.initrdPath = filepath.Join(bootDir, "initrd.img")
+		result.kernelPath = existsOrEmpty(cfg.KernelPath(digestHex))
+		result.initrdPath = existsOrEmpty(cfg.InitrdPath(digestHex))
+
+		// Self-heal: boot dir exists (layer had boot files) but some are missing.
+		if _, statErr := os.Stat(cfg.BootDir(digestHex)); statErr == nil {
+			if result.kernelPath == "" || result.initrdPath == "" {
+				logger.Infof(ctx, "Layer %d: sha256:%s self-healing missing boot files", idx, digestHex[:12])
+				rc, rcErr := layer.Uncompressed()
+				if rcErr != nil {
+					return fmt.Errorf("open layer for boot extraction: %w", rcErr)
+				}
+				defer rc.Close() //nolint:errcheck
+
+				kp, ip, scanErr := scanBootFiles(ctx, rc, workDir, digestHex)
+				if scanErr != nil {
+					return fmt.Errorf("self-heal boot files: %w", scanErr)
+				}
+				if result.kernelPath == "" {
+					result.kernelPath = kp
+				}
+				if result.initrdPath == "" {
+					result.initrdPath = ip
+				}
+			}
 		}
 		return nil
 	}
 
-	logger.Infof(ctx, "Layer %d: sha256:%s -> %s.erofs", idx, digestHex[:12], digestHex)
+	logger.Infof(ctx, "Layer %d: sha256:%s -> erofs (single-pass)", idx, digestHex[:12])
 
-	// Extract boot files from this layer.
-	// TODO: use io.TeeReader to combine boot extraction and erofs conversion into a single pass.
-	kernelPath, initrdPath, extractErr := extractBootFiles(ctx, layer, workDir, digestHex)
-	if extractErr != nil {
-		return fmt.Errorf("extract boot files: %w", extractErr)
-	}
-	result.kernelPath = kernelPath
-	result.initrdPath = initrdPath
-
-	// Convert layer to EROFS using the uncompressed tar stream.
-	// go-containerregistry handles decompression (gzip, zstd, etc.) transparently.
-	erofsPath := filepath.Join(workDir, digestHex+".erofs")
-	layerUUID := utils.UUIDv5(digestHex)
-
+	// Open uncompressed tar stream once.
 	rc, err := layer.Uncompressed()
 	if err != nil {
 		return fmt.Errorf("open uncompressed layer: %w", err)
 	}
 	defer rc.Close() //nolint:errcheck
 
-	if err := convertLayerToErofs(ctx, rc, layerUUID, erofsPath); err != nil {
-		return fmt.Errorf("convert to erofs: %w", err)
+	erofsPath := filepath.Join(workDir, digestHex+".erofs")
+	layerUUID := utils.UUIDv5(digestHex)
+
+	// Start mkfs.erofs in background, receiving the tar stream via pipe.
+	cmd, erofsStdin, output, err := startErofsConversion(ctx, layerUUID, erofsPath)
+	if err != nil {
+		return fmt.Errorf("start erofs conversion: %w", err)
 	}
 
+	// TeeReader: every byte read for boot scanning also feeds mkfs.erofs.
+	tee := io.TeeReader(rc, erofsStdin)
+	kernelPath, initrdPath, scanErr := scanBootFiles(ctx, tee, workDir, digestHex)
+
+	// Drain remaining tar data to ensure mkfs.erofs receives the complete stream.
+	if scanErr == nil {
+		if _, drainErr := io.Copy(io.Discard, tee); drainErr != nil {
+			scanErr = fmt.Errorf("drain layer stream: %w", drainErr)
+		}
+	}
+	_ = erofsStdin.Close()
+
+	if waitErr := cmd.Wait(); waitErr != nil {
+		return fmt.Errorf("mkfs.erofs failed: %w (output: %s)", waitErr, output.String())
+	}
+	if scanErr != nil {
+		return fmt.Errorf("scan boot files: %w", scanErr)
+	}
+
+	result.kernelPath = kernelPath
+	result.initrdPath = initrdPath
 	result.erofsPath = erofsPath
 	return nil
 }
 
-// extractBootFiles reads a layer's tar stream and extracts kernel/initrd.
-// Files are written to workDir with layer-digest-based names so no mutex is needed.
-func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex string) (kernelPath, initrdPath string, err error) {
-	logger := log.WithFunc("oci.extractBootFiles")
-
-	rc, err := layer.Uncompressed()
-	if err != nil {
-		return "", "", fmt.Errorf("open uncompressed layer: %w", err)
+// existsOrEmpty returns path if the file exists, empty string otherwise.
+func existsOrEmpty(path string) string {
+	if _, err := os.Stat(path); err == nil {
+		return path
 	}
-	defer rc.Close() //nolint:errcheck
+	return ""
+}
 
-	tr := tar.NewReader(rc)
+// scanBootFiles reads a tar stream and extracts kernel/initrd files.
+// Accepts both tar.TypeReg and deprecated tar.TypeRegA. Excludes .old variants.
+// Files are written to workDir with digest-based names.
+func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) (kernelPath, initrdPath string, err error) {
+	logger := log.WithFunc("oci.scanBootFiles")
+
+	tr := tar.NewReader(r)
 	for {
 		hdr, readErr := tr.Next()
 		if readErr == io.EOF {
@@ -294,14 +324,18 @@ func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex st
 			return "", "", fmt.Errorf("read tar entry: %w", readErr)
 		}
 
-		// Skip non-regular files (symlinks like boot/vmlinuz -> vmlinuz-6.x would
-		// overwrite the real kernel with empty/invalid content).
-		if hdr.Typeflag != tar.TypeReg {
+		// Accept regular files only (TypeReg and deprecated TypeRegA '\x00').
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
 			continue
 		}
 
 		entryName := filepath.Clean(hdr.Name)
 		base := filepath.Base(entryName)
+
+		// Exclude .old variants (vmlinuz.old, initrd.img.old).
+		if strings.HasSuffix(base, ".old") {
+			continue
+		}
 
 		isKernel := strings.HasPrefix(base, "vmlinuz")
 		isInitrd := strings.HasPrefix(base, "initrd.img")

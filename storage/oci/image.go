@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/lock"
 	"github.com/projecteru2/cocoon/lock/flock"
@@ -59,11 +61,18 @@ func (s *imageIndex) Update(ctx context.Context, fn func(*imageIndex) error) err
 	})
 }
 
-// Lookup finds an image entry by ref or manifest digest.
+// Lookup finds an image entry by ref (exact or normalized) or manifest digest.
 // Returns the ref key, entry, and whether it was found.
 func (s *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
 	if entry, ok := s.Images[id]; ok {
 		return id, entry, true
+	}
+	// Try normalizing as an image reference (e.g., "ubuntu:24.04" -> "docker.io/library/ubuntu:24.04").
+	if parsed, err := name.ParseReference(id); err == nil {
+		normalized := parsed.String()
+		if entry, ok := s.Images[normalized]; ok {
+			return normalized, entry, true
+		}
 	}
 	for ref, entry := range s.Images {
 		if entry.ManifestDigest.String() == id {

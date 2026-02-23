@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -12,16 +13,15 @@ const (
 	erofsCompression = "lz4hc"
 )
 
-// convertLayerToErofs converts an OCI layer tar stream to an EROFS filesystem.
+// startErofsConversion starts mkfs.erofs to convert a tar stream into an EROFS filesystem.
+// The caller writes the tar stream to the returned WriteCloser and must close it
+// when done to signal EOF. Call cmd.Wait() after closing stdin to collect the result.
+//
 // This mirrors start.sh's per-layer conversion:
 //
 //	mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U <uuid> output.erofs
-//
-// The tarReader must be an uncompressed tar stream. The caller handles decompression
-// (typically via go-containerregistry's layer.Uncompressed()) and is responsible for
-// closing the reader after this function returns.
-func convertLayerToErofs(ctx context.Context, tarReader io.Reader, uuid, outputPath string) error {
-	cmd := exec.CommandContext(ctx, "mkfs.erofs",
+func startErofsConversion(ctx context.Context, uuid, outputPath string) (cmd *exec.Cmd, stdin io.WriteCloser, output *bytes.Buffer, err error) {
+	cmd = exec.CommandContext(ctx, "mkfs.erofs",
 		"--tar=f",
 		fmt.Sprintf("-z%s", erofsCompression),
 		fmt.Sprintf("-C%d", erofsBlockSize),
@@ -29,10 +29,18 @@ func convertLayerToErofs(ctx context.Context, tarReader io.Reader, uuid, outputP
 		"-U", uuid,
 		outputPath,
 	)
-	cmd.Stdin = tarReader
 
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("mkfs.erofs failed: %w (output: %s)", err, string(output))
+	stdin, err = cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create stdin pipe: %w", err)
 	}
-	return nil
+
+	output = &bytes.Buffer{}
+	cmd.Stdout = output
+	cmd.Stderr = output
+
+	if err = cmd.Start(); err != nil {
+		return nil, nil, nil, fmt.Errorf("start mkfs.erofs: %w", err)
+	}
+	return cmd, stdin, output, nil
 }
