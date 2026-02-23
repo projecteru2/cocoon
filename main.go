@@ -133,7 +133,7 @@ func cmdRun(ctx context.Context, store storage.Storage, args []string) {
 	var layerSerials []string
 	for _, d := range disks {
 		diskArgs = append(diskArgs,
-			fmt.Sprintf("path=%s,readonly=on,direct=on,num_queues=2,queue_size=256,serial=%s", d.Path, d.Serial))
+			fmt.Sprintf("path=%s,readonly=on,direct=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", d.Path, d.Serial))
 		layerSerials = append(layerSerials, d.Serial)
 	}
 	// COW disk: direct=on, sparse=on for best performance.
