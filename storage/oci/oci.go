@@ -2,7 +2,6 @@ package oci
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,8 +65,18 @@ func (o *OCI) List(ctx context.Context) (result []*types.Storage, err error) {
 		for _, entry := range idx.Images {
 			var totalSize int64
 			for _, layer := range entry.Layers {
-				info, statErr := os.Stat(o.conf.BlobPath(layer.Digest.Hex()))
-				if statErr == nil {
+				if info, statErr := os.Stat(o.conf.BlobPath(layer.Digest.Hex())); statErr == nil {
+					totalSize += info.Size()
+				}
+			}
+			// Include boot file sizes (kernel + initrd).
+			if entry.KernelLayer != "" {
+				if info, err := os.Stat(filepath.Join(o.conf.BootDir(entry.KernelLayer.Hex()), "vmlinuz")); err == nil {
+					totalSize += info.Size()
+				}
+			}
+			if entry.InitrdLayer != "" {
+				if info, err := os.Stat(filepath.Join(o.conf.BootDir(entry.InitrdLayer.Hex()), "initrd.img")); err == nil {
 					totalSize += info.Size()
 				}
 			}
@@ -85,14 +94,14 @@ func (o *OCI) List(ctx context.Context) (result []*types.Storage, err error) {
 }
 
 // Delete removes images from the index, then GCs unreferenced blobs and boot files.
+// Images not found in the index are logged and skipped (idempotent delete).
 func (o *OCI) Delete(ctx context.Context, ids []string) error {
 	logger := log.WithFunc("oci.Delete")
-	var errs []error
 	if err := o.idx.Update(ctx, func(idx *imageIndex) error {
 		for _, id := range ids {
 			ref, _, ok := idx.Lookup(id)
 			if !ok {
-				errs = append(errs, fmt.Errorf("image %q not found", id))
+				logger.Infof(ctx, "image %q not found, skipping", id)
 				continue
 			}
 			delete(idx.Images, ref)
@@ -105,13 +114,12 @@ func (o *OCI) Delete(ctx context.Context, ids []string) error {
 
 	// GC unreferenced files. Runs in a separate flock session so the index
 	// is already persisted; concurrent Pulls read the latest index.
-	gcErrs := o.gcUnreferenced(ctx)
-	errs = append(errs, gcErrs...)
-	return errors.Join(errs...)
+	return o.GC(ctx)
 }
 
 // Config generates StorageConfig and BootConfig entries for the given VMs.
 // Paths are derived from layer digests at runtime, not stored in the index.
+// Returns an error if any referenced blob or boot file is missing on disk.
 func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, boot []*types.BootConfig, err error) {
 	err = o.idx.With(ctx, func(idx *imageIndex) error {
 		result = make([][]*types.StorageConfig, len(vms))
@@ -124,17 +132,29 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 
 			var configs []*types.StorageConfig
 			for j, layer := range entry.Layers {
+				blobPath := o.conf.BlobPath(layer.Digest.Hex())
+				if _, err := os.Stat(blobPath); err != nil {
+					return fmt.Errorf("blob missing for VM %s layer %d (%s): %w", vm.Name, j, layer.Digest, err)
+				}
 				configs = append(configs, &types.StorageConfig{
-					Path:   o.conf.BlobPath(layer.Digest.Hex()),
+					Path:   blobPath,
 					RO:     true,
 					Serial: fmt.Sprintf("%s%d", serialPrefix, j),
 				})
 			}
 			result[i] = configs
 
+			kernelPath := filepath.Join(o.conf.BootDir(entry.KernelLayer.Hex()), "vmlinuz")
+			initrdPath := filepath.Join(o.conf.BootDir(entry.InitrdLayer.Hex()), "initrd.img")
+			if _, err := os.Stat(kernelPath); err != nil {
+				return fmt.Errorf("kernel missing for VM %s (%s): %w", vm.Name, entry.KernelLayer, err)
+			}
+			if _, err := os.Stat(initrdPath); err != nil {
+				return fmt.Errorf("initrd missing for VM %s (%s): %w", vm.Name, entry.InitrdLayer, err)
+			}
 			boot[i] = &types.BootConfig{
-				KernelPath: filepath.Join(o.conf.BootDir(entry.KernelLayer.Hex()), "vmlinuz"),
-				InitrdPath: filepath.Join(o.conf.BootDir(entry.InitrdLayer.Hex()), "initrd.img"),
+				KernelPath: kernelPath,
+				InitrdPath: initrdPath,
 			}
 		}
 		return nil

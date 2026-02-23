@@ -136,73 +136,73 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 		return ctx.Err()
 	}
 
-	// Move results to final shared locations.
-	var (
-		layerEntries []layerEntry
-		kernelLayer  types.Digest
-		initrdLayer  types.Digest
-	)
-	for i := range results {
-		r := &results[i]
-		layerDigestHex := r.digest.Hex()
-
-		// Move erofs to shared blob path (skip if already cached).
-		if !r.cached {
-			if err := os.Rename(r.erofsPath, cfg.BlobPath(layerDigestHex)); err != nil {
-				return fmt.Errorf("move layer %d erofs: %w", r.index, err)
-			}
-		}
-
-		// Move boot files to shared boot dir (skip if already cached).
-		if (r.kernelPath != "" || r.initrdPath != "") && !r.cached {
-			bootDir := cfg.BootDir(layerDigestHex)
-			if err := os.MkdirAll(bootDir, 0o750); err != nil {
-				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
-			}
-			if r.kernelPath != "" {
-				if err := os.Rename(r.kernelPath, filepath.Join(bootDir, "vmlinuz")); err != nil {
-					return fmt.Errorf("move layer %d kernel: %w", r.index, err)
-				}
-			}
-			if r.initrdPath != "" {
-				if err := os.Rename(r.initrdPath, filepath.Join(bootDir, "initrd.img")); err != nil {
-					return fmt.Errorf("move layer %d initrd: %w", r.index, err)
-				}
-			}
-		}
-
-		// Track which layer provides boot files (later layers win per OCI ordering).
-		if r.kernelPath != "" {
-			kernelLayer = r.digest
-		}
-		if r.initrdPath != "" {
-			initrdLayer = r.digest
-		}
-
-		layerEntries = append(layerEntries, layerEntry{Digest: r.digest})
-	}
-
-	if kernelLayer == "" || initrdLayer == "" {
-		return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
-	}
-
-	// Update image index (flock-protected, with double-check for TOCTOU).
+	// Move results and update index atomically under flock.
+	// File moves must be inside the flock to prevent concurrent GC from
+	// removing newly moved blobs before the index references them.
 	manifestDigestFull := types.NewDigest(digestHex)
-	entry := &imageEntry{
-		Ref:            ref,
-		ManifestDigest: manifestDigestFull,
-		Layers:         layerEntries,
-		KernelLayer:    kernelLayer,
-		InitrdLayer:    initrdLayer,
-		CreatedAt:      time.Now().UTC(),
-	}
-
 	if err := idx.Update(ctx, func(idx *imageIndex) error {
 		// Double-check: another goroutine/process may have completed while we were working.
-		if existing, ok := idx.Images[ref]; ok && existing.ManifestDigest == entry.ManifestDigest {
+		if existing, ok := idx.Images[ref]; ok && existing.ManifestDigest == manifestDigestFull {
 			return nil
 		}
-		idx.Images[ref] = entry
+
+		var (
+			layerEntries []layerEntry
+			kernelLayer  types.Digest
+			initrdLayer  types.Digest
+		)
+		for i := range results {
+			r := &results[i]
+			layerDigestHex := r.digest.Hex()
+
+			// Move erofs to shared blob path (skip if already cached).
+			if !r.cached {
+				if err := os.Rename(r.erofsPath, cfg.BlobPath(layerDigestHex)); err != nil {
+					return fmt.Errorf("move layer %d erofs: %w", r.index, err)
+				}
+			}
+
+			// Move boot files to shared boot dir (skip if already cached).
+			if (r.kernelPath != "" || r.initrdPath != "") && !r.cached {
+				bootDir := cfg.BootDir(layerDigestHex)
+				if err := os.MkdirAll(bootDir, 0o750); err != nil {
+					return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
+				}
+				if r.kernelPath != "" {
+					if err := os.Rename(r.kernelPath, filepath.Join(bootDir, "vmlinuz")); err != nil {
+						return fmt.Errorf("move layer %d kernel: %w", r.index, err)
+					}
+				}
+				if r.initrdPath != "" {
+					if err := os.Rename(r.initrdPath, filepath.Join(bootDir, "initrd.img")); err != nil {
+						return fmt.Errorf("move layer %d initrd: %w", r.index, err)
+					}
+				}
+			}
+
+			// Track which layer provides boot files (later layers win per OCI ordering).
+			if r.kernelPath != "" {
+				kernelLayer = r.digest
+			}
+			if r.initrdPath != "" {
+				initrdLayer = r.digest
+			}
+
+			layerEntries = append(layerEntries, layerEntry{Digest: r.digest})
+		}
+
+		if kernelLayer == "" || initrdLayer == "" {
+			return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
+		}
+
+		idx.Images[ref] = &imageEntry{
+			Ref:            ref,
+			ManifestDigest: manifestDigestFull,
+			Layers:         layerEntries,
+			KernelLayer:    kernelLayer,
+			InitrdLayer:    initrdLayer,
+			CreatedAt:      time.Now().UTC(),
+		}
 		return nil
 	}); err != nil {
 		return fmt.Errorf("update image index: %w", err)
@@ -243,12 +243,6 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 		return nil
 	}
 
-	mediaType, err := layer.MediaType()
-	if err != nil {
-		return fmt.Errorf("get media type: %w", err)
-	}
-	isGzip := strings.Contains(string(mediaType), "gzip")
-
 	logger.Infof(ctx, "Layer %d: sha256:%s -> %s.erofs", idx, digestHex[:12], digestHex)
 
 	// Extract boot files from this layer.
@@ -260,17 +254,18 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 	result.kernelPath = kernelPath
 	result.initrdPath = initrdPath
 
-	// Convert layer to EROFS.
+	// Convert layer to EROFS using the uncompressed tar stream.
+	// go-containerregistry handles decompression (gzip, zstd, etc.) transparently.
 	erofsPath := filepath.Join(workDir, digestHex+".erofs")
 	layerUUID := utils.UUIDv5(digestHex)
 
-	rc, err := layer.Compressed()
+	rc, err := layer.Uncompressed()
 	if err != nil {
-		return fmt.Errorf("open compressed layer: %w", err)
+		return fmt.Errorf("open uncompressed layer: %w", err)
 	}
 	defer rc.Close() //nolint:errcheck
 
-	if err := convertLayerToErofs(ctx, rc, isGzip, layerUUID, erofsPath); err != nil {
+	if err := convertLayerToErofs(ctx, rc, layerUUID, erofsPath); err != nil {
 		return fmt.Errorf("convert to erofs: %w", err)
 	}
 
@@ -292,8 +287,17 @@ func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex st
 	tr := tar.NewReader(rc)
 	for {
 		hdr, readErr := tr.Next()
-		if readErr != nil {
+		if readErr == io.EOF {
 			break
+		}
+		if readErr != nil {
+			return "", "", fmt.Errorf("read tar entry: %w", readErr)
+		}
+
+		// Skip non-regular files (symlinks like boot/vmlinuz -> vmlinuz-6.x would
+		// overwrite the real kernel with empty/invalid content).
+		if hdr.Typeflag != tar.TypeReg {
+			continue
 		}
 
 		entryName := filepath.Clean(hdr.Name)

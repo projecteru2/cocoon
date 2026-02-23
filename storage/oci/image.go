@@ -74,17 +74,12 @@ func (s *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
 }
 
 // referencedDigests returns all layer digest hex strings referenced by any image.
+// KernelLayer/InitrdLayer are always a subset of Layers, so iterating Layers is sufficient.
 func (s *imageIndex) referencedDigests() map[string]struct{} {
 	refs := make(map[string]struct{})
 	for _, entry := range s.Images {
 		for _, layer := range entry.Layers {
 			refs[layer.Digest.Hex()] = struct{}{}
-		}
-		if entry.KernelLayer != "" {
-			refs[entry.KernelLayer.Hex()] = struct{}{}
-		}
-		if entry.InitrdLayer != "" {
-			refs[entry.InitrdLayer.Hex()] = struct{}{}
 		}
 	}
 	return refs
