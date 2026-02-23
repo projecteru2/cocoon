@@ -44,9 +44,9 @@ if [ -n "$IMAGE_NAME" ]; then
         tar -xf "image_temp/$L" boot/ 2>/dev/null || true
         # Compress layer to EROFS
         if gzip -t "image_temp/$L" 2>/dev/null; then
-            gzip -dc "image_temp/$L" | mkfs.erofs --tar=f -zlz4hc -C65536 -T0 -U 00000000-0000-0000-0000-000000000000 "layer${IDX}.erofs"
+            gzip -dc "image_temp/$L" | mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U 00000000-0000-0000-0000-000000000000 "layer${IDX}.erofs"
         else
-            mkfs.erofs --tar=f -zlz4hc -C65536 -T0 -U 00000000-0000-0000-0000-000000000000 "layer${IDX}.erofs" "image_temp/$L"
+            mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U 00000000-0000-0000-0000-000000000000 "layer${IDX}.erofs" "image_temp/$L"
         fi
         IDX=$((IDX+1))
     done
@@ -57,7 +57,7 @@ fi
 # lazy_itable_init=1 speeds up formatting on large sparse files
 echo "[3/5] Preparing optimized sparse COW disk..."
 truncate -s 10G cow.raw
-mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,discard cow.raw
+mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard cow.raw
 
 # 4. Build Arguments
 KERNEL=$(ls boot/vmlinuz-* | head -1)
@@ -68,7 +68,7 @@ DISK_CONFIGS=()
 COCOON_LAYERS=""
 I=0
 for f in $LAYER_FILES; do
-    DISK_CONFIGS+=("path=$f,readonly=on,serial=cocoon-layer${I}")
+    DISK_CONFIGS+=("path=$f,readonly=on,direct=on,num_queues=2,queue_size=256,serial=cocoon-layer${I}")
     # OverlayFS order: Top, ..., Bottom
     if [ -z "$COCOON_LAYERS" ]; then COCOON_LAYERS="cocoon-layer${I}"; else COCOON_LAYERS="cocoon-layer${I},${COCOON_LAYERS}"; fi
     I=$((I+1))
@@ -84,8 +84,9 @@ echo "[5/5] Igniting Cloud Hypervisor..."
 "$CH_BIN" --kernel "$KERNEL" --initramfs "$INITRD" \
     --disk "${DISK_CONFIGS[@]}" \
     --cmdline "console=ttyS0 loglevel=3 boot=cocoon cocoon.layers=${COCOON_LAYERS} cocoon.cow=cocoon-cow clocksource=kvm-clock rw" \
-    --cpus boot=2 \
-    --memory "size=1024M" \
+    --cpus "boot=2,max=8" \
+    --memory "size=1024M,hugepages=on" \
     --rng "src=/dev/urandom" \
+    --watchdog \
     --balloon "size=512M,deflate_on_oom=on,free_page_reporting=on" \
     --serial tty --console off
