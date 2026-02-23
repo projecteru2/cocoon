@@ -43,6 +43,8 @@ func main() {
 		cmdRun(ctx, store, os.Args[2:])
 	case "delete", "rm":
 		cmdDelete(ctx, store, os.Args[2:])
+	case "gc":
+		cmdGC(ctx, store)
 	default:
 		fatalf("unknown command: %s", os.Args[1])
 	}
@@ -174,6 +176,13 @@ func cmdRun(ctx context.Context, store storage.Storage, args []string) {
 	fmt.Printf("  --serial tty --console off\n")
 }
 
+func cmdGC(ctx context.Context, store storage.Storage) {
+	if err := store.GC(ctx); err != nil {
+		fatalf("gc: %v", err)
+	}
+	fmt.Println("GC completed.")
+}
+
 func cmdDelete(ctx context.Context, store storage.Storage, args []string) {
 	if len(args) == 0 {
 		fatalf("usage: cocoon delete <id|ref> [id|ref...]")
@@ -217,6 +226,7 @@ Commands:
   list                           List locally stored images
   run  [flags] <image>           Generate cloud-hypervisor launch command
   delete <id|ref> [id|ref...]    Delete locally stored image(s)
+  gc                             Remove unreferenced blobs and boot files
 
 Run flags:
   -name      VM name (default: cocoon-vm)

@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 )
 
-// EnsureOCIDirs creates all required OCI-related directories.
+// EnsureOCIDirs creates all required directories.
 func (c *Config) EnsureOCIDirs() error {
 	dirs := []string{
 		c.DBDir(),
 		c.TempDir(),
-		c.OCIDir(),
+		c.BlobsDir(),
+		c.BootBaseDir(),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -23,24 +24,17 @@ func (c *Config) EnsureOCIDirs() error {
 
 // Derived path helpers.
 
-func (c *Config) DBDir() string {
-	return filepath.Join(c.RootDir, "db")
+func (c *Config) DBDir() string       { return filepath.Join(c.RootDir, "db") }
+func (c *Config) TempDir() string     { return filepath.Join(c.RootDir, "temp") }
+func (c *Config) BlobsDir() string    { return filepath.Join(c.RootDir, "oci", "blobs") }
+func (c *Config) BootBaseDir() string { return filepath.Join(c.RootDir, "boot") }
+
+func (c *Config) BlobPath(layerDigestHex string) string {
+	return filepath.Join(c.RootDir, "oci", "blobs", layerDigestHex+".erofs")
 }
 
-func (c *Config) TempDir() string {
-	return filepath.Join(c.RootDir, "temp")
-}
-
-func (c *Config) OCIDir() string {
-	return filepath.Join(c.RootDir, "oci")
-}
-
-func (c *Config) ImageDir(digest string) string {
-	return filepath.Join(c.RootDir, "oci", digest)
-}
-
-func (c *Config) BootDir(layerDigest string) string {
-	return filepath.Join(c.RootDir, "boot", layerDigest)
+func (c *Config) BootDir(layerDigestHex string) string {
+	return filepath.Join(c.RootDir, "boot", layerDigestHex)
 }
 
 func (c *Config) ImageIndexFile() string {
