@@ -22,21 +22,22 @@ func (c *Config) EnsureOCIDirs() error {
 	return nil
 }
 
-// Derived path helpers.
+// Derived path helpers. All OCI data lives under {RootDir}/oci/.
 
-func (c *Config) DBDir() string          { return filepath.Join(c.RootDir, "db") }
-func (c *Config) TempDir() string        { return filepath.Join(c.RootDir, "temp") }
-func (c *Config) BlobsDir() string       { return filepath.Join(c.RootDir, "oci", "blobs") }
-func (c *Config) BootBaseDir() string    { return filepath.Join(c.RootDir, "boot") }
-func (c *Config) ImageIndexFile() string { return filepath.Join(c.RootDir, "db", "images.json") }
-func (c *Config) ImageIndexLock() string { return filepath.Join(c.RootDir, "db", "images.lock") }
+func (c *Config) ociDir() string         { return filepath.Join(c.RootDir, "oci") }
+func (c *Config) DBDir() string          { return filepath.Join(c.ociDir(), "db") }
+func (c *Config) TempDir() string        { return filepath.Join(c.ociDir(), "temp") }
+func (c *Config) BlobsDir() string       { return filepath.Join(c.ociDir(), "blobs") }
+func (c *Config) BootBaseDir() string    { return filepath.Join(c.ociDir(), "boot") }
+func (c *Config) ImageIndexFile() string { return filepath.Join(c.DBDir(), "images.json") }
+func (c *Config) ImageIndexLock() string { return filepath.Join(c.DBDir(), "images.lock") }
 
 func (c *Config) BlobPath(layerDigestHex string) string {
-	return filepath.Join(c.RootDir, "oci", "blobs", layerDigestHex+".erofs")
+	return filepath.Join(c.BlobsDir(), layerDigestHex+".erofs")
 }
 
 func (c *Config) BootDir(layerDigestHex string) string {
-	return filepath.Join(c.RootDir, "boot", layerDigestHex)
+	return filepath.Join(c.BootBaseDir(), layerDigestHex)
 }
 
 func (c *Config) KernelPath(layerDigestHex string) string {
