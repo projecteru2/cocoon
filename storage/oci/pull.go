@@ -18,6 +18,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/progress"
+	ociProgress "github.com/projecteru2/cocoon/progress/oci"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 	"github.com/projecteru2/core/log"
@@ -34,10 +36,10 @@ type pullLayerResult struct {
 
 // pull downloads an OCI image, extracts boot files, and converts each layer
 // to EROFS concurrently using errgroup.
-func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) error {
+func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string, tracker progress.Tracker) error {
 	logger := log.WithFunc("oci.pull")
 
-	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, cfg, idx, imageRef)
+	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, cfg, idx, imageRef, tracker)
 	if err != nil {
 		return err
 	}
@@ -53,6 +55,7 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 	// digest matches but local files are invalid, so commitAndRecord must always
 	// run to move repaired artifacts into place. commitAndRecord itself is
 	// idempotent (skips rename when src == dst).
+	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseCommit, Index: -1, Total: len(results)})
 	manifestDigest := types.NewDigest(digestHex)
 	if err := idx.Update(ctx, func(idx *imageIndex) error {
 		return commitAndRecord(cfg, idx, ref, manifestDigest, results)
@@ -60,6 +63,7 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 		return fmt.Errorf("update image index: %w", err)
 	}
 
+	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseDone, Index: -1, Total: len(results)})
 	logger.Infof(ctx, "Pulled: %s (digest: sha256:%s, layers: %d)", ref, digestHex, len(results))
 	return nil
 }
@@ -67,7 +71,7 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 // fetchAndProcess downloads the image and processes all layers concurrently.
 // Returns nil results if the image is already up-to-date.
 // The caller owns workDir cleanup via the returned path (empty when already up-to-date).
-func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
+func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string, tracker progress.Tracker) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
 	logger := log.WithFunc("oci.pull")
 
 	parsedRef, parseErr := name.ParseReference(imageRef)
@@ -143,6 +147,8 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 		return "", "", "", nil, fmt.Errorf("image %s has no layers", ref)
 	}
 
+	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: len(layers)})
+
 	// Create working directory under temp. Caller is responsible for cleanup.
 	workDir, mkErr := os.MkdirTemp(cfg.TempDir(), "pull-*")
 	if mkErr != nil {
@@ -158,11 +164,12 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 	}
 	g.SetLimit(limit)
 
+	totalLayers := len(layers)
 	for i, layer := range layers {
 		layerIdx := i
 		layerRef := layer
 		g.Go(func() error {
-			return processLayer(gctx, cfg, layerIdx, layerRef, workDir, knownBootHexes, &results[layerIdx])
+			return processLayer(gctx, cfg, layerIdx, totalLayers, layerRef, workDir, knownBootHexes, tracker, &results[layerIdx])
 		})
 	}
 
@@ -243,7 +250,7 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 // for missing boot files and self-heals by re-extracting them.
 // knownBootHexes contains digest hex strings of layers previously recorded as boot
 // layers in the index, enabling targeted self-heal even when bootDir is deleted.
-func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, result *pullLayerResult) error {
+func processLayer(ctx context.Context, cfg *config.Config, idx, total int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) error {
 	logger := log.WithFunc("oci.processLayer")
 
 	layerDigest, err := layer.Digest()
@@ -304,6 +311,7 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 				}
 			}
 		}
+		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
 		return nil
 	}
 
@@ -354,6 +362,7 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 	result.kernelPath = kernelPath
 	result.initrdPath = initrdPath
 	result.erofsPath = erofsPath
+	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
 	return nil
 }
 

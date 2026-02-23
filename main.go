@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/progress"
+	ociProgress "github.com/projecteru2/cocoon/progress/oci"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/storage/oci"
 	"github.com/projecteru2/cocoon/types"
@@ -54,11 +56,21 @@ func cmdPull(ctx context.Context, store storage.Storage, args []string) {
 		fatalf("usage: cocoon pull <image> [image...]")
 	}
 	for _, image := range args {
-		fmt.Printf("Pulling %s ...\n", image)
-		if err := store.Pull(ctx, image); err != nil {
+		tracker := progress.NewTracker(func(e ociProgress.Event) {
+			switch e.Phase {
+			case ociProgress.PhasePull:
+				fmt.Printf("Pulling %s (%d layers)\n", image, e.Total)
+			case ociProgress.PhaseLayer:
+				fmt.Printf("  [%d/%d] %s done\n", e.Index+1, e.Total, e.Digest)
+			case ociProgress.PhaseCommit:
+				fmt.Printf("Committing...\n")
+			case ociProgress.PhaseDone:
+				fmt.Printf("Done: %s\n", image)
+			}
+		})
+		if err := store.Pull(ctx, image, tracker); err != nil {
 			fatalf("pull %s: %v", image, err)
 		}
-		fmt.Printf("Done: %s\n", image)
 	}
 }
 
