@@ -1,6 +1,6 @@
 package progress
 
-// Tracker receives progress events during storage operations.
+// Tracker receives progress events during image operations.
 // Implementations must be safe for concurrent use from multiple goroutines.
 type Tracker interface {
 	OnEvent(any)
@@ -8,7 +8,7 @@ type Tracker interface {
 
 // NewTracker creates a Tracker from a typed callback function.
 // The caller works with a concrete event type; the Tracker interface
-// stays non-generic so it can be used in interfaces like Storage.
+// stays non-generic so it can be used in interfaces like Images.
 func NewTracker[E any](fn func(E)) Tracker {
 	return funcTracker(func(v any) { fn(v.(E)) })
 }

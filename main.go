@@ -32,7 +32,7 @@ func main() {
 	ctx := context.Background()
 	store, err := oci.New(ctx, cfg)
 	if err != nil {
-		fatalf("init storage: %v", err)
+		fatalf("init image: %v", err)
 	}
 
 	switch os.Args[1] {

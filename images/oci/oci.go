@@ -16,20 +16,20 @@ const (
 	serialPrefix = "cocoon-layer"
 )
 
-// OCI implements the storage.Storage interface using OCI container images
+// OCI implements the images.Images interface using OCI container images
 // converted to EROFS filesystems for use with Cloud Hypervisor.
 type OCI struct {
 	conf *config.Config
 	idx  *imageIndex
 }
 
-// New creates a new OCI storage backend.
+// New creates a new OCI image backend.
 func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 	if err := conf.EnsureOCIDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	log.WithFunc("oci.New").Infof(ctx, "OCI storage initialized, pool size: %d", conf.PoolSize)
+	log.WithFunc("oci.New").Infof(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
 
 	return &OCI{
 		conf: conf,
@@ -48,7 +48,7 @@ func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) 
 }
 
 // List returns all locally stored images.
-func (o *OCI) List(ctx context.Context) (result []*types.Storage, err error) {
+func (o *OCI) List(ctx context.Context) (result []*types.Image, err error) {
 	err = o.idx.With(ctx, func(idx *imageIndex) error {
 		for _, entry := range idx.Images {
 			var totalSize int64
@@ -67,7 +67,7 @@ func (o *OCI) List(ctx context.Context) (result []*types.Storage, err error) {
 					totalSize += info.Size()
 				}
 			}
-			result = append(result, &types.Storage{
+			result = append(result, &types.Image{
 				ID:        entry.ManifestDigest.String(),
 				Name:      entry.Ref,
 				Type:      typ,

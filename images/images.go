@@ -11,7 +11,7 @@ type Images interface {
 	Type() string
 
 	Pull(context.Context, string, progress.Tracker) error
-	List(context.Context) ([]*types.Storage, error)
+	List(context.Context) ([]*types.Image, error)
 	Delete(context.Context, []string) ([]string, error)
 	GC(context.Context) error
 

@@ -181,7 +181,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 	return ref, digestHex, workDir, results, nil
 }
 
-// commitAndRecord moves artifacts to shared storage and records the image entry.
+// commitAndRecord moves artifacts to shared image paths and records the image entry.
 // Must be called under flock (inside idx.Update).
 func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDigest types.Digest, results []pullLayerResult) error {
 	var (

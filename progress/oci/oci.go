@@ -6,7 +6,7 @@ type Phase int
 const (
 	PhasePull   Phase = iota // Image resolved, layer count known.
 	PhaseLayer               // A single layer has been processed.
-	PhaseCommit              // Committing artifacts to shared storage.
+	PhaseCommit              // Committing artifacts to shared image paths.
 	PhaseDone                // Pull completed successfully.
 )
 

@@ -2,7 +2,7 @@ package types
 
 import "time"
 
-type Storage struct {
+type Image struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Type      string    `json:"type"`
