@@ -43,10 +43,13 @@ if [ -n "$IMAGE_NAME" ]; then
         echo "      Layer $IDX -> layer${IDX}.erofs"
         tar -xf "image_temp/$L" boot/ 2>/dev/null || true
         # Compress layer to EROFS
+        # UUID v5: deterministically derived from the layer path, which encodes the
+        # content digest (e.g. "blobs/sha256/abc123.../"). Same OCI layer -> same UUID.
+        LAYER_UUID=$(python3 -c "import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))" "$L")
         if gzip -t "image_temp/$L" 2>/dev/null; then
-            gzip -dc "image_temp/$L" | mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U 00000000-0000-0000-0000-000000000000 "layer${IDX}.erofs"
+            gzip -dc "image_temp/$L" | mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U "$LAYER_UUID" "layer${IDX}.erofs"
         else
-            mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U 00000000-0000-0000-0000-000000000000 "layer${IDX}.erofs" "image_temp/$L"
+            mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U "$LAYER_UUID" "layer${IDX}.erofs" "image_temp/$L"
         fi
         IDX=$((IDX+1))
     done

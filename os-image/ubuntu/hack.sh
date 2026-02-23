@@ -56,6 +56,7 @@ mountroot() {
 
     # Mount read-only EROFS layers
     LOWER=""
+    LAYER_DEVS=""
     IFS=,
     for serial in $LAYERS; do
         dev=$(resolve_disk "$serial") || panic "device ${serial} not found"
@@ -64,6 +65,7 @@ mountroot() {
         mount -t erofs -o ro "$dev" "$mnt" || panic "mount ${serial} failed"
         [ -n "$LOWER" ] && LOWER="${LOWER}:"
         LOWER="${LOWER}${mnt}"
+        LAYER_DEVS="${LAYER_DEVS} ${dev}"
     done
     unset IFS
 
@@ -86,11 +88,15 @@ mountroot() {
     mkdir -p "${rootmnt}/dev" "${rootmnt}/proc" "${rootmnt}/sys" "${rootmnt}/run"
 
     # [IO Performance Optimization]
-    # Set the deadline scheduler to minimize guest-side CPU overhead for Virtio-Block devices.
-    # Host-side IO optimization (direct=on) already handles the physical scheduling.
-    for dev in /sys/block/vd*; do
-        [ -e "$dev/queue/scheduler" ] && echo "mq-deadline" > "$dev/queue/scheduler" 2>/dev/null || true
+    # EROFS layers are read-only; "none" removes guest-side scheduling overhead entirely
+    # since ordering is irrelevant for pure reads and direct=on already handles host scheduling.
+    # COW disk gets mq-deadline to prevent write starvation under mixed read/write load.
+    for dev in $LAYER_DEVS; do
+        blk="${dev##*/}"
+        [ -e "/sys/block/${blk}/queue/scheduler" ] && echo "none" > "/sys/block/${blk}/queue/scheduler" 2>/dev/null || true
     done
+    cow_blk="${cow_dev##*/}"
+    [ -e "/sys/block/${cow_blk}/queue/scheduler" ] && echo "mq-deadline" > "/sys/block/${cow_blk}/queue/scheduler" 2>/dev/null || true
 
     # Note: The systemd compatibility hacks (clearing fstab, masking fsck) 
     # are handled natively in the Dockerfile. The rootfs is clean here.
