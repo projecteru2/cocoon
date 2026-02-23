@@ -75,7 +75,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 
 	platform := v1.Platform{
 		Architecture: runtime.GOARCH,
-		OS:           "linux",
+		OS:           runtime.GOOS,
 	}
 
 	logger.Infof(ctx, "Pulling image: %s", ref)
@@ -95,12 +95,24 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 	}
 	digestHex := manifestDigest.Hex
 
-	// Idempotency: check if already pulled with same manifest.
+	// Idempotency: check if already pulled with same manifest and all files intact.
 	var alreadyPulled bool
 	if err := idx.With(ctx, func(idx *imageIndex) error {
-		if entry, ok := idx.Images[ref]; ok && entry.ManifestDigest == types.NewDigest(digestHex) {
-			alreadyPulled = true
+		entry, ok := idx.Images[ref]
+		if !ok || entry.ManifestDigest != types.NewDigest(digestHex) {
+			return nil
 		}
+		// Validate boot files and all layer blobs on disk.
+		if !validFile(cfg.KernelPath(entry.KernelLayer.Hex())) ||
+			!validFile(cfg.InitrdPath(entry.InitrdLayer.Hex())) {
+			return nil
+		}
+		for _, layer := range entry.Layers {
+			if !validFile(cfg.BlobPath(layer.Digest.Hex())) {
+				return nil
+			}
+		}
+		alreadyPulled = true
 		return nil
 	}); err != nil {
 		return "", "", nil, fmt.Errorf("read image index: %w", err)
@@ -127,7 +139,11 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 	// Process layers concurrently with bounded parallelism.
 	results := make([]pullLayerResult, len(layers))
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(cfg.PoolSize)
+	limit := cfg.PoolSize
+	if limit <= 0 {
+		limit = runtime.NumCPU()
+	}
+	g.SetLimit(limit)
 
 	for i, layer := range layers {
 		layerIdx := i
@@ -223,34 +239,46 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 	result.index = idx
 	result.digest = types.NewDigest(digestHex)
 
-	// Check if this layer's blob already exists (shared across images).
-	if _, err := os.Stat(cfg.BlobPath(digestHex)); err == nil {
+	// Check if this layer's blob already exists and is valid (shared across images).
+	if validFile(cfg.BlobPath(digestHex)) {
 		logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
 		result.erofsPath = cfg.BlobPath(digestHex)
 
-		// Check for cached boot files.
-		result.kernelPath = existsOrEmpty(cfg.KernelPath(digestHex))
-		result.initrdPath = existsOrEmpty(cfg.InitrdPath(digestHex))
+		// Check for cached boot files (must exist and be non-empty).
+		if validFile(cfg.KernelPath(digestHex)) {
+			result.kernelPath = cfg.KernelPath(digestHex)
+		}
+		if validFile(cfg.InitrdPath(digestHex)) {
+			result.initrdPath = cfg.InitrdPath(digestHex)
+		}
 
-		// Self-heal: boot dir exists (layer had boot files) but some are missing.
-		if _, statErr := os.Stat(cfg.BootDir(digestHex)); statErr == nil {
-			if result.kernelPath == "" || result.initrdPath == "" {
-				logger.Infof(ctx, "Layer %d: sha256:%s self-healing missing boot files", idx, digestHex[:12])
-				rc, rcErr := layer.Uncompressed()
-				if rcErr != nil {
-					return fmt.Errorf("open layer for boot extraction: %w", rcErr)
-				}
-				defer rc.Close() //nolint:errcheck
-
-				kp, ip, scanErr := scanBootFiles(ctx, rc, workDir, digestHex)
+		// Best-effort self-heal: re-extract missing/invalid boot files.
+		// Only attempt if this looks like a boot layer (has boot dir or at least one valid boot file).
+		// Failures are logged, not fatal — commitAndRecord validates at image level.
+		isBootLayer := result.kernelPath != "" || result.initrdPath != ""
+		if !isBootLayer {
+			_, statErr := os.Stat(cfg.BootDir(digestHex))
+			isBootLayer = statErr == nil
+		}
+		if isBootLayer && (result.kernelPath == "" || result.initrdPath == "") {
+			logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
+			healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
+			if mkErr := os.MkdirAll(healDir, 0o750); mkErr != nil {
+				logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", idx, mkErr)
+			} else if rc, rcErr := layer.Uncompressed(); rcErr != nil {
+				logger.Warnf(ctx, "Layer %d: cannot recover boot files: %v", idx, rcErr)
+			} else {
+				kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
+				_ = rc.Close()
 				if scanErr != nil {
-					return fmt.Errorf("self-heal boot files: %w", scanErr)
-				}
-				if result.kernelPath == "" {
-					result.kernelPath = kp
-				}
-				if result.initrdPath == "" {
-					result.initrdPath = ip
+					logger.Warnf(ctx, "Layer %d: boot file recovery failed: %v", idx, scanErr)
+				} else {
+					if result.kernelPath == "" {
+						result.kernelPath = kp
+					}
+					if result.initrdPath == "" {
+						result.initrdPath = ip
+					}
 				}
 			}
 		}
@@ -259,6 +287,13 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 
 	logger.Infof(ctx, "Layer %d: sha256:%s -> erofs (single-pass)", idx, digestHex[:12])
 
+	// Per-layer work subdirectory avoids temp file conflicts when
+	// a manifest references the same digest more than once.
+	layerDir := filepath.Join(workDir, fmt.Sprintf("layer-%d", idx))
+	if err := os.MkdirAll(layerDir, 0o750); err != nil {
+		return fmt.Errorf("create layer work dir: %w", err)
+	}
+
 	// Open uncompressed tar stream once.
 	rc, err := layer.Uncompressed()
 	if err != nil {
@@ -266,7 +301,7 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 	}
 	defer rc.Close() //nolint:errcheck
 
-	erofsPath := filepath.Join(workDir, digestHex+".erofs")
+	erofsPath := filepath.Join(layerDir, digestHex+".erofs")
 	layerUUID := utils.UUIDv5(digestHex)
 
 	// Start mkfs.erofs in background, receiving the tar stream via pipe.
@@ -277,7 +312,7 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 
 	// TeeReader: every byte read for boot scanning also feeds mkfs.erofs.
 	tee := io.TeeReader(rc, erofsStdin)
-	kernelPath, initrdPath, scanErr := scanBootFiles(ctx, tee, workDir, digestHex)
+	kernelPath, initrdPath, scanErr := scanBootFiles(ctx, tee, layerDir, digestHex)
 
 	// Drain remaining tar data to ensure mkfs.erofs receives the complete stream.
 	if scanErr == nil {
@@ -298,14 +333,6 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 	result.initrdPath = initrdPath
 	result.erofsPath = erofsPath
 	return nil
-}
-
-// existsOrEmpty returns path if the file exists, empty string otherwise.
-func existsOrEmpty(path string) string {
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-	return ""
 }
 
 // scanBootFiles reads a tar stream and extracts kernel/initrd files.
@@ -374,4 +401,10 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 		logger.Infof(ctx, "Layer %s: extracted %s", digestHex[:12], base)
 	}
 	return kernelPath, initrdPath, nil
+}
+
+// validFile returns true if path is a regular file with size > 0.
+func validFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }

@@ -186,11 +186,15 @@ func cmdDelete(ctx context.Context, store storage.Storage, args []string) {
 	if len(args) == 0 {
 		fatalf("usage: cocoon delete <id|ref> [id|ref...]")
 	}
-	if err := store.Delete(ctx, args); err != nil {
+	deleted, err := store.Delete(ctx, args)
+	for _, ref := range deleted {
+		fmt.Printf("Deleted: %s\n", ref)
+	}
+	if err != nil {
 		fatalf("delete: %v", err)
 	}
-	for _, id := range args {
-		fmt.Printf("Deleted: %s\n", id)
+	if len(deleted) == 0 {
+		fmt.Println("No matching images found.")
 	}
 }
 
