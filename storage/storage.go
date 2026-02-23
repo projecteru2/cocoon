@@ -11,5 +11,5 @@ type Storage interface {
 	List(context.Context) ([]*types.Storage, error)
 	Delete(context.Context, string) error
 
-	Config(context.Context, *types.VMConfig) (*types.StorageConfig, error)
+	Config(context.Context, []*types.VMConfig) ([][]*types.StorageConfig, error)
 }

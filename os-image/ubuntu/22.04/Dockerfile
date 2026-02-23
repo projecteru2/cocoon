@@ -26,7 +26,7 @@ RUN --mount=type=secret,id=cocoon_script \
     # [Shift-Left System Hacks]
     truncate -s 0 /etc/fstab && \
     systemctl mask systemd-fsck-root.service systemd-remount-fs.service systemd-fsck@.service && \
-    systemctl enable systemd-networkd systemd-timesyncd && \
+    systemctl enable systemd-networkd systemd-resolved systemd-timesyncd && \
     mkdir -p /etc/systemd/network && \
     printf "[Match]\nName=e* v*\n[Network]\nDHCP=yes\n" > /etc/systemd/network/20-wired.network && \
     # [Final Touches]

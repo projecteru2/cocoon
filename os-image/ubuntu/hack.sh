@@ -8,9 +8,6 @@ resolve_disk() {
     local serial="$1" timeout="${COCOON_TIMEOUT:-10}" i=0
     case "$timeout" in ''|*[!0-9]*) timeout=10 ;; esac
 
-    # Trigger udev to ensure device nodes are created before polling
-    udevadm settle 2>/dev/null || true
-
     while [ $i -lt $timeout ]; do
         for sysdev in /sys/block/vd*; do
             [ -d "$sysdev" ] || continue
@@ -50,6 +47,9 @@ mountroot() {
 
     [ -z "$LAYERS" ] && panic "cocoon.layers= not set"
     [ -z "$COW" ]    && panic "cocoon.cow= not set"
+
+    # Wait for udev to finish processing all pending events once, before any disk lookups.
+    udevadm settle 2>/dev/null || true
 
     COCOON_INTERNAL="/.cocoon"
     mkdir -p "$COCOON_INTERNAL"
