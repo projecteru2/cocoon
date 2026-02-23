@@ -163,7 +163,7 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 	memory := fs.Int("memory", 1024, "memory in MB")
 	balloon := fs.Int("balloon", 0, "balloon size in MB (default: memory/2)")
 	cowSize := fs.Int("storage", 10, "COW disk size in GB")
-	cowPath := fs.String("cow", "", "COW disk path (default: cow-<name>.raw)")
+	cowPath := fs.String("cow", "", "COW disk path (auto-detected extension)")
 	chBin := fs.String("ch", "cloud-hypervisor", "cloud-hypervisor binary path")
 	fs.Parse(args) //nolint:errcheck
 
@@ -182,7 +182,7 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 
 	var configs []*types.StorageConfig
 	var boot *types.BootConfig
-	var found bool
+	var backendType string
 	for _, b := range backends {
 		cfgs, boots, err := b.Config(ctx, vms)
 		if err != nil {
@@ -190,21 +190,30 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 		}
 		configs = cfgs[0]
 		boot = boots[0]
-		found = true
+		backendType = b.Type()
 		break
 	}
-	if !found {
+	if backendType == "" {
 		fatalf("image %q not found in any backend", image)
 	}
 
-	if *cowPath == "" {
-		*cowPath = fmt.Sprintf("cow-%s.raw", *vmName)
-	}
 	if *balloon == 0 {
 		*balloon = *memory / 2
 	}
 
-	// Build --disk arguments.
+	if boot.KernelPath != "" {
+		cmdRunOCI(cfg, configs, boot, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
+	} else {
+		cmdRunCloudimg(cfg, configs, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
+	}
+}
+
+func cmdRunOCI(cfg *config.Config, configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+	if cowPath == "" {
+		cowPath = fmt.Sprintf("cow-%s.raw", vmName)
+	}
+
+	// Build --disk arguments: readonly erofs layers + writable raw COW.
 	var diskArgs []string
 	var layerSerials []string
 	for _, d := range configs {
@@ -212,9 +221,8 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 			fmt.Sprintf("path=%s,readonly=on,direct=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", d.Path, d.Serial))
 		layerSerials = append(layerSerials, d.Serial)
 	}
-	// COW disk: direct=on, sparse=on for best performance.
 	diskArgs = append(diskArgs,
-		fmt.Sprintf("path=%s,readonly=off,direct=on,sparse=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", *cowPath, cowSerial))
+		fmt.Sprintf("path=%s,readonly=off,direct=on,sparse=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", cowPath, cowSerial))
 
 	// Reverse layer serials for overlayfs lowerdir ordering (top layer first).
 	reversed := make([]string, len(layerSerials))
@@ -227,37 +235,52 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 		"console=ttyS0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		cocoonLayers, cowSerial)
 
-	// Print COW preparation.
 	fmt.Println("# Prepare COW disk")
-	fmt.Printf("truncate -s %dG %s\n", *cowSize, *cowPath)
-	fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", *cowPath)
+	fmt.Printf("truncate -s %dG %s\n", cowSize, cowPath)
+	fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", cowPath)
 	fmt.Println()
 
-	// Print cloud-hypervisor command.
-	fmt.Printf("# Launch VM: %s (image: %s)\n", *vmName, image)
-	fmt.Printf("%s \\\n", *chBin)
-	if boot.KernelPath != "" {
-		fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
-	}
-	if boot.InitrdPath != "" {
-		fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
-	}
-	if boot.KernelPath == "" {
-		// UEFI boot (cloudimg): use firmware instead of direct kernel boot.
-		fmt.Printf("  --firmware %s \\\n", cfg.FirmwarePath())
-	}
+	fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", vmName, image)
+	fmt.Printf("%s \\\n", chBin)
+	fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
+	fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
 	fmt.Printf("  --disk")
 	for _, d := range diskArgs {
 		fmt.Printf(" \\\n    \"%s\"", d)
 	}
 	fmt.Printf(" \\\n")
-	if boot.KernelPath != "" {
-		fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
+	fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
+	printCommonCHArgs(cpu, maxCPU, memory, balloon)
+}
+
+func cmdRunCloudimg(cfg *config.Config, configs []*types.StorageConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+	if cowPath == "" {
+		cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
 	}
-	fmt.Printf("  --cpus boot=%d,max=%d \\\n", *cpu, *maxCPU)
-	fmt.Printf("  --memory size=%dM \\\n", *memory)
+
+	// Base image is the readonly qcow2 blob from StorageConfig.
+	basePath := configs[0].Path
+
+	fmt.Println("# Prepare COW overlay")
+	fmt.Printf("qemu-img create -f qcow2 -F qcow2 -b %s %s\n", basePath, cowPath)
+	if cowSize > 0 {
+		fmt.Printf("qemu-img resize %s %dG\n", cowPath, cowSize)
+	}
+	fmt.Println()
+
+	fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmName, image)
+	fmt.Printf("%s \\\n", chBin)
+	fmt.Printf("  --firmware %s \\\n", cfg.FirmwarePath())
+	fmt.Printf("  --disk \\\n")
+	fmt.Printf("    \"path=%s,readonly=off,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
+	printCommonCHArgs(cpu, maxCPU, memory, balloon)
+}
+
+func printCommonCHArgs(cpu, maxCPU, memory, balloon int) {
+	fmt.Printf("  --cpus boot=%d,max=%d \\\n", cpu, maxCPU)
+	fmt.Printf("  --memory size=%dM \\\n", memory)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
-	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", *balloon)
+	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", balloon)
 	fmt.Printf("  --watchdog \\\n")
 	fmt.Printf("  --serial tty --console off\n")
 }
