@@ -19,6 +19,7 @@ import (
 	"github.com/panjf2000/ants/v2"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 	"github.com/projecteru2/core/log"
 )
@@ -26,7 +27,7 @@ import (
 // pullLayerResult holds the output of processing a single layer.
 type pullLayerResult struct {
 	index      int
-	digest     string
+	digest     types.Digest
 	erofsPath  string
 	cached     bool
 	kernelPath string // non-empty if this layer contains a kernel
@@ -34,29 +35,24 @@ type pullLayerResult struct {
 }
 
 // pull downloads an OCI image, extracts boot files, and converts each layer
-// to EROFS concurrently using the provided ants pool. This mirrors the flow
-// in os-image/start.sh step 4.
+// to EROFS concurrently using the provided ants pool.
 func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIndex, imageRef string) error {
 	logger := log.WithFunc("oci.pull")
 
-	ref, err := normalizeRef(imageRef)
+	parsedRef, err := name.ParseReference(imageRef)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid image reference %q: %w", imageRef, err)
 	}
-
-	tag, err := name.NewTag(ref)
-	if err != nil {
-		return fmt.Errorf("invalid image reference %q: %w", ref, err)
-	}
+	ref := parsedRef.String()
 
 	platform := v1.Platform{
 		Architecture: runtime.GOARCH,
-		OS:           runtime.GOOS,
+		OS:           "linux",
 	}
 
 	logger.Infof(ctx, "Pulling image: %s", ref)
 
-	img, err := remote.Image(tag,
+	img, err := remote.Image(parsedRef,
 		remote.WithAuthFromKeychain(authn.DefaultKeychain),
 		remote.WithContext(ctx),
 		remote.WithPlatform(platform),
@@ -74,7 +70,7 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 	// Idempotency: check if already pulled with same manifest.
 	var alreadyPulled bool
 	if err := idx.With(ctx, func(idx *imageIndex) error {
-		if entry, ok := idx.Images[ref]; ok && entry.ManifestDigest == "sha256:"+digestHex {
+		if entry, ok := idx.Images[ref]; ok && entry.ManifestDigest == types.NewDigest(digestHex) {
 			alreadyPulled = true
 		}
 		return nil
@@ -101,9 +97,6 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 	}
 	defer os.RemoveAll(workDir) //nolint:errcheck
 
-	// Prepare image directory path (may not exist yet for new images).
-	imageDir := cfg.ImageDir(digestHex)
-
 	// Process layers concurrently.
 	results := make([]pullLayerResult, len(layers))
 	var (
@@ -120,7 +113,7 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 		submitErr := pool.Submit(func() {
 			defer wg.Done()
 
-			if err := processLayer(ctx, cfg, imageDir, layerIdx, layerRef, workDir, &results[layerIdx]); err != nil {
+			if err := processLayer(ctx, cfg, layerIdx, layerRef, workDir, &results[layerIdx]); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("layer %d: %w", layerIdx, err))
 				mu.Unlock()
@@ -139,80 +132,76 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 	if len(errs) > 0 {
 		return fmt.Errorf("layer processing errors: %v", errs)
 	}
-
-	// Move results to final image directory.
-	if err := os.MkdirAll(imageDir, 0o750); err != nil {
-		return fmt.Errorf("create image dir: %w", err)
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
+	// Move results to final shared locations.
 	var (
 		layerEntries []layerEntry
-		kernelPath   string
-		initrdPath   string
+		kernelLayer  types.Digest
+		initrdLayer  types.Digest
 	)
 	for i := range results {
 		r := &results[i]
-		layerDigestHex := strings.TrimPrefix(r.digest, "sha256:")
+		layerDigestHex := r.digest.Hex()
 
-		// Move erofs file.
-		finalErofsPath := filepath.Join(imageDir, layerDigestHex+".erofs")
+		// Move erofs to shared blob path (skip if already cached).
 		if !r.cached {
-			if err := os.Rename(r.erofsPath, finalErofsPath); err != nil {
+			if err := os.Rename(r.erofsPath, cfg.BlobPath(layerDigestHex)); err != nil {
 				return fmt.Errorf("move layer %d erofs: %w", r.index, err)
 			}
 		}
 
-		// Move boot files to /boot/{layerDigestHex}/ for easy lookup and cross-image reuse.
+		// Move boot files to shared boot dir (skip if already cached).
 		if (r.kernelPath != "" || r.initrdPath != "") && !r.cached {
 			bootDir := cfg.BootDir(layerDigestHex)
 			if err := os.MkdirAll(bootDir, 0o750); err != nil {
 				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
 			}
 			if r.kernelPath != "" {
-				dst := filepath.Join(bootDir, "vmlinuz")
-				if err := os.Rename(r.kernelPath, dst); err != nil {
+				if err := os.Rename(r.kernelPath, filepath.Join(bootDir, "vmlinuz")); err != nil {
 					return fmt.Errorf("move layer %d kernel: %w", r.index, err)
 				}
-				r.kernelPath = dst
 			}
 			if r.initrdPath != "" {
-				dst := filepath.Join(bootDir, "initrd.img")
-				if err := os.Rename(r.initrdPath, dst); err != nil {
+				if err := os.Rename(r.initrdPath, filepath.Join(bootDir, "initrd.img")); err != nil {
 					return fmt.Errorf("move layer %d initrd: %w", r.index, err)
 				}
-				r.initrdPath = dst
 			}
 		}
 
-		// Later layers override earlier ones (OCI layer ordering).
+		// Track which layer provides boot files (later layers win per OCI ordering).
 		if r.kernelPath != "" {
-			kernelPath = r.kernelPath
+			kernelLayer = r.digest
 		}
 		if r.initrdPath != "" {
-			initrdPath = r.initrdPath
+			initrdLayer = r.digest
 		}
 
-		layerEntries = append(layerEntries, layerEntry{
-			Digest:    r.digest,
-			ErofsPath: finalErofsPath,
-		})
+		layerEntries = append(layerEntries, layerEntry{Digest: r.digest})
 	}
 
-	if kernelPath == "" || initrdPath == "" {
-		return fmt.Errorf("image %s has no boot files (vmlinuz/initrd.img)", ref)
+	if kernelLayer == "" || initrdLayer == "" {
+		return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
 	}
 
-	// Update image index (flock-protected).
+	// Update image index (flock-protected, with double-check for TOCTOU).
+	manifestDigestFull := types.NewDigest(digestHex)
 	entry := &imageEntry{
 		Ref:            ref,
-		ManifestDigest: "sha256:" + digestHex,
+		ManifestDigest: manifestDigestFull,
 		Layers:         layerEntries,
-		KernelPath:     kernelPath,
-		InitrdPath:     initrdPath,
+		KernelLayer:    kernelLayer,
+		InitrdLayer:    initrdLayer,
 		CreatedAt:      time.Now().UTC(),
 	}
 
 	if err := idx.Update(ctx, func(idx *imageIndex) error {
+		// Double-check: another goroutine/process may have completed while we were working.
+		if existing, ok := idx.Images[ref]; ok && existing.ManifestDigest == entry.ManifestDigest {
+			return nil
+		}
 		idx.Images[ref] = entry
 		return nil
 	}); err != nil {
@@ -224,9 +213,8 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 }
 
 // processLayer handles a single layer: extracts boot files and converts to EROFS.
-// If the layer's erofs file already exists in imageDir, the conversion is skipped
-// and cached boot files are detected automatically.
-func processLayer(ctx context.Context, cfg *config.Config, imageDir string, idx int, layer v1.Layer, workDir string, result *pullLayerResult) error {
+// If the layer's blob already exists in the shared blob store, conversion is skipped.
+func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Layer, workDir string, result *pullLayerResult) error {
 	logger := log.WithFunc("oci.processLayer")
 
 	layerDigest, err := layer.Digest()
@@ -236,16 +224,15 @@ func processLayer(ctx context.Context, cfg *config.Config, imageDir string, idx 
 	digestHex := layerDigest.Hex
 
 	result.index = idx
-	result.digest = "sha256:" + digestHex
+	result.digest = types.NewDigest(digestHex)
 
-	// Check if this layer's erofs file already exists (e.g. from a previous interrupted pull).
-	existingPath := filepath.Join(imageDir, digestHex+".erofs")
-	if _, statErr := os.Stat(existingPath); statErr == nil {
+	// Check if this layer's blob already exists (shared across images).
+	if _, err := os.Stat(cfg.BlobPath(digestHex)); err == nil {
 		logger.Infof(ctx, "Layer %d: sha256:%s already cached, skipping", idx, digestHex[:12])
-		result.erofsPath = existingPath
+		result.erofsPath = cfg.BlobPath(digestHex)
 		result.cached = true
 
-		// Check for cached boot files in boot directory.
+		// Check for cached boot files.
 		bootDir := cfg.BootDir(digestHex)
 		if _, err := os.Stat(filepath.Join(bootDir, "vmlinuz")); err == nil {
 			result.kernelPath = filepath.Join(bootDir, "vmlinuz")
@@ -264,8 +251,14 @@ func processLayer(ctx context.Context, cfg *config.Config, imageDir string, idx 
 
 	logger.Infof(ctx, "Layer %d: sha256:%s -> %s.erofs", idx, digestHex[:12], digestHex)
 
-	// Extract boot files from this layer (each layer writes to unique paths, no mutex needed).
-	result.kernelPath, result.initrdPath = extractBootFiles(ctx, layer, workDir, digestHex)
+	// Extract boot files from this layer.
+	// TODO: use io.TeeReader to combine boot extraction and erofs conversion into a single pass.
+	kernelPath, initrdPath, extractErr := extractBootFiles(ctx, layer, workDir, digestHex)
+	if extractErr != nil {
+		return fmt.Errorf("extract boot files: %w", extractErr)
+	}
+	result.kernelPath = kernelPath
+	result.initrdPath = initrdPath
 
 	// Convert layer to EROFS.
 	erofsPath := filepath.Join(workDir, digestHex+".erofs")
@@ -287,20 +280,19 @@ func processLayer(ctx context.Context, cfg *config.Config, imageDir string, idx 
 
 // extractBootFiles reads a layer's tar stream and extracts kernel/initrd.
 // Files are written to workDir with layer-digest-based names so no mutex is needed.
-// Returns the paths of extracted files (empty if not found).
-func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex string) (kernelPath, initrdPath string) {
+func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex string) (kernelPath, initrdPath string, err error) {
 	logger := log.WithFunc("oci.extractBootFiles")
 
 	rc, err := layer.Uncompressed()
 	if err != nil {
-		return
+		return "", "", fmt.Errorf("open uncompressed layer: %w", err)
 	}
 	defer rc.Close() //nolint:errcheck
 
 	tr := tar.NewReader(rc)
 	for {
-		hdr, err := tr.Next()
-		if err != nil {
+		hdr, readErr := tr.Next()
+		if readErr != nil {
 			break
 		}
 
@@ -328,13 +320,11 @@ func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex st
 
 		f, createErr := os.Create(dstPath) //nolint:gosec // internal temp file
 		if createErr != nil {
-			logger.Errorf(ctx, createErr, "Layer %s: create boot file %s", digestHex[:12], dstPath)
-			return
+			return "", "", fmt.Errorf("create %s: %w", filepath.Base(dstPath), createErr)
 		}
 		if _, copyErr := io.Copy(f, tr); copyErr != nil {
 			_ = f.Close()
-			logger.Errorf(ctx, copyErr, "Layer %s: write boot file %s", digestHex[:12], dstPath)
-			return
+			return "", "", fmt.Errorf("write %s: %w", filepath.Base(dstPath), copyErr)
 		}
 		_ = f.Close()
 
@@ -343,6 +333,7 @@ func extractBootFiles(ctx context.Context, layer v1.Layer, workDir, digestHex st
 		} else {
 			initrdPath = dstPath
 		}
+		logger.Infof(ctx, "Layer %s: extracted %s", digestHex[:12], base)
 	}
-	return
+	return kernelPath, initrdPath, nil
 }

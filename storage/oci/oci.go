@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
 
 	"github.com/panjf2000/ants/v2"
 
@@ -66,13 +66,13 @@ func (o *OCI) List(ctx context.Context) (result []*types.Storage, err error) {
 		for _, entry := range idx.Images {
 			var totalSize int64
 			for _, layer := range entry.Layers {
-				info, statErr := os.Stat(layer.ErofsPath)
+				info, statErr := os.Stat(o.conf.BlobPath(layer.Digest.Hex()))
 				if statErr == nil {
 					totalSize += info.Size()
 				}
 			}
 			result = append(result, &types.Storage{
-				ID:        entry.ManifestDigest,
+				ID:        entry.ManifestDigest.String(),
 				Name:      entry.Ref,
 				Type:      typ,
 				Size:      totalSize,
@@ -84,43 +84,34 @@ func (o *OCI) List(ctx context.Context) (result []*types.Storage, err error) {
 	return
 }
 
-// Delete removes locally stored images and their EROFS files.
-// Successfully deleted images are always removed from the index.
-// If some images fail to delete, the error reports which ones failed.
+// Delete removes images from the index, then GCs unreferenced blobs and boot files.
 func (o *OCI) Delete(ctx context.Context, ids []string) error {
 	logger := log.WithFunc("oci.Delete")
-	// TODO check if any VMs are using these images before deletion, based on image index references.
 	var errs []error
 	if err := o.idx.Update(ctx, func(idx *imageIndex) error {
 		for _, id := range ids {
-			ref, entry, ok := idx.Lookup(id)
+			ref, _, ok := idx.Lookup(id)
 			if !ok {
 				errs = append(errs, fmt.Errorf("image %q not found", id))
 				continue
 			}
-
-			digestHex := strings.TrimPrefix(entry.ManifestDigest, "sha256:")
-			imageDir := o.conf.ImageDir(digestHex)
-
-			if err := os.RemoveAll(imageDir); err != nil {
-				errs = append(errs, fmt.Errorf("remove image dir %s: %w", imageDir, err))
-				continue
-			}
-			logger.Infof(ctx, "Removed image directory: %s", imageDir)
-
 			delete(idx.Images, ref)
-			logger.Infof(ctx, "Deleted image from index: %s", ref)
+			logger.Infof(ctx, "Deleted from index: %s", ref)
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
+
+	// GC unreferenced files. Runs in a separate flock session so the index
+	// is already persisted; concurrent Pulls read the latest index.
+	gcErrs := o.gcUnreferenced(ctx)
+	errs = append(errs, gcErrs...)
 	return errors.Join(errs...)
 }
 
-// Config generates StorageConfig entries for the given VMs.
-// Each VM gets the same set of EROFS layer configs (read-only) plus
-// kernel and initrd paths.
+// Config generates StorageConfig and BootConfig entries for the given VMs.
+// Paths are derived from layer digests at runtime, not stored in the index.
 func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, boot []*types.BootConfig, err error) {
 	err = o.idx.With(ctx, func(idx *imageIndex) error {
 		result = make([][]*types.StorageConfig, len(vms))
@@ -134,15 +125,16 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 			var configs []*types.StorageConfig
 			for j, layer := range entry.Layers {
 				configs = append(configs, &types.StorageConfig{
-					Path:   layer.ErofsPath,
+					Path:   o.conf.BlobPath(layer.Digest.Hex()),
 					RO:     true,
 					Serial: fmt.Sprintf("%s%d", serialPrefix, j),
 				})
 			}
 			result[i] = configs
+
 			boot[i] = &types.BootConfig{
-				KernelPath: entry.KernelPath,
-				InitrdPath: entry.InitrdPath,
+				KernelPath: filepath.Join(o.conf.BootDir(entry.KernelLayer.Hex()), "vmlinuz"),
+				InitrdPath: filepath.Join(o.conf.BootDir(entry.InitrdLayer.Hex()), "initrd.img"),
 			}
 		}
 		return nil

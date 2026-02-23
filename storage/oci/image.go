@@ -10,6 +10,7 @@ import (
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/lock"
 	"github.com/projecteru2/cocoon/lock/flock"
+	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
 
@@ -65,25 +66,42 @@ func (s *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
 		return id, entry, true
 	}
 	for ref, entry := range s.Images {
-		if entry.ManifestDigest == id {
+		if entry.ManifestDigest.String() == id {
 			return ref, entry, true
 		}
 	}
 	return "", nil, false
 }
 
+// referencedDigests returns all layer digest hex strings referenced by any image.
+func (s *imageIndex) referencedDigests() map[string]struct{} {
+	refs := make(map[string]struct{})
+	for _, entry := range s.Images {
+		for _, layer := range entry.Layers {
+			refs[layer.Digest.Hex()] = struct{}{}
+		}
+		if entry.KernelLayer != "" {
+			refs[entry.KernelLayer.Hex()] = struct{}{}
+		}
+		if entry.InitrdLayer != "" {
+			refs[entry.InitrdLayer.Hex()] = struct{}{}
+		}
+	}
+	return refs
+}
+
 // imageEntry records one pulled OCI image.
+// Paths are not stored; they are derived from digests and config at runtime.
 type imageEntry struct {
-	Ref            string       `json:"ref"`
-	ManifestDigest string       `json:"manifest_digest"`
-	Layers         []layerEntry `json:"layers"`
-	KernelPath     string       `json:"kernel_path"`
-	InitrdPath     string       `json:"initrd_path"`
-	CreatedAt      time.Time    `json:"created_at"`
+	Ref            string        `json:"ref"`
+	ManifestDigest types.Digest  `json:"manifest_digest"`
+	Layers         []layerEntry  `json:"layers"`
+	KernelLayer    types.Digest  `json:"kernel_layer"` // digest of layer containing vmlinuz
+	InitrdLayer    types.Digest  `json:"initrd_layer"` // digest of layer containing initrd.img
+	CreatedAt      time.Time     `json:"created_at"`
 }
 
 // layerEntry records one EROFS layer within an image.
 type layerEntry struct {
-	Digest    string `json:"digest"`
-	ErofsPath string `json:"erofs_path"`
+	Digest types.Digest `json:"digest"`
 }

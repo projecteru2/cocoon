@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	size    = 16384
-	zipType = "lz4hc"
+	erofsBlockSize   = 16384
+	erofsCompression = "lz4hc"
 )
 
 // convertLayerToErofs converts an OCI layer tar stream to an EROFS filesystem.
@@ -33,8 +33,8 @@ func convertLayerToErofs(ctx context.Context, layerReader io.Reader, isGzip bool
 
 	cmd := exec.CommandContext(ctx, "mkfs.erofs",
 		"--tar=f",
-		fmt.Sprintf("-z%s", zipType),
-		fmt.Sprintf("-C%d", size),
+		fmt.Sprintf("-z%s", erofsCompression),
+		fmt.Sprintf("-C%d", erofsBlockSize),
 		"-T0",
 		"-U", uuid,
 		outputPath,
