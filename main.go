@@ -272,7 +272,7 @@ func cmdRunCloudimg(cfg *config.Config, configs []*types.StorageConfig, vmName, 
 	fmt.Printf("%s \\\n", chBin)
 	fmt.Printf("  --firmware %s \\\n", cfg.FirmwarePath())
 	fmt.Printf("  --disk \\\n")
-	fmt.Printf("    \"path=%s,readonly=off,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
+	fmt.Printf("    \"path=%s,readonly=off,direct=on,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)
 }
 
