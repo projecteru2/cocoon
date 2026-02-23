@@ -49,12 +49,12 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 	defer os.RemoveAll(workDir) //nolint:errcheck
 
 	// Commit artifacts and update index atomically under flock.
+	// No digest-only short-circuit here: fetchAndProcess proceeds even when the
+	// digest matches but local files are invalid, so commitAndRecord must always
+	// run to move repaired artifacts into place. commitAndRecord itself is
+	// idempotent (skips rename when src == dst).
 	manifestDigest := types.NewDigest(digestHex)
 	if err := idx.Update(ctx, func(idx *imageIndex) error {
-		// Double-check: another process may have completed while we were working.
-		if existing, ok := idx.Images[ref]; ok && existing.ManifestDigest == manifestDigest {
-			return nil
-		}
 		return commitAndRecord(cfg, idx, ref, manifestDigest, results)
 	}); err != nil {
 		return fmt.Errorf("update image index: %w", err)
@@ -256,11 +256,18 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 		}
 
 		// Best-effort self-heal: re-extract missing/invalid boot files.
-		// We scan unconditionally when either file is missing — we cannot know
-		// whether a layer is a boot layer without scanning, and skipping would
-		// leave unrecoverable gaps when the boot dir has been deleted entirely.
+		// Only attempt if there is local evidence this layer ever contained boot
+		// files (at least one valid boot file, or a boot directory on disk).
+		// This avoids expensive layer.Uncompressed() calls for non-boot layers.
+		// Edge case: blob cached + boot dir entirely deleted → no evidence, skip.
+		// The image-level idempotency check will catch this; user can gc + re-pull.
 		// Failures are logged, not fatal — commitAndRecord validates at image level.
-		if result.kernelPath == "" || result.initrdPath == "" {
+		hasBootEvidence := result.kernelPath != "" || result.initrdPath != ""
+		if !hasBootEvidence {
+			_, statErr := os.Stat(cfg.BootDir(digestHex))
+			hasBootEvidence = statErr == nil
+		}
+		if hasBootEvidence && (result.kernelPath == "" || result.initrdPath == "") {
 			logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
 			healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
 			if mkErr := os.MkdirAll(healDir, 0o750); mkErr != nil {
