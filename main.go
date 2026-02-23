@@ -11,8 +11,10 @@ import (
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/images/cloudimg"
 	"github.com/projecteru2/cocoon/images/oci"
 	"github.com/projecteru2/cocoon/progress"
+	cloudimgProgress "github.com/projecteru2/cocoon/progress/cloudimg"
 	ociProgress "github.com/projecteru2/cocoon/progress/oci"
 	"github.com/projecteru2/cocoon/types"
 )
@@ -30,67 +32,113 @@ func main() {
 	}
 
 	ctx := context.Background()
-	store, err := oci.New(ctx, cfg)
+
+	ociStore, err := oci.New(ctx, cfg)
 	if err != nil {
-		fatalf("init image: %v", err)
+		fatalf("init oci backend: %v", err)
 	}
+	cloudimgStore, err := cloudimg.New(ctx, cfg)
+	if err != nil {
+		fatalf("init cloudimg backend: %v", err)
+	}
+	backends := []images.Images{ociStore, cloudimgStore}
 
 	switch os.Args[1] {
 	case "pull":
-		cmdPull(ctx, store, os.Args[2:])
+		cmdPull(ctx, ociStore, cloudimgStore, os.Args[2:])
 	case "list", "ls":
-		cmdList(ctx, store)
+		cmdList(ctx, backends)
 	case "run":
-		cmdRun(ctx, store, os.Args[2:])
+		cmdRun(ctx, cfg, backends, os.Args[2:])
 	case "delete", "rm":
-		cmdDelete(ctx, store, os.Args[2:])
+		cmdDelete(ctx, backends, os.Args[2:])
 	case "gc":
-		cmdGC(ctx, store)
+		cmdGC(ctx, backends)
 	default:
 		fatalf("unknown command: %s", os.Args[1])
 	}
 }
 
-func cmdPull(ctx context.Context, store images.Images, args []string) {
+// isURL returns true if the image reference looks like an HTTP(S) URL.
+func isURL(ref string) bool {
+	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+func cmdPull(ctx context.Context, ociStore *oci.OCI, cloudimgStore *cloudimg.CloudImg, args []string) {
 	if len(args) == 0 {
-		fatalf("usage: cocoon pull <image> [image...]")
+		fatalf("usage: cocoon pull <image|url> [image|url...]")
 	}
 	for _, image := range args {
-		tracker := progress.NewTracker(func(e ociProgress.Event) {
-			switch e.Phase {
-			case ociProgress.PhasePull:
-				fmt.Printf("Pulling %s (%d layers)\n", image, e.Total)
-			case ociProgress.PhaseLayer:
-				fmt.Printf("  [%d/%d] %s done\n", e.Index+1, e.Total, e.Digest)
-			case ociProgress.PhaseCommit:
-				fmt.Printf("Committing...\n")
-			case ociProgress.PhaseDone:
-				fmt.Printf("Done: %s\n", image)
-			}
-		})
-		if err := store.Pull(ctx, image, tracker); err != nil {
-			fatalf("pull %s: %v", image, err)
+		if isURL(image) {
+			pullCloudimg(ctx, cloudimgStore, image)
+		} else {
+			pullOCI(ctx, ociStore, image)
 		}
 	}
 }
 
-func cmdList(ctx context.Context, store images.Images) {
-	images, err := store.List(ctx)
-	if err != nil {
-		fatalf("list: %v", err)
+func pullOCI(ctx context.Context, store *oci.OCI, image string) {
+	tracker := progress.NewTracker(func(e ociProgress.Event) {
+		switch e.Phase {
+		case ociProgress.PhasePull:
+			fmt.Printf("Pulling OCI image %s (%d layers)\n", image, e.Total)
+		case ociProgress.PhaseLayer:
+			fmt.Printf("  [%d/%d] %s done\n", e.Index+1, e.Total, e.Digest)
+		case ociProgress.PhaseCommit:
+			fmt.Printf("Committing...\n")
+		case ociProgress.PhaseDone:
+			fmt.Printf("Done: %s\n", image)
+		}
+	})
+	if err := store.Pull(ctx, image, tracker); err != nil {
+		fatalf("pull %s: %v", image, err)
 	}
-	if len(images) == 0 {
+}
+
+func pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url string) {
+	tracker := progress.NewTracker(func(e cloudimgProgress.Event) {
+		switch e.Phase {
+		case cloudimgProgress.PhaseDownload:
+			if e.BytesTotal > 0 {
+				fmt.Printf("Downloading cloud image %s (%s)\n", url, formatSize(e.BytesTotal))
+			} else {
+				fmt.Printf("Downloading cloud image %s\n", url)
+			}
+		case cloudimgProgress.PhaseConvert:
+			fmt.Printf("Converting to qcow2...\n")
+		case cloudimgProgress.PhaseCommit:
+			fmt.Printf("Committing...\n")
+		case cloudimgProgress.PhaseDone:
+			fmt.Printf("Done: %s\n", url)
+		}
+	})
+	if err := store.Pull(ctx, url, tracker); err != nil {
+		fatalf("pull %s: %v", url, err)
+	}
+}
+
+func cmdList(ctx context.Context, backends []images.Images) {
+	var all []*types.Image
+	for _, b := range backends {
+		imgs, err := b.List(ctx)
+		if err != nil {
+			fatalf("list %s: %v", b.Type(), err)
+		}
+		all = append(all, imgs...)
+	}
+	if len(all) == 0 {
 		fmt.Println("No images found.")
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tDIGEST\tSIZE\tCREATED")
-	for _, img := range images {
+	fmt.Fprintln(w, "TYPE\tNAME\tDIGEST\tSIZE\tCREATED")
+	for _, img := range all {
 		digest := img.ID
 		if len(digest) > 19 {
 			digest = digest[:19]
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			img.Type,
 			img.Name,
 			digest,
 			formatSize(img.Size),
@@ -100,7 +148,7 @@ func cmdList(ctx context.Context, store images.Images) {
 	w.Flush() //nolint:errcheck
 }
 
-func cmdRun(ctx context.Context, store images.Images, args []string) {
+func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	vmName := fs.String("name", "cocoon-vm", "VM name")
 	cpu := fs.Int("cpu", 2, "boot CPUs")
@@ -117,18 +165,30 @@ func cmdRun(ctx context.Context, store images.Images, args []string) {
 	}
 	image := fs.Arg(0)
 
-	// Get disk configs for this VM.
+	// Get disk configs for this VM — try each backend until one succeeds.
 	vms := []*types.VMConfig{{
 		Name:   *vmName,
 		CPU:    *cpu,
 		Memory: int64(*memory) << 20, //nolint:mnd
 		Image:  image,
 	}}
-	configs, boots, err := store.Config(ctx, vms)
-	if err != nil {
-		fatalf("config: %v", err)
+
+	var configs []*types.StorageConfig
+	var boot *types.BootConfig
+	var found bool
+	for _, b := range backends {
+		cfgs, boots, err := b.Config(ctx, vms)
+		if err != nil {
+			continue
+		}
+		configs = cfgs[0]
+		boot = boots[0]
+		found = true
+		break
 	}
-	boot := boots[0]
+	if !found {
+		fatalf("image %q not found in any backend", image)
+	}
 
 	if *cowPath == "" {
 		*cowPath = fmt.Sprintf("cow-%s.raw", *vmName)
@@ -137,12 +197,10 @@ func cmdRun(ctx context.Context, store images.Images, args []string) {
 		*balloon = *memory / 2
 	}
 
-	disks := configs[0]
-
 	// Build --disk arguments.
 	var diskArgs []string
 	var layerSerials []string
-	for _, d := range disks {
+	for _, d := range configs {
 		diskArgs = append(diskArgs,
 			fmt.Sprintf("path=%s,readonly=on,direct=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", d.Path, d.Serial))
 		layerSerials = append(layerSerials, d.Serial)
@@ -171,14 +229,24 @@ func cmdRun(ctx context.Context, store images.Images, args []string) {
 	// Print cloud-hypervisor command.
 	fmt.Printf("# Launch VM: %s (image: %s)\n", *vmName, image)
 	fmt.Printf("%s \\\n", *chBin)
-	fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
-	fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
+	if boot.KernelPath != "" {
+		fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
+	}
+	if boot.InitrdPath != "" {
+		fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
+	}
+	if boot.KernelPath == "" {
+		// UEFI boot (cloudimg): use firmware instead of direct kernel boot.
+		fmt.Printf("  --firmware %s \\\n", cfg.FirmwarePath())
+	}
 	fmt.Printf("  --disk")
 	for _, d := range diskArgs {
 		fmt.Printf(" \\\n    \"%s\"", d)
 	}
 	fmt.Printf(" \\\n")
-	fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
+	if boot.KernelPath != "" {
+		fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
+	}
 	fmt.Printf("  --cpus boot=%d,max=%d \\\n", *cpu, *maxCPU)
 	fmt.Printf("  --memory size=%dM \\\n", *memory)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
@@ -187,25 +255,31 @@ func cmdRun(ctx context.Context, store images.Images, args []string) {
 	fmt.Printf("  --serial tty --console off\n")
 }
 
-func cmdGC(ctx context.Context, store images.Images) {
-	if err := store.GC(ctx); err != nil {
-		fatalf("gc: %v", err)
+func cmdGC(ctx context.Context, backends []images.Images) {
+	for _, b := range backends {
+		if err := b.GC(ctx); err != nil {
+			fatalf("gc %s: %v", b.Type(), err)
+		}
 	}
 	fmt.Println("GC completed.")
 }
 
-func cmdDelete(ctx context.Context, store images.Images, args []string) {
+func cmdDelete(ctx context.Context, backends []images.Images, args []string) {
 	if len(args) == 0 {
 		fatalf("usage: cocoon delete <id|ref> [id|ref...]")
 	}
-	deleted, err := store.Delete(ctx, args)
-	for _, ref := range deleted {
+	var allDeleted []string
+	for _, b := range backends {
+		deleted, err := b.Delete(ctx, args)
+		if err != nil {
+			fatalf("delete %s: %v", b.Type(), err)
+		}
+		allDeleted = append(allDeleted, deleted...)
+	}
+	for _, ref := range allDeleted {
 		fmt.Printf("Deleted: %s\n", ref)
 	}
-	if err != nil {
-		fatalf("delete: %v", err)
-	}
-	if len(deleted) == 0 {
+	if len(allDeleted) == 0 {
 		fmt.Println("No matching images found.")
 	}
 }
@@ -229,7 +303,7 @@ func formatSize(bytes int64) string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Cocoon - MicroVM Engine with OCI Image Support
+	fmt.Fprintf(os.Stderr, `Cocoon - MicroVM Engine
 
 Usage: cocoon <command> [arguments]
 
@@ -237,11 +311,15 @@ Environment:
   COCOON_ROOT    Root data directory (default: /var/lib/cocoon)
 
 Commands:
-  pull <image> [image...]        Pull OCI image(s) from registry
-  list                           List locally stored images
-  run  [flags] <image>           Generate cloud-hypervisor launch command
-  delete <id|ref> [id|ref...]    Delete locally stored image(s)
-  gc                             Remove unreferenced blobs and boot files
+  pull <image|url> [...]          Pull OCI image(s) or cloud image URL(s)
+  list                            List locally stored images (all backends)
+  run  [flags] <image>            Generate cloud-hypervisor launch command
+  delete <id|ref> [id|ref...]     Delete locally stored image(s)
+  gc                              Remove unreferenced blobs and boot files
+
+Pull:
+  OCI images:    cocoon pull ubuntu:24.04
+  Cloud images:  cocoon pull https://cloud-images.ubuntu.com/.../ubuntu-24.04.qcow2
 
 Run flags:
   -name      VM name (default: cocoon-vm)
