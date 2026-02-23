@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/images/oci"
 	"github.com/projecteru2/cocoon/progress"
 	ociProgress "github.com/projecteru2/cocoon/progress/oci"
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/storage/oci"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -51,7 +51,7 @@ func main() {
 	}
 }
 
-func cmdPull(ctx context.Context, store storage.Storage, args []string) {
+func cmdPull(ctx context.Context, store images.Images, args []string) {
 	if len(args) == 0 {
 		fatalf("usage: cocoon pull <image> [image...]")
 	}
@@ -74,7 +74,7 @@ func cmdPull(ctx context.Context, store storage.Storage, args []string) {
 	}
 }
 
-func cmdList(ctx context.Context, store storage.Storage) {
+func cmdList(ctx context.Context, store images.Images) {
 	images, err := store.List(ctx)
 	if err != nil {
 		fatalf("list: %v", err)
@@ -100,7 +100,7 @@ func cmdList(ctx context.Context, store storage.Storage) {
 	w.Flush() //nolint:errcheck
 }
 
-func cmdRun(ctx context.Context, store storage.Storage, args []string) {
+func cmdRun(ctx context.Context, store images.Images, args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	vmName := fs.String("name", "cocoon-vm", "VM name")
 	cpu := fs.Int("cpu", 2, "boot CPUs")
@@ -187,14 +187,14 @@ func cmdRun(ctx context.Context, store storage.Storage, args []string) {
 	fmt.Printf("  --serial tty --console off\n")
 }
 
-func cmdGC(ctx context.Context, store storage.Storage) {
+func cmdGC(ctx context.Context, store images.Images) {
 	if err := store.GC(ctx); err != nil {
 		fatalf("gc: %v", err)
 	}
 	fmt.Println("GC completed.")
 }
 
-func cmdDelete(ctx context.Context, store storage.Storage, args []string) {
+func cmdDelete(ctx context.Context, store images.Images, args []string) {
 	if len(args) == 0 {
 		fatalf("usage: cocoon delete <id|ref> [id|ref...]")
 	}
