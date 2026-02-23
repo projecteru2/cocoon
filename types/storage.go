@@ -15,3 +15,8 @@ type StorageConfig struct {
 	RO     bool   `json:"ro"`
 	Serial string `json:"serial"`
 }
+
+type BootConfig struct {
+	KernelPath string `json:"kernel_path"`
+	InitrdPath string `json:"initrd_path"`
+}
