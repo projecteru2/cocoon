@@ -121,9 +121,10 @@ func (o *OCI) Delete(ctx context.Context, ids []string) error {
 // Config generates StorageConfig entries for the given VMs.
 // Each VM gets the same set of EROFS layer configs (read-only) plus
 // kernel and initrd paths.
-func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, err error) {
+func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, boot []*types.BootConfig, err error) {
 	err = o.idx.With(ctx, func(idx *imageIndex) error {
 		result = make([][]*types.StorageConfig, len(vms))
+		boot = make([]*types.BootConfig, len(vms))
 		for i, vm := range vms {
 			entry, ok := idx.Images[vm.Image]
 			if !ok {
@@ -139,6 +140,10 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 				})
 			}
 			result[i] = configs
+			boot[i] = &types.BootConfig{
+				KernelPath: entry.KernelPath,
+				InitrdPath: entry.InitrdPath,
+			}
 		}
 		return nil
 	})

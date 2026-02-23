@@ -51,7 +51,7 @@ func pull(ctx context.Context, cfg *config.Config, pool *ants.Pool, idx *imageIn
 
 	platform := v1.Platform{
 		Architecture: runtime.GOARCH,
-		OS:           "linux",
+		OS:           runtime.GOOS,
 	}
 
 	logger.Infof(ctx, "Pulling image: %s", ref)
