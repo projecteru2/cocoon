@@ -99,11 +99,22 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 	digestHex = manifest.Hex
 
 	// Idempotency: check if already pulled with same manifest and all files intact.
+	// Also collect known boot layer digests so processLayer can target self-heal
+	// even when the boot directory has been entirely deleted.
 	var alreadyPulled bool
+	var knownBootHexes map[string]struct{}
 	if withErr := idx.With(ctx, func(idx *imageIndex) error {
 		entry, ok := idx.Images[ref]
 		if !ok || entry.ManifestDigest != types.NewDigest(digestHex) {
 			return nil
+		}
+		// Remember boot layer digests for targeted self-heal.
+		knownBootHexes = make(map[string]struct{})
+		if entry.KernelLayer != "" {
+			knownBootHexes[entry.KernelLayer.Hex()] = struct{}{}
+		}
+		if entry.InitrdLayer != "" {
+			knownBootHexes[entry.InitrdLayer.Hex()] = struct{}{}
 		}
 		// Validate boot files and all layer blobs on disk.
 		if !validFile(cfg.KernelPath(entry.KernelLayer.Hex())) ||
@@ -151,7 +162,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 		layerIdx := i
 		layerRef := layer
 		g.Go(func() error {
-			return processLayer(gctx, cfg, layerIdx, layerRef, workDir, &results[layerIdx])
+			return processLayer(gctx, cfg, layerIdx, layerRef, workDir, knownBootHexes, &results[layerIdx])
 		})
 	}
 
@@ -230,7 +241,9 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 // processLayer handles a single layer: extracts boot files and converts to EROFS
 // in a single pass using io.TeeReader. If the layer is already cached, it checks
 // for missing boot files and self-heals by re-extracting them.
-func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Layer, workDir string, result *pullLayerResult) error {
+// knownBootHexes contains digest hex strings of layers previously recorded as boot
+// layers in the index, enabling targeted self-heal even when bootDir is deleted.
+func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, result *pullLayerResult) error {
 	logger := log.WithFunc("oci.processLayer")
 
 	layerDigest, err := layer.Digest()
@@ -256,16 +269,18 @@ func processLayer(ctx context.Context, cfg *config.Config, idx int, layer v1.Lay
 		}
 
 		// Best-effort self-heal: re-extract missing/invalid boot files.
-		// Only attempt if there is local evidence this layer ever contained boot
-		// files (at least one valid boot file, or a boot directory on disk).
-		// This avoids expensive layer.Uncompressed() calls for non-boot layers.
-		// Edge case: blob cached + boot dir entirely deleted → no evidence, skip.
-		// The image-level idempotency check will catch this; user can gc + re-pull.
-		// Failures are logged, not fatal — commitAndRecord validates at image level.
+		// Evidence sources (any one suffices): existing boot file, boot dir on
+		// disk, or index records this digest as a boot layer. The last source
+		// covers the "bootDir entirely deleted" scenario without scanning every
+		// non-boot layer. Failures are logged, not fatal — commitAndRecord
+		// validates at image level.
 		hasBootEvidence := result.kernelPath != "" || result.initrdPath != ""
 		if !hasBootEvidence {
 			_, statErr := os.Stat(cfg.BootDir(digestHex))
 			hasBootEvidence = statErr == nil
+		}
+		if !hasBootEvidence && knownBootHexes != nil {
+			_, hasBootEvidence = knownBootHexes[digestHex]
 		}
 		if hasBootEvidence && (result.kernelPath == "" || result.initrdPath == "") {
 			logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
