@@ -138,7 +138,9 @@ func downloadAndConvert(ctx context.Context, cfg *config.Config, url string, tra
 	logger.Infof(ctx, "detected source format: %s", format)
 
 	// Convert to qcow2 v3 (compat=1.1).
-	tmpBlob, err := os.CreateTemp(cfg.CloudimgBlobsDir(), ".tmp-*.qcow2")
+	// Create temp in the temp dir (not blobs dir) so GC won't delete it
+	// while qemu-img is still writing.
+	tmpBlob, err := os.CreateTemp(cfg.CloudimgTempDir(), ".tmp-*.qcow2")
 	if err != nil {
 		return "", "", fmt.Errorf("create temp blob: %w", err)
 	}

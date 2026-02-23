@@ -113,6 +113,9 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 		// This ensures processLayer can recover boot files even when the current
 		// ref has no prior index record (e.g., first pull sharing cached layers).
 		for _, e := range idx.Images {
+			if e == nil {
+				continue
+			}
 			if e.KernelLayer != "" {
 				knownBootHexes[e.KernelLayer.Hex()] = struct{}{}
 			}
@@ -123,7 +126,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 
 		// Idempotency check: same ref and manifest digest with all files intact.
 		entry, ok := idx.Images[ref]
-		if !ok || entry.ManifestDigest != types.NewDigest(digestHex) {
+		if !ok || entry == nil || entry.ManifestDigest != types.NewDigest(digestHex) {
 			return nil
 		}
 		if !utils.ValidFile(cfg.KernelPath(entry.KernelLayer.Hex())) ||
@@ -183,6 +186,8 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 		return "", "", "", nil, fmt.Errorf("process layers: %w", waitErr)
 	}
 
+	healCachedBootFiles(ctx, cfg, layers, results, workDir)
+
 	return ref, digestHex, workDir, results, nil
 }
 
@@ -239,6 +244,21 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 		return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
 	}
 
+	// Final validation: ensure all artifacts still exist on disk.
+	// Guards against concurrent GC deleting cached blobs/boot files between
+	// processLayer (no flock) and this point (under flock).
+	for _, le := range layerEntries {
+		if !utils.ValidFile(cfg.BlobPath(le.Digest.Hex())) {
+			return fmt.Errorf("blob missing for layer %s (concurrent GC?)", le.Digest)
+		}
+	}
+	if !utils.ValidFile(cfg.KernelPath(kernelLayer.Hex())) {
+		return fmt.Errorf("kernel missing for %s (concurrent GC?)", kernelLayer)
+	}
+	if !utils.ValidFile(cfg.InitrdPath(initrdLayer.Hex())) {
+		return fmt.Errorf("initrd missing for %s (concurrent GC?)", initrdLayer)
+	}
+
 	idx.Images[ref] = &imageEntry{
 		Ref:            ref,
 		ManifestDigest: manifestDigest,
@@ -248,6 +268,64 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 		CreatedAt:      time.Now().UTC(),
 	}
 	return nil
+}
+
+// healCachedBootFiles force-scans cached layers to recover missing boot files.
+// processLayer's first-pass self-heal is evidence-based: it only re-extracts
+// boot files when it has positive evidence (existing boot file, boot dir on
+// disk, or knownBootHexes from the index). This leaves a blind spot when all
+// evidence has been erased (every entry referencing the boot layer deleted and
+// GC removed the boot dir) but the erofs blob is still cached.
+// healCachedBootFiles closes that gap by running after all layers are processed:
+// if kernel or initrd (or both) are still missing across results, it sequentially
+// re-scans every cached layer to find them.
+func healCachedBootFiles(ctx context.Context, cfg *config.Config, layers []v1.Layer, results []pullLayerResult, workDir string) {
+	logger := log.WithFunc("oci.healCachedBootFiles")
+
+	var hasKernel, hasInitrd bool
+	for i := range results {
+		if results[i].kernelPath != "" {
+			hasKernel = true
+		}
+		if results[i].initrdPath != "" {
+			hasInitrd = true
+		}
+	}
+	if hasKernel && hasInitrd {
+		return
+	}
+
+	logger.Warnf(ctx, "Boot files incomplete after first pass (kernel=%v, initrd=%v), force-scanning cached layers", hasKernel, hasInitrd)
+
+	for i, layer := range layers {
+		digestHex := results[i].digest.Hex()
+		// Only re-scan cached layers; freshly processed layers were already fully scanned.
+		if results[i].erofsPath != cfg.BlobPath(digestHex) {
+			continue
+		}
+		healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", i))
+		if mkErr := os.MkdirAll(healDir, 0o750); mkErr != nil {
+			logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", i, mkErr)
+			continue
+		}
+		rc, rcErr := layer.Uncompressed()
+		if rcErr != nil {
+			logger.Warnf(ctx, "Layer %d: cannot open for boot scan: %v", i, rcErr)
+			continue
+		}
+		kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
+		_ = rc.Close()
+		if scanErr != nil {
+			logger.Warnf(ctx, "Layer %d: boot scan failed: %v", i, scanErr)
+			continue
+		}
+		if results[i].kernelPath == "" && kp != "" {
+			results[i].kernelPath = kp
+		}
+		if results[i].initrdPath == "" && ip != "" {
+			results[i].initrdPath = ip
+		}
+	}
 }
 
 // processLayer handles a single layer: extracts boot files and converts to EROFS

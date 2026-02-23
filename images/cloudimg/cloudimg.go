@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
@@ -49,20 +50,12 @@ func (c *CloudImg) Pull(ctx context.Context, url string, tracker progress.Tracke
 // List returns all locally stored cloud images.
 func (c *CloudImg) List(ctx context.Context) (result []*types.Image, err error) {
 	err = c.store.With(ctx, func(idx *imageIndex) error {
-		for _, entry := range idx.Images {
-			blobPath := c.conf.CloudimgBlobPath(entry.ContentSum.Hex())
-			var size int64
-			if info, statErr := os.Stat(blobPath); statErr == nil {
-				size = info.Size()
+		result = images.ListImages(idx.Images, typ, func(e *imageEntry) int64 {
+			if info, err := os.Stat(c.conf.CloudimgBlobPath(e.ContentSum.Hex())); err == nil {
+				return info.Size()
 			}
-			result = append(result, &types.Image{
-				ID:        entry.ContentSum.String(),
-				Name:      entry.Ref,
-				Type:      typ,
-				Size:      size,
-				CreatedAt: entry.CreatedAt,
-			})
-		}
+			return 0
+		})
 		return nil
 	})
 	return
@@ -71,19 +64,9 @@ func (c *CloudImg) List(ctx context.Context) (result []*types.Image, err error) 
 // Delete removes images from the index.
 // Returns the list of actually deleted refs.
 func (c *CloudImg) Delete(ctx context.Context, ids []string) ([]string, error) {
-	logger := log.WithFunc("cloudimg.Delete")
 	var deleted []string
 	return deleted, c.store.Update(ctx, func(idx *imageIndex) error {
-		for _, id := range ids {
-			ref, _, ok := idx.Lookup(id)
-			if !ok {
-				logger.Infof(ctx, "image %q not found, skipping", id)
-				continue
-			}
-			delete(idx.Images, ref)
-			deleted = append(deleted, ref)
-			logger.Infof(ctx, "deleted from index: %s", ref)
-		}
+		deleted = images.DeleteByID(ctx, "cloudimg.Delete", idx.Images, idx.LookupRefs, ids)
 		return nil
 	})
 }

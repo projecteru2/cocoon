@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
@@ -52,52 +53,36 @@ func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) 
 // List returns all locally stored images.
 func (o *OCI) List(ctx context.Context) (result []*types.Image, err error) {
 	err = o.store.With(ctx, func(idx *imageIndex) error {
-		for _, entry := range idx.Images {
-			var totalSize int64
-			for _, layer := range entry.Layers {
-				if info, statErr := os.Stat(o.conf.BlobPath(layer.Digest.Hex())); statErr == nil {
-					totalSize += info.Size()
+		result = images.ListImages(idx.Images, typ, func(e *imageEntry) int64 {
+			var total int64
+			for _, layer := range e.Layers {
+				if info, err := os.Stat(o.conf.BlobPath(layer.Digest.Hex())); err == nil {
+					total += info.Size()
 				}
 			}
-			if entry.KernelLayer != "" {
-				if info, err := os.Stat(o.conf.KernelPath(entry.KernelLayer.Hex())); err == nil {
-					totalSize += info.Size()
+			if e.KernelLayer != "" {
+				if info, err := os.Stat(o.conf.KernelPath(e.KernelLayer.Hex())); err == nil {
+					total += info.Size()
 				}
 			}
-			if entry.InitrdLayer != "" {
-				if info, err := os.Stat(o.conf.InitrdPath(entry.InitrdLayer.Hex())); err == nil {
-					totalSize += info.Size()
+			if e.InitrdLayer != "" {
+				if info, err := os.Stat(o.conf.InitrdPath(e.InitrdLayer.Hex())); err == nil {
+					total += info.Size()
 				}
 			}
-			result = append(result, &types.Image{
-				ID:        entry.ManifestDigest.String(),
-				Name:      entry.Ref,
-				Type:      typ,
-				Size:      totalSize,
-				CreatedAt: entry.CreatedAt,
-			})
-		}
+			return total
+		})
 		return nil
 	})
 	return
 }
 
-// Delete removes images from the index
+// Delete removes images from the index.
 // Returns the list of actually deleted refs. Images not found are logged and skipped.
 func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
-	logger := log.WithFunc("oci.Delete")
 	var deleted []string
 	return deleted, o.store.Update(ctx, func(idx *imageIndex) error {
-		for _, id := range ids {
-			ref, _, ok := idx.Lookup(id)
-			if !ok {
-				logger.Infof(ctx, "image %q not found, skipping", id)
-				continue
-			}
-			delete(idx.Images, ref)
-			deleted = append(deleted, ref)
-			logger.Infof(ctx, "Deleted from index: %s", ref)
-		}
+		deleted = images.DeleteByID(ctx, "oci.Delete", idx.Images, idx.LookupRefs, ids)
 		return nil
 	})
 }
