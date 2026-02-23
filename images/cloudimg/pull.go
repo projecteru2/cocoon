@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -189,7 +190,8 @@ func download(ctx context.Context, url string, dst *os.File, tracker progress.Tr
 	limitedBody := io.LimitReader(resp.Body, maxDownloadBytes+1)
 	reader := io.TeeReader(limitedBody, h)
 
-	written, err := io.Copy(dst, reader)
+	pw := &progressWriter{w: dst, total: contentLength, tracker: tracker}
+	written, err := io.Copy(pw, reader)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", url, err)
 	}
@@ -211,27 +213,42 @@ func detectImageFormat(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("qemu-img info %s: %w", path, err)
 	}
-	// Parse the "format" field from JSON output.
-	// Output looks like: {"format": "qcow2", ...}
-	s := string(out)
-	idx := strings.Index(s, `"format"`)
-	if idx < 0 {
-		return "", fmt.Errorf("qemu-img info: no format field in output")
+	// Parse only the top-level "format" field. The JSON output contains
+	// nested "children" objects with "format": "file" (protocol layer)
+	// which must not be confused with the actual disk image format.
+	var info struct {
+		Format string `json:"format"`
 	}
-	// Find the value after the colon.
-	rest := s[idx+len(`"format"`):]
-	start := strings.Index(rest, `"`)
-	if start < 0 {
-		return "", fmt.Errorf("qemu-img info: malformed format field")
+	if err := json.Unmarshal(out, &info); err != nil {
+		return "", fmt.Errorf("parse qemu-img info: %w", err)
 	}
-	rest = rest[start+1:]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return "", fmt.Errorf("qemu-img info: malformed format value")
+	if info.Format != "qcow2" && info.Format != "raw" {
+		return "", fmt.Errorf("unsupported source format %q (expected qcow2 or raw)", info.Format)
 	}
-	format := rest[:end]
-	if format != "qcow2" && format != "raw" {
-		return "", fmt.Errorf("unsupported source format %q (expected qcow2 or raw)", format)
+	return info.Format, nil
+}
+
+// progressWriter wraps an io.Writer and periodically emits download progress events.
+type progressWriter struct {
+	w          io.Writer
+	written    int64
+	total      int64
+	tracker    progress.Tracker
+	lastReport int64
+}
+
+const progressInterval = 1 << 20 // report every 1 MiB
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	pw.written += int64(n)
+	if pw.written-pw.lastReport >= progressInterval {
+		pw.lastReport = pw.written
+		pw.tracker.OnEvent(cloudimgProgress.Event{
+			Phase:      cloudimgProgress.PhaseDownload,
+			BytesTotal: pw.total,
+			BytesDone:  pw.written,
+		})
 	}
-	return format, nil
+	return n, err
 }

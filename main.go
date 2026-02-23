@@ -99,13 +99,20 @@ func pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url string) {
 	tracker := progress.NewTracker(func(e cloudimgProgress.Event) {
 		switch e.Phase {
 		case cloudimgProgress.PhaseDownload:
-			if e.BytesTotal > 0 {
-				fmt.Printf("Downloading cloud image %s (%s)\n", url, formatSize(e.BytesTotal))
+			if e.BytesDone == 0 {
+				if e.BytesTotal > 0 {
+					fmt.Printf("Downloading cloud image %s (%s)\n", url, formatSize(e.BytesTotal))
+				} else {
+					fmt.Printf("Downloading cloud image %s\n", url)
+				}
+			} else if e.BytesTotal > 0 {
+				pct := float64(e.BytesDone) / float64(e.BytesTotal) * 100
+				fmt.Printf("\r  %s / %s (%.1f%%)", formatSize(e.BytesDone), formatSize(e.BytesTotal), pct)
 			} else {
-				fmt.Printf("Downloading cloud image %s\n", url)
+				fmt.Printf("\r  %s downloaded", formatSize(e.BytesDone))
 			}
 		case cloudimgProgress.PhaseConvert:
-			fmt.Printf("Converting to qcow2...\n")
+			fmt.Printf("\nConverting to qcow2...\n")
 		case cloudimgProgress.PhaseCommit:
 			fmt.Printf("Committing...\n")
 		case cloudimgProgress.PhaseDone:
