@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/progress"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/core/log"
 )
@@ -42,8 +43,8 @@ func (o *OCI) Type() string {
 
 // Pull downloads an OCI image from a container registry, extracts boot files
 // (kernel, initrd), and converts each layer to EROFS concurrently.
-func (o *OCI) Pull(ctx context.Context, image string) error {
-	return pull(ctx, o.conf, o.idx, image)
+func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) error {
+	return pull(ctx, o.conf, o.idx, image, tracker)
 }
 
 // List returns all locally stored images.
