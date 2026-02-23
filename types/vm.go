@@ -5,4 +5,6 @@ type VMConfig struct {
 	CPU     int    `json:"cpu"`
 	Memory  int64  `json:"memory"`
 	Storage int64  `json:"storage"`
+
+	Image string `json:"image"`
 }
