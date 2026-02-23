@@ -10,7 +10,11 @@ type Tracker interface {
 // The caller works with a concrete event type; the Tracker interface
 // stays non-generic so it can be used in interfaces like Images.
 func NewTracker[E any](fn func(E)) Tracker {
-	return funcTracker(func(v any) { fn(v.(E)) })
+	return funcTracker(func(v any) {
+		if e, ok := v.(E); ok {
+			fn(e)
+		}
+	})
 }
 
 type funcTracker func(any)

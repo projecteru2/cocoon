@@ -7,7 +7,9 @@ import (
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/progress"
+	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 	"github.com/projecteru2/core/log"
 )
 
@@ -19,8 +21,8 @@ const (
 // OCI implements the images.Images interface using OCI container images
 // converted to EROFS filesystems for use with Cloud Hypervisor.
 type OCI struct {
-	conf *config.Config
-	idx  *imageIndex
+	conf  *config.Config
+	store storage.Store[imageIndex]
 }
 
 // New creates a new OCI image backend.
@@ -32,8 +34,8 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 	log.WithFunc("oci.New").Infof(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
 
 	return &OCI{
-		conf: conf,
-		idx:  newImageIndex(conf),
+		conf:  conf,
+		store: newImageStore(conf),
 	}, nil
 }
 
@@ -44,12 +46,12 @@ func (o *OCI) Type() string {
 // Pull downloads an OCI image from a container registry, extracts boot files
 // (kernel, initrd), and converts each layer to EROFS concurrently.
 func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) error {
-	return pull(ctx, o.conf, o.idx, image, tracker)
+	return pull(ctx, o.conf, o.store, image, tracker)
 }
 
 // List returns all locally stored images.
 func (o *OCI) List(ctx context.Context) (result []*types.Image, err error) {
-	err = o.idx.With(ctx, func(idx *imageIndex) error {
+	err = o.store.With(ctx, func(idx *imageIndex) error {
 		for _, entry := range idx.Images {
 			var totalSize int64
 			for _, layer := range entry.Layers {
@@ -85,7 +87,7 @@ func (o *OCI) List(ctx context.Context) (result []*types.Image, err error) {
 func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
 	logger := log.WithFunc("oci.Delete")
 	var deleted []string
-	return deleted, o.idx.Update(ctx, func(idx *imageIndex) error {
+	return deleted, o.store.Update(ctx, func(idx *imageIndex) error {
 		for _, id := range ids {
 			ref, _, ok := idx.Lookup(id)
 			if !ok {
@@ -105,7 +107,7 @@ func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
 // Image references are normalized (e.g., "ubuntu:24.04" matches "docker.io/library/ubuntu:24.04").
 // Returns an error if any referenced blob or boot file is missing on disk.
 func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, boot []*types.BootConfig, err error) {
-	err = o.idx.With(ctx, func(idx *imageIndex) error {
+	err = o.store.With(ctx, func(idx *imageIndex) error {
 		result = make([][]*types.StorageConfig, len(vms))
 		boot = make([]*types.BootConfig, len(vms))
 		for i, vm := range vms {
@@ -117,7 +119,7 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 			var configs []*types.StorageConfig
 			for j, layer := range entry.Layers {
 				blobPath := o.conf.BlobPath(layer.Digest.Hex())
-				if !validFile(blobPath) {
+				if !utils.ValidFile(blobPath) {
 					return fmt.Errorf("blob invalid for VM %s layer %d (%s)", vm.Name, j, layer.Digest)
 				}
 				configs = append(configs, &types.StorageConfig{
@@ -130,10 +132,10 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 
 			kernelPath := o.conf.KernelPath(entry.KernelLayer.Hex())
 			initrdPath := o.conf.InitrdPath(entry.InitrdLayer.Hex())
-			if !validFile(kernelPath) {
+			if !utils.ValidFile(kernelPath) {
 				return fmt.Errorf("kernel invalid for VM %s (%s)", vm.Name, entry.KernelLayer)
 			}
-			if !validFile(initrdPath) {
+			if !utils.ValidFile(initrdPath) {
 				return fmt.Errorf("initrd invalid for VM %s (%s)", vm.Name, entry.InitrdLayer)
 			}
 			boot[i] = &types.BootConfig{

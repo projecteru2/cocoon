@@ -1,25 +1,19 @@
 package config
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
+
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // EnsureOCIDirs creates all required directories.
 func (c *Config) EnsureOCIDirs() error {
-	dirs := []string{
+	return utils.EnsureDirs(
 		c.DBDir(),
 		c.TempDir(),
 		c.BlobsDir(),
 		c.BootBaseDir(),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("create directory %s: %w", dir, err)
-		}
-	}
-	return nil
+	)
 }
 
 // Derived path helpers. All OCI data lives under {RootDir}/oci/.

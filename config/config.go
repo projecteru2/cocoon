@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	coretypes "github.com/projecteru2/core/types"
@@ -57,4 +58,9 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.PoolSize = runtime.NumCPU()
 	}
 	return cfg, nil
+}
+
+// FirmwarePath returns the path to the UEFI firmware file (CLOUDHV.fd).
+func (c *Config) FirmwarePath() string {
+	return filepath.Join(c.RootDir, "firmware", "CLOUDHV.fd")
 }

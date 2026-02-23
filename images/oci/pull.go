@@ -20,6 +20,7 @@ import (
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/progress"
 	ociProgress "github.com/projecteru2/cocoon/progress/oci"
+	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 	"github.com/projecteru2/core/log"
@@ -36,10 +37,10 @@ type pullLayerResult struct {
 
 // pull downloads an OCI image, extracts boot files, and converts each layer
 // to EROFS concurrently using errgroup.
-func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string, tracker progress.Tracker) error {
+func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
 	logger := log.WithFunc("oci.pull")
 
-	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, cfg, idx, imageRef, tracker)
+	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, cfg, store, imageRef, tracker)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 	// idempotent (skips rename when src == dst).
 	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseCommit, Index: -1, Total: len(results)})
 	manifestDigest := types.NewDigest(digestHex)
-	if err := idx.Update(ctx, func(idx *imageIndex) error {
+	if err := store.Update(ctx, func(idx *imageIndex) error {
 		return commitAndRecord(cfg, idx, ref, manifestDigest, results)
 	}); err != nil {
 		return fmt.Errorf("update image index: %w", err)
@@ -71,7 +72,7 @@ func pull(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef str
 // fetchAndProcess downloads the image and processes all layers concurrently.
 // Returns nil results if the image is already up-to-date.
 // The caller owns workDir cleanup via the returned path (empty when already up-to-date).
-func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, imageRef string, tracker progress.Tracker) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
+func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
 	logger := log.WithFunc("oci.pull")
 
 	parsedRef, parseErr := name.ParseReference(imageRef)
@@ -106,27 +107,31 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, idx *imageIndex, i
 	// Also collect known boot layer digests so processLayer can target self-heal
 	// even when the boot directory has been entirely deleted.
 	var alreadyPulled bool
-	var knownBootHexes map[string]struct{}
-	if withErr := idx.With(ctx, func(idx *imageIndex) error {
+	knownBootHexes := make(map[string]struct{})
+	if withErr := store.With(ctx, func(idx *imageIndex) error {
+		// Collect boot layer digests from ALL entries for cross-image self-heal.
+		// This ensures processLayer can recover boot files even when the current
+		// ref has no prior index record (e.g., first pull sharing cached layers).
+		for _, e := range idx.Images {
+			if e.KernelLayer != "" {
+				knownBootHexes[e.KernelLayer.Hex()] = struct{}{}
+			}
+			if e.InitrdLayer != "" {
+				knownBootHexes[e.InitrdLayer.Hex()] = struct{}{}
+			}
+		}
+
+		// Idempotency check: same ref and manifest digest with all files intact.
 		entry, ok := idx.Images[ref]
 		if !ok || entry.ManifestDigest != types.NewDigest(digestHex) {
 			return nil
 		}
-		// Remember boot layer digests for targeted self-heal.
-		knownBootHexes = make(map[string]struct{})
-		if entry.KernelLayer != "" {
-			knownBootHexes[entry.KernelLayer.Hex()] = struct{}{}
-		}
-		if entry.InitrdLayer != "" {
-			knownBootHexes[entry.InitrdLayer.Hex()] = struct{}{}
-		}
-		// Validate boot files and all layer blobs on disk.
-		if !validFile(cfg.KernelPath(entry.KernelLayer.Hex())) ||
-			!validFile(cfg.InitrdPath(entry.InitrdLayer.Hex())) {
+		if !utils.ValidFile(cfg.KernelPath(entry.KernelLayer.Hex())) ||
+			!utils.ValidFile(cfg.InitrdPath(entry.InitrdLayer.Hex())) {
 			return nil
 		}
 		for _, layer := range entry.Layers {
-			if !validFile(cfg.BlobPath(layer.Digest.Hex())) {
+			if !utils.ValidFile(cfg.BlobPath(layer.Digest.Hex())) {
 				return nil
 			}
 		}
@@ -263,15 +268,15 @@ func processLayer(ctx context.Context, cfg *config.Config, idx, total int, layer
 	result.digest = types.NewDigest(digestHex)
 
 	// Check if this layer's blob already exists and is valid (shared across images).
-	if validFile(cfg.BlobPath(digestHex)) {
+	if utils.ValidFile(cfg.BlobPath(digestHex)) {
 		logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
 		result.erofsPath = cfg.BlobPath(digestHex)
 
 		// Check for cached boot files (must exist and be non-empty).
-		if validFile(cfg.KernelPath(digestHex)) {
+		if utils.ValidFile(cfg.KernelPath(digestHex)) {
 			result.kernelPath = cfg.KernelPath(digestHex)
 		}
-		if validFile(cfg.InitrdPath(digestHex)) {
+		if utils.ValidFile(cfg.InitrdPath(digestHex)) {
 			result.initrdPath = cfg.InitrdPath(digestHex)
 		}
 
@@ -286,7 +291,7 @@ func processLayer(ctx context.Context, cfg *config.Config, idx, total int, layer
 			_, statErr := os.Stat(cfg.BootDir(digestHex))
 			hasBootEvidence = statErr == nil
 		}
-		if !hasBootEvidence && knownBootHexes != nil {
+		if !hasBootEvidence {
 			_, hasBootEvidence = knownBootHexes[digestHex]
 		}
 		if hasBootEvidence && (result.kernelPath == "" || result.initrdPath == "") {
@@ -432,10 +437,4 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 		logger.Infof(ctx, "Layer %s: extracted %s", digestHex[:12], base)
 	}
 	return kernelPath, initrdPath, nil
-}
-
-// validFile returns true if path is a regular file with size > 0.
-func validFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }
