@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 )
@@ -21,7 +19,7 @@ const CowSerial = "cocoon-cow"
 // Create registers a new VM, prepares the COW disk, and persists the record.
 // The VM is left in Created state — call Start to launch it.
 func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, bootCfg *types.BootConfig) (*types.VMInfo, error) {
-	id := uuid.New().String()
+	id := hypervisor.GenerateID()
 
 	if err := ch.conf.EnsureCHVMDirs(id); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
@@ -64,7 +62,14 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	}
 
 	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		if idx.VMs[id] != nil {
+			return fmt.Errorf("ID collision %q (retry)", id)
+		}
+		if dup, ok := idx.Names[vmCfg.Name]; ok {
+			return fmt.Errorf("VM name %q already exists (id: %s)", vmCfg.Name, dup)
+		}
 		idx.VMs[id] = &rec
+		idx.Names[vmCfg.Name] = id
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("persist VM record: %w", err)

@@ -50,9 +50,9 @@ func (c *Config) CHVMProcessLog(vmID string) string {
 	return filepath.Join(c.CHVMLogDir(vmID), "ch.log")
 }
 
-// CHVMPayloadFile returns the path for the saved CH config payload.
-func (c *Config) CHVMPayloadFile(vmID string) string {
-	return filepath.Join(c.CHVMRunDir(vmID), "vm.json")
+// CHVMCmdlineFile returns the path for the saved CH launch command.
+func (c *Config) CHVMCmdlineFile(vmID string) string {
+	return filepath.Join(c.CHVMRunDir(vmID), "cmdline")
 }
 
 // CHVMCOWRawPath returns the path for the OCI COW raw disk.

@@ -2,9 +2,9 @@ package cloudhypervisor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -58,23 +58,20 @@ func (ch *CloudHypervisor) markError(ctx context.Context, id string) {
 	_ = ch.updateState(ctx, id, types.VMStateError)
 }
 
-// savePayload writes the CH config payload to the per-VM run dir for debugging.
-// Best-effort: errors are silently ignored.
-func (ch *CloudHypervisor) savePayload(vmID string, cfg *chVMConfig) {
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(ch.conf.CHVMPayloadFile(vmID), data, 0o600) //nolint:gosec
+// saveCmdline writes the full cloud-hypervisor launch command to the per-VM
+// run dir for debugging. Best-effort: errors are silently ignored.
+func (ch *CloudHypervisor) saveCmdline(vmID string, args []string) {
+	line := ch.conf.CHBinary + " " + strings.Join(args, " ")
+	_ = os.WriteFile(ch.conf.CHVMCmdlineFile(vmID), []byte(line), 0o600) //nolint:gosec
 }
 
-// cleanupRuntimeFiles removes transient runtime files (socket, PID, vm.json)
+// cleanupRuntimeFiles removes transient runtime files (socket, PID, cmdline)
 // from a VM's run directory. Used by start/stop to clean stale state without
 // touching overlays or logs. Safe to call unconditionally.
 func (ch *CloudHypervisor) cleanupRuntimeFiles(vmID string) {
 	_ = os.Remove(ch.conf.CHVMSocketPath(vmID))
 	_ = os.Remove(ch.conf.CHVMPIDFile(vmID))
-	_ = os.Remove(ch.conf.CHVMPayloadFile(vmID))
+	_ = os.Remove(ch.conf.CHVMCmdlineFile(vmID))
 }
 
 // removeVMDirs removes the VM's entire run and log directories, including

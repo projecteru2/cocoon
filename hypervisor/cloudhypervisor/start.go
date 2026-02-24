@@ -16,9 +16,13 @@ import (
 
 const socketWaitTimeout = 5 * time.Second
 
-// Start launches the Cloud Hypervisor process for each VM ID.
+// Start launches the Cloud Hypervisor process for each VM ref.
 // Returns the IDs that were successfully started.
-func (ch *CloudHypervisor) Start(ctx context.Context, ids []string) ([]string, error) {
+func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, error) {
+	ids, err := ch.resolveRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
 	return forEachVM(ctx, ids, "Start", true, ch.startOne)
 }
 
@@ -48,8 +52,8 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	// Build VM config and convert to CLI args — CH boots immediately on launch.
 	vmCfg := buildVMConfig(&rec, ch.conf.CHVMSerialLog(id))
-	ch.savePayload(id, vmCfg)
 	args := buildCLIArgs(vmCfg, socketPath)
+	ch.saveCmdline(id, args)
 
 	// Launch the CH process with full config.
 	if _, err := ch.launchProcess(ctx, id, socketPath, args); err != nil {

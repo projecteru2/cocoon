@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -77,6 +78,8 @@ func main() {
 		batchVMCmd(ctx, "stop", "Stopped", ch.Stop, os.Args[2:])
 	case "ps":
 		cmdPS(ctx, ch)
+	case "inspect":
+		cmdInspect(ctx, ch, os.Args[2:])
 	case "rm":
 		cmdRM(ctx, ch, os.Args[2:])
 
@@ -446,7 +449,7 @@ func cmdPS(ctx context.Context, hyper hypervisor.Hypervisor) {
 	for _, vm := range vms {
 		state := reconcileState(vm)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			truncateID(vm.ID, 12),
+			vm.ID,
 			vm.Config.Name,
 			state,
 			vm.Config.CPU,
@@ -464,6 +467,19 @@ func reconcileState(vm *types.VMInfo) string {
 		return "stopped (stale)"
 	}
 	return string(vm.State)
+}
+
+func cmdInspect(ctx context.Context, hyper hypervisor.Hypervisor, args []string) {
+	if len(args) == 0 {
+		fatalf("usage: cocoon inspect <vm-id|name>")
+	}
+	info, err := hyper.Inspect(ctx, args[0])
+	if err != nil {
+		fatalf("inspect: %v", err)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(info)
 }
 
 func cmdRM(ctx context.Context, hyper hypervisor.Hypervisor, args []string) {
@@ -494,13 +510,6 @@ func formatSize(bytes int64) string {
 	return units.HumanSize(float64(bytes))
 }
 
-func truncateID(id string, n int) string {
-	if len(id) <= n {
-		return id
-	}
-	return id[:n]
-}
-
 func usage() {
 	fmt.Fprintf(os.Stderr, `Cocoon - MicroVM Engine
 
@@ -521,6 +530,7 @@ VM Commands:
   start  <vm-id> [vm-id...]       Start created/stopped VM(s)
   stop   <vm-id> [vm-id...]       Stop running VM(s)
   ps                              List VMs with status
+  inspect <vm-id|name>            Show detailed VM info (JSON)
   rm     [--force] <vm-id> [...]  Delete VM(s) (--force to stop running VMs first)
 
 Create flags:

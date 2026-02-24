@@ -19,13 +19,17 @@ const (
 	terminateGracePeriod = 5 * time.Second
 )
 
-// Stop shuts down the Cloud Hypervisor process for each VM ID.
+// Stop shuts down the Cloud Hypervisor process for each VM ref.
 // Two modes are used depending on the VM's boot method:
 //   - UEFI boot (cloudimg): ACPI power-button → poll → fallback SIGTERM/SIGKILL
 //   - Direct boot (OCI):    vm.shutdown API → SIGTERM → SIGKILL (no ACPI)
 //
 // Returns the IDs that were successfully stopped.
-func (ch *CloudHypervisor) Stop(ctx context.Context, ids []string) ([]string, error) {
+func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, error) {
+	ids, err := ch.resolveRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
 	return forEachVM(ctx, ids, "Stop", true, ch.stopOne)
 }
 

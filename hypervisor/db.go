@@ -1,6 +1,13 @@
 package hypervisor
 
-import "github.com/projecteru2/cocoon/types"
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"strings"
+
+	"github.com/projecteru2/cocoon/types"
+)
 
 // VMRecord is the persisted record for a single VM.
 // It extends types.VMInfo with the disk and boot configuration needed to
@@ -32,12 +39,54 @@ type VMRecord struct {
 // Each backend stores its VMs under a separate index file
 // (e.g. {RootDir}/cloudhypervisor/db/vms.json).
 type VMIndex struct {
-	VMs map[string]*VMRecord `json:"vms"`
+	VMs   map[string]*VMRecord `json:"vms"`
+	Names map[string]string    `json:"names"` // name → VM ID
 }
 
-// Init implements storage.Initer — initialises the nil map after deserialization.
+// Init implements storage.Initer — initialises nil maps after deserialization.
 func (idx *VMIndex) Init() {
 	if idx.VMs == nil {
 		idx.VMs = make(map[string]*VMRecord)
 	}
+	if idx.Names == nil {
+		idx.Names = make(map[string]string)
+	}
+}
+
+// GenerateID returns a random 16-character hex string (8 bytes of entropy).
+func GenerateID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// ResolveVMRef resolves a user-supplied reference (exact ID, name, or ID prefix)
+// to a full VM ID. Resolution order: exact ID → name → ID prefix (≥3 chars).
+func ResolveVMRef(idx *VMIndex, ref string) (string, error) {
+	// 1. Exact ID match.
+	if idx.VMs[ref] != nil {
+		return ref, nil
+	}
+	// 2. Name index match.
+	if id, ok := idx.Names[ref]; ok && idx.VMs[id] != nil {
+		return id, nil
+	}
+	// 3. ID prefix match (require ≥3 chars to avoid overly broad matches).
+	if len(ref) >= 3 {
+		var match string
+		for id := range idx.VMs {
+			if strings.HasPrefix(id, ref) {
+				if match != "" {
+					return "", fmt.Errorf("ambiguous ref %q: multiple matches", ref)
+				}
+				match = id
+			}
+		}
+		if match != "" {
+			return match, nil
+		}
+	}
+	return "", ErrNotFound
 }

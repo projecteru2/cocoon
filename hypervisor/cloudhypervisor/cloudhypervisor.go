@@ -36,17 +36,17 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 
 func (ch *CloudHypervisor) Type() string { return typ }
 
-// Inspect returns the VMInfo for a single VM by ID.
+// Inspect returns the VMInfo for a single VM by ref (ID, name, or prefix).
 // Returns hypervisor.ErrNotFound if the VM does not exist.
 // Runtime fields (PID, SocketPath) are populated from the PID file and config.
-func (ch *CloudHypervisor) Inspect(ctx context.Context, id string) (*types.VMInfo, error) {
+func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VMInfo, error) {
 	var result *types.VMInfo
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
-		rec := idx.VMs[id]
-		if rec == nil {
-			return hypervisor.ErrNotFound
+		id, err := hypervisor.ResolveVMRef(idx, ref)
+		if err != nil {
+			return err
 		}
-		info := rec.VMInfo // value copy — detached from the DB record
+		info := idx.VMs[id].VMInfo // value copy — detached from the DB record
 		ch.enrichRuntime(&info)
 		result = &info
 		return nil
@@ -73,7 +73,11 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 // Delete removes VM records from the index and returns the IDs that were deleted.
 // Running VMs are rejected unless force is true, in which case they are stopped first.
 // Best-effort: all IDs are attempted; partial results and collected errors are returned.
-func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string, force bool) ([]string, error) {
+func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
+	ids, err := ch.resolveRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
 	return forEachVM(ctx, ids, "Delete", true, func(ctx context.Context, id string) error {
 		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
 		if utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
@@ -85,15 +89,33 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string, force bool)
 			}
 		}
 		if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-			if _, ok := idx.VMs[id]; !ok {
+			rec := idx.VMs[id]
+			if rec == nil {
 				return hypervisor.ErrNotFound
 			}
+			delete(idx.Names, rec.Config.Name)
 			delete(idx.VMs, id)
 			return nil
 		}); err != nil {
 			return err
 		}
 		ch.removeVMDirs(id)
+		return nil
+	})
+}
+
+// resolveRefs batch-resolves user-supplied references (IDs, names, or prefixes)
+// to exact VM IDs under a single lock.
+func (ch *CloudHypervisor) resolveRefs(ctx context.Context, refs []string) ([]string, error) {
+	var ids []string
+	return ids, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+		for _, ref := range refs {
+			id, err := hypervisor.ResolveVMRef(idx, ref)
+			if err != nil {
+				return fmt.Errorf("resolve %q: %w", ref, err)
+			}
+			ids = append(ids, id)
+		}
 		return nil
 	})
 }
