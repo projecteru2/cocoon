@@ -148,14 +148,6 @@ func ListImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64)
 	return result
 }
 
-// ScanBlobHexes returns the digest hexes of all files with the given suffix in dir.
-func ScanBlobHexes(dir, suffix string) []string { return utils.ScanFileStems(dir, suffix) }
-
-// FilterUnreferenced returns elements of candidates not present in refs.
-func FilterUnreferenced(candidates []string, refs map[string]struct{}) []string {
-	return utils.FilterUnreferenced(candidates, refs)
-}
-
 // GCStaleTemp removes temp entries older than StaleTempAge.
 // Set dirOnly=true to only remove directories (OCI uses dirs, cloudimg uses files).
 func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
@@ -169,25 +161,3 @@ func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
 	})
 }
 
-// GCUnreferencedBlobs removes files with the given suffix that aren't in refs.
-func GCUnreferencedBlobs(ctx context.Context, dir, suffix string, refs map[string]struct{}) []error {
-	return utils.RemoveMatching(ctx, dir, func(e os.DirEntry) bool {
-		n := e.Name()
-		if !strings.HasSuffix(n, suffix) {
-			return false
-		}
-		_, ok := refs[strings.TrimSuffix(n, suffix)]
-		return !ok
-	})
-}
-
-// GCUnreferencedDirs removes directories not in refs (used by OCI for boot dirs).
-func GCUnreferencedDirs(ctx context.Context, dir string, refs map[string]struct{}) []error {
-	return utils.RemoveMatching(ctx, dir, func(e os.DirEntry) bool {
-		if !e.IsDir() {
-			return false
-		}
-		_, ok := refs[e.Name()]
-		return !ok
-	})
-}

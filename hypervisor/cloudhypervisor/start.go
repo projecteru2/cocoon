@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -58,12 +59,20 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	ch.saveCmdline(id, args)
 
 	// Launch the CH process with full config.
-	if _, err := ch.launchProcess(ctx, id, socketPath, args); err != nil {
+	pid, err = ch.launchProcess(ctx, id, socketPath, args)
+	if err != nil {
 		ch.markError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}
 
-	return ch.updateState(ctx, id, types.VMStateRunning)
+	if err := ch.updateState(ctx, id, types.VMStateRunning); err != nil {
+		// Kill orphan process — the DB doesn't know the VM is running,
+		// so clean up and let the next start retry from a clean slate.
+		_ = utils.TerminateProcess(ctx, pid, filepath.Base(ch.conf.CHBinary), socketPath, terminateGracePeriod)
+		ch.cleanupRuntimeFiles(id)
+		return fmt.Errorf("update state: %w", err)
+	}
+	return nil
 }
 
 // launchProcess starts the cloud-hypervisor binary with the given args,

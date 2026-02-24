@@ -6,10 +6,11 @@ import "time"
 type VMState string
 
 const (
-	VMStateCreated VMState = "created" // registered, CH process not yet started
-	VMStateRunning VMState = "running" // CH process alive, guest is up
-	VMStateStopped VMState = "stopped" // CH process has exited cleanly
-	VMStateError   VMState = "error"   // start or stop failed
+	VMStateCreating VMState = "creating" // DB placeholder written, dirs/disks being prepared
+	VMStateCreated  VMState = "created"  // registered, CH process not yet started
+	VMStateRunning  VMState = "running"  // CH process alive, guest is up
+	VMStateStopped  VMState = "stopped"  // CH process has exited cleanly
+	VMStateError    VMState = "error"    // start or stop failed
 )
 
 // VMConfig describes the resources requested for a new VM.

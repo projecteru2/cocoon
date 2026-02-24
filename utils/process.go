@@ -49,7 +49,7 @@ func VerifyProcess(pid int, binaryName string) bool {
 	}
 	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
 	if err != nil {
-		return IsProcessAlive(pid)
+		return false
 	}
 	return filepath.Base(exe) == binaryName
 }
@@ -66,7 +66,7 @@ func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	}
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
-		return IsProcessAlive(pid)
+		return false
 	}
 	cmdline := string(data)
 	return strings.Contains(cmdline, binaryName) && strings.Contains(cmdline, expectArg)

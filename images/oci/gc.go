@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // ociSnapshot is the typed GC snapshot for the OCI backend.
@@ -21,7 +22,7 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 	return gc.Module[ociSnapshot]{
 		Name:   typ,
 		Locker: o.locker,
-		ReadDB: func(ctx context.Context) (ociSnapshot, error) {
+		ReadDB: func(_ context.Context) (ociSnapshot, error) {
 			var snap ociSnapshot
 			if err := o.store.Read(func(idx *imageIndex) error {
 				snap.refs = images.ReferencedDigests(idx.Images)
@@ -29,34 +30,32 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
-			snap.blobs = images.ScanBlobHexes(o.conf.OCIBlobsDir(), ".erofs")
-			if entries, err := os.ReadDir(o.conf.OCIBootBaseDir()); err == nil {
-				for _, e := range entries {
-					if e.IsDir() {
-						snap.bootDirs = append(snap.bootDirs, e.Name())
-					}
-				}
-			}
+			snap.blobs = utils.ScanFileStems(o.conf.OCIBlobsDir(), ".erofs")
+			snap.bootDirs = utils.ScanSubdirs(o.conf.OCIBootBaseDir())
 			return snap, nil
 		},
 		Resolve: func(snap ociSnapshot, others map[string]any) []string {
 			used := gc.CollectUsedBlobIDs(others)
 
-			dangling := images.FilterUnreferenced(snap.blobs, snap.refs)
-			seen := make(map[string]struct{}, len(dangling))
-			var result []string
-			for _, hex := range dangling {
-				if _, inUse := used[hex]; inUse {
-					continue
-				}
-				result = append(result, hex)
-				seen[hex] = struct{}{}
+			// Merge index refs + VM-pinned blobs into one protection set.
+			allRefs := make(map[string]struct{}, len(snap.refs)+len(used))
+			for k := range snap.refs {
+				allRefs[k] = struct{}{}
 			}
-			for _, hex := range images.FilterUnreferenced(snap.bootDirs, snap.refs) {
-				if _, inUse := used[hex]; inUse {
-					continue
-				}
-				if _, already := seen[hex]; !already {
+			for k := range used {
+				allRefs[k] = struct{}{}
+			}
+
+			candidates := append(
+				utils.FilterUnreferenced(snap.blobs, allRefs),
+				utils.FilterUnreferenced(snap.bootDirs, allRefs)...,
+			)
+			// Deduplicate (a hex may appear in both blobs and bootDirs).
+			seen := make(map[string]struct{}, len(candidates))
+			var result []string
+			for _, hex := range candidates {
+				if _, ok := seen[hex]; !ok {
+					seen[hex] = struct{}{}
 					result = append(result, hex)
 				}
 			}
