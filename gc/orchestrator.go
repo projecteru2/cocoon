@@ -25,41 +25,50 @@ func Register[S any](o *Orchestrator, m Module[S]) {
 
 // Run executes one GC cycle:
 //
-//  1. For each module: TryLock → ReadDB → Unlock (skip if busy).
-//  2. Each module's Resolve analyses its typed snapshot, with other modules'
-//     snapshots available as map[string]any for cross-module analysis.
-//  3. For each snapshotted module: TryLock → Collect → Unlock (skip if busy).
-//     Collect is called even with empty targets so modules can run housekeeping
-//     (e.g. stale temp cleanup).
+//  1. TryLock all modules; skip those whose lock is busy.
+//  2. ReadDB each locked module to build a snapshot.
+//  3. Resolve deletion targets per module. Each module's Resolve receives
+//     all other snapshots (typed as any) for cross-module analysis — e.g.,
+//     image GC checks UsedBlobIDs from the VM snapshot to protect active blobs.
+//  4. Collect targets for each snapshotted module.
+//  5. Unlock all (deferred).
 //
-// Step 3 re-acquires the lock rather than holding it from step 1 to keep
-// contention minimal. commitAndRecord validates blob existence under lock
-// before writing the index, so a deletion racing with a commit is caught
-// there and the pull retries.
+// All locks are held for the entire cycle so that the snapshot, resolve, and
+// collect phases see a consistent view. GC runs infrequently and executes
+// fast, so the extended lock hold is acceptable.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	logger := log.WithFunc("gc.Run")
 
-	// Phase 1: collect each module's snapshot under lock.
-	snapshots := make(map[string]any, len(o.modules))
+	// Acquire all locks up front; hold until GC finishes.
+	var locked []runner
 	for _, m := range o.modules {
 		ok, err := m.getLocker().TryLock(ctx)
 		if err != nil || !ok {
 			logger.Warnf(ctx, "skip %s: lock busy", m.getName())
 			continue
 		}
-		snap, readErr := m.readSnapshot(ctx)
-		m.getLocker().Unlock(ctx) //nolint:errcheck
-		if readErr != nil {
-			logger.Warnf(ctx, "snapshot %s: %v", m.getName(), readErr)
+		locked = append(locked, m)
+	}
+	defer func() {
+		for _, m := range locked {
+			m.getLocker().Unlock(ctx) //nolint:errcheck
+		}
+	}()
+
+	// Phase 1: snapshot all locked modules.
+	snapshots := make(map[string]any, len(locked))
+	for _, m := range locked {
+		snap, err := m.readSnapshot(ctx)
+		if err != nil {
+			logger.Warnf(ctx, "snapshot %s: %v", m.getName(), err)
 			continue
 		}
 		snapshots[m.getName()] = snap
 	}
 
-	// Phase 2: resolve deletion targets per module (no locks held).
-	// Each module sees its own snapshot typed, others as any.
+	// Phase 2: resolve deletion targets (cross-module via snapshots).
 	targets := make(map[string][]string)
-	for _, m := range o.modules {
+	for _, m := range locked {
 		snap, ok := snapshots[m.getName()]
 		if !ok {
 			continue
@@ -69,23 +78,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 	}
 
-	// Phase 3: collect under lock for every snapshotted module.
-	// Collect is called even with empty targets so modules can do housekeeping.
+	// Phase 3: collect.
 	var errs []string
-	for _, m := range o.modules {
+	for _, m := range locked {
 		if _, snapshotted := snapshots[m.getName()]; !snapshotted {
 			continue
 		}
-		ids := targets[m.getName()] // nil if no targets — Collect handles this
-		ok, err := m.getLocker().TryLock(ctx)
-		if err != nil || !ok {
-			logger.Warnf(ctx, "skip collect %s: lock busy", m.getName())
-			continue
-		}
-		collectErr := m.collect(ctx, ids)
-		m.getLocker().Unlock(ctx) //nolint:errcheck
-		if collectErr != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", m.getName(), collectErr))
+		ids := targets[m.getName()]
+		if err := m.collect(ctx, ids); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", m.getName(), err))
 		}
 	}
 	if len(errs) > 0 {

@@ -39,19 +39,28 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			}
 			return snap, nil
 		},
-		Resolve: func(snap ociSnapshot, _ map[string]any) []string {
-			// Collect unreferenced blobs, then any boot dirs not already included.
-			unreferenced := images.FilterUnreferenced(snap.blobs, snap.refs)
-			seen := make(map[string]struct{}, len(unreferenced))
-			for _, h := range unreferenced {
-				seen[h] = struct{}{}
+		Resolve: func(snap ociSnapshot, others map[string]any) []string {
+			used := gc.CollectUsedBlobIDs(others)
+
+			dangling := images.FilterUnreferenced(snap.blobs, snap.refs)
+			seen := make(map[string]struct{}, len(dangling))
+			var result []string
+			for _, hex := range dangling {
+				if _, inUse := used[hex]; inUse {
+					continue
+				}
+				result = append(result, hex)
+				seen[hex] = struct{}{}
 			}
 			for _, hex := range images.FilterUnreferenced(snap.bootDirs, snap.refs) {
+				if _, inUse := used[hex]; inUse {
+					continue
+				}
 				if _, already := seen[hex]; !already {
-					unreferenced = append(unreferenced, hex)
+					result = append(result, hex)
 				}
 			}
-			return unreferenced
+			return result
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error

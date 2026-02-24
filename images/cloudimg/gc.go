@@ -31,8 +31,17 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			snap.blobs = images.ScanBlobHexes(c.conf.CloudimgBlobsDir(), ".qcow2")
 			return snap, nil
 		},
-		Resolve: func(snap cloudimgSnapshot, _ map[string]any) []string {
-			return images.FilterUnreferenced(snap.blobs, snap.refs)
+		Resolve: func(snap cloudimgSnapshot, others map[string]any) []string {
+			used := gc.CollectUsedBlobIDs(others)
+
+			var result []string
+			for _, hex := range images.FilterUnreferenced(snap.blobs, snap.refs) {
+				if _, inUse := used[hex]; inUse {
+					continue
+				}
+				result = append(result, hex)
+			}
+			return result
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error

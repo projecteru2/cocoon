@@ -21,6 +21,11 @@ type VMRecord struct {
 	// BootConfig holds the kernel and initrd paths for direct-boot VMs.
 	// Nil for UEFI-boot VMs (cloud images).
 	BootConfig *types.BootConfig `json:"boot_config,omitempty"`
+
+	// ImageBlobIDs is the set of digest hex strings of image blobs this VM
+	// depends on. Populated at create time from the original StorageConfigs
+	// (before COW prepare). Image GC skips dangling blobs that appear here.
+	ImageBlobIDs map[string]struct{} `json:"image_blob_ids,omitempty"`
 }
 
 // VMIndex is the top-level DB structure shared by all hypervisor backends.
