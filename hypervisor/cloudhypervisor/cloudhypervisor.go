@@ -3,13 +3,16 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/lock"
 	"github.com/projecteru2/cocoon/lock/flock"
-	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/storage"
+	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -34,7 +37,58 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 
 func (ch *CloudHypervisor) Type() string { return typ }
 
-// Create, Start, Stop, Inspect, List, Delete — to be implemented.
+// Inspect returns the VMInfo for a single VM by ID.
+// Returns (nil, nil) if the VM is not found.
+// Runtime fields (PID, SocketPath) are populated from the PID file and config.
+func (ch *CloudHypervisor) Inspect(ctx context.Context, id string) (*types.VMInfo, error) {
+	var result *types.VMInfo
+	err := ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+		rec := idx.VMs[id]
+		if rec == nil {
+			return nil
+		}
+		info := rec.VMInfo // value copy — detached from the DB record
+		ch.enrichRuntime(&info)
+		result = &info
+		return nil
+	})
+	return result, err
+}
+
+// List returns VMInfo for all known VMs.
+// Runtime fields are populated for each entry.
+func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
+	var result []*types.VMInfo
+	err := ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+		for _, rec := range idx.VMs {
+			if rec == nil {
+				continue
+			}
+			info := rec.VMInfo
+			ch.enrichRuntime(&info)
+			result = append(result, &info)
+		}
+		return nil
+	})
+	return result, err
+}
+
+// Delete removes VM records from the index and returns the IDs that were deleted.
+// Unknown IDs are silently skipped. Runtime and log directories are left for GC.
+func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string) ([]string, error) {
+	var deleted []string
+	return deleted, ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		for _, id := range ids {
+			if _, ok := idx.VMs[id]; ok {
+				delete(idx.VMs, id)
+				deleted = append(deleted, id)
+			}
+		}
+		return nil
+	})
+}
+
+// Create, Start, Stop — to be implemented.
 
 func (ch *CloudHypervisor) Create(_ context.Context, _ *types.VMConfig, _ []*types.StorageConfig, _ *types.BootConfig) (*types.VMInfo, error) {
 	panic("not implemented")
@@ -48,15 +102,24 @@ func (ch *CloudHypervisor) Stop(_ context.Context, _ []string) ([]string, error)
 	panic("not implemented")
 }
 
-func (ch *CloudHypervisor) Inspect(_ context.Context, _ string) (*types.VMInfo, error) {
-	panic("not implemented")
+// enrichRuntime populates the runtime-only fields of info from live sources:
+//   - SocketPath is always derived from config (deterministic).
+//   - PID is read from the PID file; 0 means the VM is not running.
+func (ch *CloudHypervisor) enrichRuntime(info *types.VMInfo) {
+	info.SocketPath = ch.conf.CHVMSocketPath(info.ID)
+	info.PID = readPID(ch.conf.CHVMPIDFile(info.ID))
 }
 
-func (ch *CloudHypervisor) List(_ context.Context) ([]*types.VMInfo, error) {
-	panic("not implemented")
+// readPID reads a process ID from path.
+// Returns 0 if the file does not exist or cannot be parsed.
+func readPID(path string) int {
+	data, err := os.ReadFile(path) //nolint:gosec // internal runtime path
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
 }
-
-func (ch *CloudHypervisor) Delete(_ context.Context, _ []string) ([]string, error) {
-	panic("not implemented")
-}
-
