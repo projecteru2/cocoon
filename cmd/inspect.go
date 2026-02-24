@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,8 +15,8 @@ var inspectCmd = &cobra.Command{
 	RunE:  runInspect,
 }
 
-func runInspect(_ *cobra.Command, args []string) error {
-	ctx := context.Background()
+func runInspect(cmd *cobra.Command, args []string) error {
+	ctx := commandContext(cmd)
 	hyper, err := initHypervisor()
 	if err != nil {
 		return err

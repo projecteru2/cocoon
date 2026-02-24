@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -21,7 +20,7 @@ var rmCmd = func() *cobra.Command {
 }()
 
 func runRM(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := commandContext(cmd)
 	logger := log.WithFunc("cmd.rm")
 	hyper, err := initHypervisor()
 	if err != nil {

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	units "github.com/docker/go-units"
@@ -26,7 +25,7 @@ var createCmd = func() *cobra.Command {
 }()
 
 func runCreate(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := commandContext(cmd)
 	backends, hyper, err := initBackends(ctx)
 	if err != nil {
 		return err

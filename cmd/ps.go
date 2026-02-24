@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -18,8 +17,8 @@ var psCmd = &cobra.Command{
 	RunE:  runPS,
 }
 
-func runPS(_ *cobra.Command, _ []string) error {
-	ctx := context.Background()
+func runPS(cmd *cobra.Command, _ []string) error {
+	ctx := commandContext(cmd)
 	hyper, err := initHypervisor()
 	if err != nil {
 		return err

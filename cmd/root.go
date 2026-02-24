@@ -21,8 +21,8 @@ var rootCmd = func() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cocoon",
 		Short: "Cocoon - MicroVM Engine",
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			return initConfig()
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			return initConfig(commandContext(cmd))
 		},
 	}
 
@@ -58,7 +58,7 @@ var rootCmd = func() *cobra.Command {
 	return cmd
 }()
 
-func initConfig() error {
+func initConfig(ctx context.Context) error {
 	conf = config.DefaultConfig()
 
 	if cfgFile != "" {
@@ -77,10 +77,12 @@ func initConfig() error {
 		conf.StopTimeoutSeconds = 30 //nolint:mnd
 	}
 
-	return log.SetupLog(context.Background(), &conf.Log, "")
+	return log.SetupLog(ctx, &conf.Log, "")
 }
 
 // Execute is the main entry point called from main.go.
 func Execute() error {
-	return rootCmd.Execute()
+	ctx, cancel := newCommandContext()
+	defer cancel()
+	return rootCmd.ExecuteContext(ctx)
 }

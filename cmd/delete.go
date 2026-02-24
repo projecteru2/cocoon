@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -16,8 +15,8 @@ var deleteCmd = &cobra.Command{
 	RunE:  runDelete,
 }
 
-func runDelete(_ *cobra.Command, args []string) error {
-	ctx := context.Background()
+func runDelete(cmd *cobra.Command, args []string) error {
+	ctx := commandContext(cmd)
 	logger := log.WithFunc("cmd.delete")
 	backends, _, _, err := initImageBackends(ctx)
 	if err != nil {
