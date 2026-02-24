@@ -1,4 +1,4 @@
-package cmd
+package core
 
 import (
 	"context"
@@ -8,17 +8,26 @@ import (
 	units "github.com/docker/go-units"
 	"github.com/spf13/cobra"
 
+	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
-	"github.com/projecteru2/cocoon/images"
+	imagebackend "github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/images/cloudimg"
 	"github.com/projecteru2/cocoon/images/oci"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
 
-// initBackends initializes all image backends and the hypervisor.
-func initBackends(ctx context.Context) ([]images.Images, hypervisor.Hypervisor, error) {
+// CommandContext returns command context, falling back to Background.
+func CommandContext(cmd *cobra.Command) context.Context {
+	if cmd != nil && cmd.Context() != nil {
+		return cmd.Context()
+	}
+	return context.Background()
+}
+
+// InitBackends initializes all image backends and the hypervisor.
+func InitBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Images, hypervisor.Hypervisor, error) {
 	ociStore, err := oci.New(ctx, conf)
 	if err != nil {
 		return nil, nil, fmt.Errorf("init oci backend: %w", err)
@@ -31,12 +40,12 @@ func initBackends(ctx context.Context) ([]images.Images, hypervisor.Hypervisor, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("init hypervisor: %w", err)
 	}
-	backends := []images.Images{ociStore, cloudimgStore}
+	backends := []imagebackend.Images{ociStore, cloudimgStore}
 	return backends, ch, nil
 }
 
-// initImageBackends initializes only image backends (no hypervisor needed).
-func initImageBackends(ctx context.Context) ([]images.Images, *oci.OCI, *cloudimg.CloudImg, error) {
+// InitImageBackends initializes only image backends (no hypervisor needed).
+func InitImageBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Images, *oci.OCI, *cloudimg.CloudImg, error) {
 	ociStore, err := oci.New(ctx, conf)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("init oci backend: %w", err)
@@ -45,11 +54,11 @@ func initImageBackends(ctx context.Context) ([]images.Images, *oci.OCI, *cloudim
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("init cloudimg backend: %w", err)
 	}
-	return []images.Images{ociStore, cloudimgStore}, ociStore, cloudimgStore, nil
+	return []imagebackend.Images{ociStore, cloudimgStore}, ociStore, cloudimgStore, nil
 }
 
-// initHypervisor initializes only the hypervisor.
-func initHypervisor() (hypervisor.Hypervisor, error) {
+// InitHypervisor initializes only the hypervisor.
+func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
 	ch, err := cloudhypervisor.New(conf)
 	if err != nil {
 		return nil, fmt.Errorf("init hypervisor: %w", err)
@@ -57,8 +66,8 @@ func initHypervisor() (hypervisor.Hypervisor, error) {
 	return ch, nil
 }
 
-// resolveImage resolves an image reference to StorageConfigs + BootConfig via image backends.
-func resolveImage(ctx context.Context, backends []images.Images, vmCfg *types.VMConfig) ([]*types.StorageConfig, *types.BootConfig, error) {
+// ResolveImage resolves an image reference to StorageConfigs + BootConfig.
+func ResolveImage(ctx context.Context, backends []imagebackend.Images, vmCfg *types.VMConfig) ([]*types.StorageConfig, *types.BootConfig, error) {
 	vms := []*types.VMConfig{vmCfg}
 	var storageConfigs []*types.StorageConfig
 	var bootCfg *types.BootConfig
@@ -79,8 +88,8 @@ func resolveImage(ctx context.Context, backends []images.Images, vmCfg *types.VM
 	return storageConfigs, bootCfg, nil
 }
 
-// vmConfigFromFlags builds VMConfig for create/run commands.
-func vmConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error) {
+// VMConfigFromFlags builds VMConfig for create/run commands.
+func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
 	cpu, _ := cmd.Flags().GetInt("cpu")
 	memStr, _ := cmd.Flags().GetString("memory")
@@ -108,22 +117,23 @@ func vmConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 	}, nil
 }
 
-func ensureFirmwarePath(bootCfg *types.BootConfig) {
+// EnsureFirmwarePath sets default firmware path for cloudimg boot.
+func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
 	if bootCfg != nil && bootCfg.KernelPath == "" && bootCfg.FirmwarePath == "" {
 		bootCfg.FirmwarePath = conf.FirmwarePath()
 	}
 }
 
-func formatSize(bytes int64) string {
+func FormatSize(bytes int64) string {
 	return units.HumanSize(float64(bytes))
 }
 
-func isURL(ref string) bool {
+func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
 }
 
-// reconcileState checks actual process liveness to detect stale "running" records.
-func reconcileState(vm *types.VMInfo) string {
+// ReconcileState checks actual process liveness to detect stale "running" records.
+func ReconcileState(vm *types.VMInfo) string {
 	if vm.State == types.VMStateRunning && !utils.IsProcessAlive(vm.PID) {
 		return "stopped (stale)"
 	}

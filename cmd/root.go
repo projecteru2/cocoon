@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	cmdimages "github.com/projecteru2/cocoon/cmd/images"
+	cmdothers "github.com/projecteru2/cocoon/cmd/others"
+	cmdvm "github.com/projecteru2/cocoon/cmd/vm"
 	"github.com/projecteru2/cocoon/config"
 )
 
@@ -38,22 +41,17 @@ var rootCmd = func() *cobra.Command {
 	viper.SetEnvPrefix("COCOON")
 	viper.AutomaticEnv()
 
-	cmd.AddCommand(
-		pullCmd,
-		listCmd,
-		dryrunCmd,
-		deleteCmd,
-		gcCmd,
-		runCmd,
-		createCmd,
-		startCmd,
-		stopCmd,
-		psCmd,
-		inspectCmd,
-		consoleCmd,
-		rmCmd,
-		versionCmd,
-	)
+	confProvider := func() *config.Config { return conf }
+
+	for _, c := range cmdimages.Commands(cmdimages.Handler{ConfProvider: confProvider}) {
+		cmd.AddCommand(c)
+	}
+	for _, c := range cmdvm.Commands(cmdvm.Handler{ConfProvider: confProvider}) {
+		cmd.AddCommand(c)
+	}
+	for _, c := range cmdothers.Commands(cmdothers.Handler{ConfProvider: confProvider}) {
+		cmd.AddCommand(c)
+	}
 
 	return cmd
 }()
