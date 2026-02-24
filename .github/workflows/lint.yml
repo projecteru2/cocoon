@@ -1,0 +1,27 @@
+name: golangci-lint
+
+on:
+  push:
+    tags:
+      - '!v*'
+    branches:
+      - '*'
+  pull_request:
+
+jobs:
+  golangci:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.9.0

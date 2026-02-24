@@ -13,13 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	cloudimgProgress "github.com/projecteru2/cocoon/progress/cloudimg"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/utils"
-	"github.com/projecteru2/core/log"
 )
 
 const (
@@ -149,13 +150,13 @@ func downloadAndConvert(ctx context.Context, conf *config.Config, url string, tr
 		return "", "", fmt.Errorf("create temp blob: %w", err)
 	}
 	tmpBlobPath := tmpBlob.Name()
-	tmpBlob.Close() //nolint:errcheck
+	tmpBlob.Close() //nolint:errcheck,gosec
 
-	cmd := exec.CommandContext(ctx, "qemu-img", "convert",
+	cmd := exec.CommandContext(ctx, "qemu-img", "convert", //nolint:gosec // args are controlled internal paths
 		"-f", format, "-O", "qcow2", "-o", "compat=1.1",
-		tmpPath, tmpBlobPath) //nolint:gosec // args are controlled internal paths
+		tmpPath, tmpBlobPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		os.Remove(tmpBlobPath) //nolint:errcheck
+		os.Remove(tmpBlobPath) //nolint:errcheck,gosec
 		return "", "", fmt.Errorf("qemu-img convert: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 

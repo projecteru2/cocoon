@@ -17,13 +17,14 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	ociProgress "github.com/projecteru2/cocoon/progress/oci"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/utils"
-	"github.com/projecteru2/core/log"
 )
 
 // pullLayerResult holds the output of processing a single layer.
@@ -182,7 +183,7 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 	}
 
 	if waitErr := g.Wait(); waitErr != nil {
-		os.RemoveAll(workDir) //nolint:errcheck
+		os.RemoveAll(workDir) //nolint:errcheck,gosec
 		return "", "", "", nil, fmt.Errorf("process layers: %w", waitErr)
 	}
 
@@ -347,54 +348,7 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 
 	// Check if this layer's blob already exists and is valid (shared across images).
 	if utils.ValidFile(conf.BlobPath(digestHex)) {
-		logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
-		result.erofsPath = conf.BlobPath(digestHex)
-
-		// Check for cached boot files (must exist and be non-empty).
-		if utils.ValidFile(conf.KernelPath(digestHex)) {
-			result.kernelPath = conf.KernelPath(digestHex)
-		}
-		if utils.ValidFile(conf.InitrdPath(digestHex)) {
-			result.initrdPath = conf.InitrdPath(digestHex)
-		}
-
-		// Best-effort self-heal: re-extract missing/invalid boot files.
-		// Evidence sources (any one suffices): existing boot file, boot dir on
-		// disk, or index records this digest as a boot layer. The last source
-		// covers the "bootDir entirely deleted" scenario without scanning every
-		// non-boot layer. Failures are logged, not fatal — commitAndRecord
-		// validates at image level.
-		hasBootEvidence := result.kernelPath != "" || result.initrdPath != ""
-		if !hasBootEvidence {
-			_, statErr := os.Stat(conf.BootDir(digestHex))
-			hasBootEvidence = statErr == nil
-		}
-		if !hasBootEvidence {
-			_, hasBootEvidence = knownBootHexes[digestHex]
-		}
-		if hasBootEvidence && (result.kernelPath == "" || result.initrdPath == "") {
-			logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
-			healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
-			if mkErr := os.MkdirAll(healDir, 0o750); mkErr != nil {
-				logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", idx, mkErr)
-			} else if rc, rcErr := layer.Uncompressed(); rcErr != nil {
-				logger.Warnf(ctx, "Layer %d: cannot recover boot files: %v", idx, rcErr)
-			} else {
-				kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
-				_ = rc.Close()
-				if scanErr != nil {
-					logger.Warnf(ctx, "Layer %d: boot file recovery failed: %v", idx, scanErr)
-				} else {
-					if result.kernelPath == "" {
-						result.kernelPath = kp
-					}
-					if result.initrdPath == "" {
-						result.initrdPath = ip
-					}
-				}
-			}
-		}
-		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
+		handleCachedLayer(ctx, conf, layer, workDir, idx, total, digestHex, knownBootHexes, tracker, result)
 		return nil
 	}
 
@@ -403,7 +357,7 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 	// Per-layer work subdirectory avoids temp file conflicts when
 	// a manifest references the same digest more than once.
 	layerDir := filepath.Join(workDir, fmt.Sprintf("layer-%d", idx))
-	if err := os.MkdirAll(layerDir, 0o750); err != nil {
+	if err = os.MkdirAll(layerDir, 0o750); err != nil {
 		return fmt.Errorf("create layer work dir: %w", err)
 	}
 
@@ -449,6 +403,71 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 	return nil
 }
 
+// handleCachedLayer handles already-cached layers: checks boot files and self-heals if needed.
+func handleCachedLayer(ctx context.Context, conf *config.Config, layer v1.Layer, workDir string, idx, total int, digestHex string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) {
+	logger := log.WithFunc("oci.processLayer")
+	logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
+	result.erofsPath = conf.BlobPath(digestHex)
+
+	if utils.ValidFile(conf.KernelPath(digestHex)) {
+		result.kernelPath = conf.KernelPath(digestHex)
+	}
+	if utils.ValidFile(conf.InitrdPath(digestHex)) {
+		result.initrdPath = conf.InitrdPath(digestHex)
+	}
+
+	selfHealBootFiles(ctx, conf, layer, workDir, idx, digestHex, knownBootHexes, result)
+
+	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
+}
+
+// selfHealBootFiles re-extracts missing boot files from a cached layer when
+// evidence suggests it is a boot layer. Evidence sources: existing boot file,
+// boot dir on disk, or index records this digest as a boot layer.
+func selfHealBootFiles(ctx context.Context, conf *config.Config, layer v1.Layer, workDir string, idx int, digestHex string, knownBootHexes map[string]struct{}, result *pullLayerResult) {
+	if result.kernelPath != "" && result.initrdPath != "" {
+		return
+	}
+
+	logger := log.WithFunc("oci.processLayer")
+
+	hasEvidence := result.kernelPath != "" || result.initrdPath != ""
+	if !hasEvidence {
+		_, statErr := os.Stat(conf.BootDir(digestHex))
+		hasEvidence = statErr == nil
+	}
+	if !hasEvidence {
+		_, hasEvidence = knownBootHexes[digestHex]
+	}
+	if !hasEvidence {
+		return
+	}
+
+	logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
+	healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
+	if err := os.MkdirAll(healDir, 0o750); err != nil {
+		logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", idx, err)
+		return
+	}
+	rc, err := layer.Uncompressed()
+	if err != nil {
+		logger.Warnf(ctx, "Layer %d: cannot recover boot files: %v", idx, err)
+		return
+	}
+	kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
+	_ = rc.Close()
+	if scanErr != nil {
+		logger.Warnf(ctx, "Layer %d: boot file recovery failed: %v", idx, scanErr)
+		return
+	}
+	if result.kernelPath == "" {
+		result.kernelPath = kp
+	}
+	if result.initrdPath == "" {
+		result.initrdPath = ip
+	}
+}
+
 // scanBootFiles reads a tar stream and extracts kernel/initrd files.
 // Accepts both tar.TypeReg and deprecated tar.TypeRegA. Excludes .old variants.
 // Files are written to workDir with digest-based names.
@@ -466,7 +485,7 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 		}
 
 		// Accept regular files only (TypeReg and deprecated TypeRegA '\x00').
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != '\x00' { // '\x00' is deprecated tar.TypeRegA
 			continue
 		}
 
@@ -501,7 +520,7 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 		if createErr != nil {
 			return "", "", fmt.Errorf("create %s: %w", filepath.Base(dstPath), createErr)
 		}
-		if _, copyErr := io.Copy(f, tr); copyErr != nil {
+		if _, copyErr := io.Copy(f, tr); copyErr != nil { //nolint:gosec // boot files from trusted OCI layer tar
 			_ = f.Close()
 			return "", "", fmt.Errorf("write %s: %w", filepath.Base(dstPath), copyErr)
 		}

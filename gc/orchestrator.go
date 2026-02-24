@@ -53,7 +53,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 	defer func() {
 		for _, m := range locked {
-			m.getLocker().Unlock(ctx) //nolint:errcheck
+			m.getLocker().Unlock(ctx) //nolint:errcheck,gosec
 		}
 	}()
 

@@ -7,6 +7,8 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/lock"
@@ -14,7 +16,6 @@ import (
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
-	"github.com/projecteru2/core/log"
 )
 
 const (
@@ -133,7 +134,7 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 		}
 		return nil
 	})
-	return
+	return result, boot, err
 }
 
 func (o *OCI) imageSizer(e *imageEntry) int64 {

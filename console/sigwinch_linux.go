@@ -1,4 +1,4 @@
-package main
+package console
 
 import (
 	"os"
@@ -9,9 +9,9 @@ import (
 	"golang.org/x/term"
 )
 
-// handleSIGWINCH propagates terminal size on connect and on each SIGWINCH.
-// Returns a cleanup function that stops the signal listener.
-func handleSIGWINCH(local *os.File, remote *os.File) func() {
+// HandleSIGWINCH propagates the initial terminal size and listens for
+// SIGWINCH to relay resize events to the PTY. Returns a cleanup function.
+func HandleSIGWINCH(local *os.File, remote *os.File) func() {
 	propagateTerminalSize(local, remote)
 
 	sigCh := make(chan os.Signal, 1)
@@ -24,7 +24,6 @@ func handleSIGWINCH(local *os.File, remote *os.File) func() {
 
 	return func() {
 		signal.Stop(sigCh)
-		close(sigCh)
 	}
 }
 
