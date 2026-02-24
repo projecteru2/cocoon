@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/lock/flock"
 	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
 )
@@ -80,5 +81,5 @@ type layerEntry struct {
 
 // newImageStore creates a JSON store for the OCI image index.
 func newImageStore(cfg *config.Config) *storejson.Store[imageIndex] {
-	return storejson.New[imageIndex](cfg.ImageIndexLock(), cfg.ImageIndexFile())
+	return storejson.New[imageIndex](cfg.ImageIndexFile(), flock.New(cfg.ImageIndexLock()))
 }

@@ -1,6 +1,8 @@
 package storage
 
-import "context"
+import (
+	"context"
+)
 
 // Initer is optionally implemented by T to initialize zero-value fields
 // (e.g., nil maps) after deserialization or when the backing store is empty.
@@ -18,4 +20,18 @@ type Store[T any] interface {
 	// Update performs a read-modify-write under lock.
 	// If fn returns nil the data is persisted.
 	Update(ctx context.Context, fn func(*T) error) error
+
+	// Read deserializes the data and passes it to fn without acquiring the lock.
+	// The caller must already hold the lock via TryLock.
+	Read(fn func(*T) error) error
+	// Write deserializes the data, passes it to fn, and atomically persists the
+	// result if fn returns nil. Does not acquire the lock.
+	// The caller must already hold the lock via TryLock.
+	Write(fn func(*T) error) error
+	// TryLock attempts to acquire the lock without blocking.
+	// Returns (false, nil) if currently held by another caller.
+	// On success (true, nil) the caller must call Unlock when done.
+	TryLock(ctx context.Context) (bool, error)
+	// Unlock releases a lock previously acquired by TryLock.
+	Unlock(ctx context.Context) error
 }
