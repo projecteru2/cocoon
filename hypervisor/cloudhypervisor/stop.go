@@ -8,7 +8,6 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
@@ -46,27 +45,22 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Idempotent: already stopped.
-	if rec.State == types.VMStateStopped {
-		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-		if !utils.IsProcessAlive(pid) {
-			return nil
-		}
-	}
-
 	socketPath := ch.conf.CHVMSocketPath(id)
 	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
+
+	// Fast path: no running process — just clean up and mark stopped.
+	if !utils.IsProcessAlive(pid) {
+		_ = os.Remove(socketPath)
+		_ = os.Remove(ch.conf.CHVMPIDFile(id))
+		return ch.updateState(ctx, id, types.VMStateStopped)
+	}
 
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
 
 	var shutdownErr error
 	if isDirectBoot(rec.BootConfig) {
-		// Direct boot (OCI): guest kernel may not support ACPI.
-		// Use vm.shutdown to flush disk backends, then terminate the process.
 		shutdownErr = ch.shutdownDirect(ctx, id, socketPath, pid)
 	} else {
-		// UEFI boot (cloudimg): send ACPI power-button and wait for guest
-		// to shut itself down gracefully.
 		shutdownErr = ch.shutdownUEFI(ctx, id, socketPath, pid, stopTimeout)
 	}
 
@@ -74,23 +68,11 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	_ = os.Remove(socketPath)
 	_ = os.Remove(ch.conf.CHVMPIDFile(id))
 
-	// Persist stopped state.
-	now := time.Now()
-	updateErr := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[id]
-		if r == nil {
-			return nil
-		}
-		r.State = types.VMStateStopped
-		r.StoppedAt = &now
-		r.UpdatedAt = now
-		return nil
-	})
-
 	if shutdownErr != nil {
+		ch.markError(ctx, id)
 		return shutdownErr
 	}
-	return updateErr
+	return ch.updateState(ctx, id, types.VMStateStopped)
 }
 
 // shutdownUEFI shuts down a UEFI-boot VM:

@@ -2,6 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
+	"time"
 
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
@@ -25,4 +26,31 @@ func (ch *CloudHypervisor) loadRecord(ctx context.Context, id string) (hyperviso
 func (ch *CloudHypervisor) enrichRuntime(info *types.VMInfo) {
 	info.SocketPath = ch.conf.CHVMSocketPath(info.ID)
 	info.PID, _ = utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
+}
+
+// updateState atomically transitions a VM to a new state in the DB.
+// Sets StartedAt/StoppedAt timestamps for the corresponding terminal states.
+func (ch *CloudHypervisor) updateState(ctx context.Context, id string, state types.VMState) error {
+	now := time.Now()
+	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		r := idx.VMs[id]
+		if r == nil {
+			return nil
+		}
+		r.State = state
+		r.UpdatedAt = now
+		switch state {
+		case types.VMStateRunning:
+			r.StartedAt = &now
+		case types.VMStateStopped:
+			r.StoppedAt = &now
+		}
+		return nil
+	})
+}
+
+// markError transitions a VM to the Error state. Best-effort: errors are ignored
+// because the caller already has a primary error to return.
+func (ch *CloudHypervisor) markError(ctx context.Context, id string) {
+	_ = ch.updateState(ctx, id, types.VMStateError)
 }

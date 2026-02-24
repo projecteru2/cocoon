@@ -67,25 +67,16 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	vmCfg := buildVMConfig(&rec, ch.conf.CHVMSerialLog(id))
 	if err := ch.callCreateVM(ctx, socketPath, vmCfg); err != nil {
 		_ = ch.killProcess(id, pid)
+		ch.markError(ctx, id)
 		return fmt.Errorf("vm.create: %w", err)
 	}
 	if err := ch.callBootVM(ctx, socketPath); err != nil {
 		_ = ch.killProcess(id, pid)
+		ch.markError(ctx, id)
 		return fmt.Errorf("vm.boot: %w", err)
 	}
 
-	// Persist running state.
-	now := time.Now()
-	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[id]
-		if r == nil {
-			return fmt.Errorf("VM %s disappeared from index", id)
-		}
-		r.State = types.VMStateRunning
-		r.StartedAt = &now
-		r.UpdatedAt = now
-		return nil
-	})
+	return ch.updateState(ctx, id, types.VMStateRunning)
 }
 
 // launchProcess starts the cloud-hypervisor binary, writes the PID file,
@@ -142,10 +133,13 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 func waitForSocket(ctx context.Context, socketPath string, timeout time.Duration, pid int) error {
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context canceled waiting for socket: %w", err)
+		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timeout waiting for socket %s", socketPath)
 		}
-		if checkSocket(socketPath) == nil {
+		if hypervisor.CheckSocket(socketPath) == nil {
 			return nil
 		}
 		if !utils.IsProcessAlive(pid) {
