@@ -8,4 +8,3 @@ type Locker interface {
 	Unlock(ctx context.Context) error
 	TryLock(ctx context.Context) (bool, error)
 }
-

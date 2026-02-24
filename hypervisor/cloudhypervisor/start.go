@@ -9,10 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
-	"github.com/projecteru2/core/log"
 )
 
 const socketWaitTimeout = 5 * time.Second
@@ -44,7 +45,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	}
 
 	// Ensure per-VM runtime and log directories.
-	if err := ch.conf.EnsureCHVMDirs(id); err != nil {
+	if err = ch.conf.EnsureCHVMDirs(id); err != nil {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}
 

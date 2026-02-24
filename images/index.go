@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
-	"github.com/projecteru2/core/log"
 )
 
 const minHexLen = 12
@@ -160,4 +161,3 @@ func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
 		return err == nil && info.ModTime().Before(cutoff)
 	})
 }
-

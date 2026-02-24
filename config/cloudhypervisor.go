@@ -42,6 +42,7 @@ func (c *Config) CHIndexLock() string { return filepath.Join(c.chDBDir(), "vms.l
 func (c *Config) CHVMRunDir(vmID string) string {
 	return filepath.Join(c.chRunDir(), vmID)
 }
+
 func (c *Config) CHVMSocketPath(vmID string) string {
 	return filepath.Join(c.CHVMRunDir(vmID), "api.sock")
 }
@@ -52,6 +53,7 @@ func (c *Config) CHVMLogDir(vmID string) string { return filepath.Join(c.chLogDi
 func (c *Config) CHVMSerialLog(vmID string) string {
 	return filepath.Join(c.CHVMLogDir(vmID), "serial.log")
 }
+
 func (c *Config) CHVMProcessLog(vmID string) string {
 	return filepath.Join(c.CHVMLogDir(vmID), "ch.log")
 }

@@ -21,7 +21,7 @@ const (
 //
 //	mkfs.erofs --tar=f -zlz4hc -C16384 -T0 -U <uuid> output.erofs
 func startErofsConversion(ctx context.Context, uuid, outputPath string) (cmd *exec.Cmd, stdin io.WriteCloser, output *bytes.Buffer, err error) {
-	cmd = exec.CommandContext(ctx, "mkfs.erofs",
+	cmd = exec.CommandContext(ctx, "mkfs.erofs", //nolint:gosec
 		"--tar=f",
 		fmt.Sprintf("-z%s", erofsCompression),
 		fmt.Sprintf("-C%d", erofsBlockSize),

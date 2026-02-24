@@ -14,8 +14,8 @@ type VMRecord struct {
 	types.VMInfo
 
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
-	BootConfig     *types.BootConfig     `json:"boot_config,omitempty"`    // nil for UEFI boot (cloudimg)
-	ImageBlobIDs   map[string]struct{}   `json:"image_blob_ids,omitempty"` // blob hex set for GC pinning
+	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`    // nil for UEFI boot (cloudimg)
+	ImageBlobIDs   map[string]struct{}    `json:"image_blob_ids,omitempty"` // blob hex set for GC pinning
 }
 
 // VMIndex is the top-level DB structure for a hypervisor backend.

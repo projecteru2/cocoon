@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/core/log"
+
+	"github.com/projecteru2/cocoon/hypervisor"
 )
 
 // shutdownVM asks Cloud Hypervisor to shut down the guest (flush disk backends).

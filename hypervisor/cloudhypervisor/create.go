@@ -110,7 +110,7 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 		return nil, fmt.Errorf("truncate COW: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	// mkfs.ext4
-	if out, err := exec.CommandContext(ctx,
+	if out, err := exec.CommandContext(ctx, //nolint:gosec
 		"mkfs.ext4", "-F", "-m", "0", "-q",
 		"-E", "lazy_itable_init=1,lazy_journal_init=1,discard",
 		cowPath,
@@ -144,19 +144,19 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	overlayPath := ch.conf.CHVMOverlayPath(vmID)
 
 	// qemu-img create -f qcow2 -F qcow2 -b <base> <overlay>
-	if out, err := exec.CommandContext(ctx,
+	if out, err := exec.CommandContext(ctx, //nolint:gosec
 		"qemu-img", "create", "-f", "qcow2", "-F", "qcow2",
 		"-b", basePath, overlayPath,
-	).CombinedOutput(); err != nil { //nolint:gosec
+	).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("qemu-img create overlay: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
 	// qemu-img resize <overlay> <size>
 	if vmCfg.Storage > 0 {
 		sizeBytes := fmt.Sprintf("%d", vmCfg.Storage)
-		if out, err := exec.CommandContext(ctx,
+		if out, err := exec.CommandContext(ctx, //nolint:gosec
 			"qemu-img", "resize", overlayPath, sizeBytes,
-		).CombinedOutput(); err != nil { //nolint:gosec
+		).CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("qemu-img resize overlay: %s: %w", strings.TrimSpace(string(out)), err)
 		}
 	}

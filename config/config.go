@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-
 	"runtime"
 
 	coretypes "github.com/projecteru2/core/types"
@@ -14,26 +13,26 @@ import (
 type Config struct {
 	// RootDir is the base directory for persistent data (images, firmware, VM DB).
 	// Env: COCOON_ROOT_DIR. Default: /var/lib/cocoon.
-	RootDir string `json:"root_dir"`
+	RootDir string `json:"root_dir" mapstructure:"root_dir"`
 	// RunDir is the base directory for runtime state (PID files, Unix sockets).
 	// Contents are ephemeral and may not survive reboots.
 	// Env: COCOON_RUN_DIR. Default: /var/run/cocoon.
-	RunDir string `json:"run_dir"`
+	RunDir string `json:"run_dir" mapstructure:"run_dir"`
 	// LogDir is the base directory for VM and process logs.
 	// Env: COCOON_LOG_DIR. Default: /var/log/cocoon.
-	LogDir string `json:"log_dir"`
+	LogDir string `json:"log_dir" mapstructure:"log_dir"`
 	// CHBinary is the path or name of the cloud-hypervisor executable.
 	// Default: "cloud-hypervisor".
-	CHBinary string `json:"ch_binary"`
+	CHBinary string `json:"ch_binary" mapstructure:"ch_binary"`
 	// StopTimeoutSeconds is how long to wait for a guest to respond to an
 	// ACPI power-button before falling back to SIGTERM/SIGKILL.
 	// Default: 30.
-	StopTimeoutSeconds int `json:"stop_timeout_seconds"`
+	StopTimeoutSeconds int `json:"stop_timeout_seconds" mapstructure:"stop_timeout_seconds"`
 	// PoolSize is the goroutine pool size for concurrent operations.
 	// Defaults to runtime.NumCPU() if zero.
-	PoolSize int `json:"pool_size"`
+	PoolSize int `json:"pool_size" mapstructure:"pool_size"`
 	// Log configuration, uses eru core's ServerLogConfig.
-	Log coretypes.ServerLogConfig `json:"log"`
+	Log coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -81,4 +80,3 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	return conf, nil
 }
-
