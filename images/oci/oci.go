@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/lock"
 	"github.com/projecteru2/cocoon/progress"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
@@ -22,8 +23,9 @@ const (
 // OCI implements the images.Images interface using OCI container images
 // converted to EROFS filesystems for use with Cloud Hypervisor.
 type OCI struct {
-	conf  *config.Config
-	store storage.Store[imageIndex]
+	conf   *config.Config
+	store  storage.Store[imageIndex]
+	locker lock.Locker
 }
 
 // New creates a new OCI image backend.
@@ -34,9 +36,11 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 
 	log.WithFunc("oci.New").Infof(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
 
+	store, locker := images.NewStore[imageIndex](conf.OCIIndexFile(), conf.OCIIndexLock())
 	return &OCI{
-		conf:  conf,
-		store: newImageStore(conf),
+		conf:   conf,
+		store:  store,
+		locker: locker,
 	}, nil
 }
 

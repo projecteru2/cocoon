@@ -5,10 +5,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/lock/flock"
-	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -77,9 +74,4 @@ func (e imageEntry) DigestHexes() []string {
 // layerEntry records one EROFS layer within an image.
 type layerEntry struct {
 	Digest types.Digest `json:"digest"`
-}
-
-// newImageStore creates a JSON store for the OCI image index.
-func newImageStore(cfg *config.Config) *storejson.Store[imageIndex] {
-	return storejson.New[imageIndex](cfg.ImageIndexFile(), flock.New(cfg.ImageIndexLock()))
 }

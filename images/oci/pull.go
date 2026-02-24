@@ -158,7 +158,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: len(layers)})
 
 	// Create working directory under temp. Caller is responsible for cleanup.
-	workDir, mkErr := os.MkdirTemp(cfg.TempDir(), "pull-*")
+	workDir, mkErr := os.MkdirTemp(cfg.OCITempDir(), "pull-*")
 	if mkErr != nil {
 		return "", "", "", nil, fmt.Errorf("create work dir: %w", mkErr)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/lock"
 	"github.com/projecteru2/cocoon/progress"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/types"
@@ -19,8 +20,9 @@ const typ = "cloudimg"
 // CloudImg implements the images.Images interface using cloud images (qcow2/raw)
 // downloaded from HTTP/HTTPS URLs, converted to qcow2 v3 for use with Cloud Hypervisor via UEFI boot.
 type CloudImg struct {
-	conf  *config.Config
-	store storage.Store[imageIndex]
+	conf   *config.Config
+	store  storage.Store[imageIndex]
+	locker lock.Locker
 }
 
 // New creates a new cloud image backend.
@@ -31,9 +33,11 @@ func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 
 	log.WithFunc("cloudimg.New").Infof(ctx, "cloud image backend initialized")
 
+	store, locker := images.NewStore[imageIndex](conf.CloudimgIndexFile(), conf.CloudimgIndexLock())
 	return &CloudImg{
-		conf:  conf,
-		store: newImageStore(conf),
+		conf:   conf,
+		store:  store,
+		locker: locker,
 	}, nil
 }
 

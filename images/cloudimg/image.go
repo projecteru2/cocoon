@@ -3,10 +3,7 @@ package cloudimg
 import (
 	"time"
 
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/lock/flock"
-	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -51,8 +48,3 @@ func (e imageEntry) EntryID() string           { return e.ContentSum.String() }
 func (e imageEntry) EntryRef() string          { return e.Ref }
 func (e imageEntry) EntryCreatedAt() time.Time { return e.CreatedAt }
 func (e imageEntry) DigestHexes() []string     { return []string{e.ContentSum.Hex()} }
-
-// newImageStore creates a JSON store for the cloudimg image index.
-func newImageStore(cfg *config.Config) *storejson.Store[imageIndex] {
-	return storejson.New[imageIndex](cfg.CloudimgIndexFile(), flock.New(cfg.CloudimgIndexLock()))
-}

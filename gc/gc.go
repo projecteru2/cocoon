@@ -2,115 +2,41 @@ package gc
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/projecteru2/cocoon/lock"
 )
 
-// Snapshot is the opaque DB state read from a module while the lock is held.
-// Each module's ReadDB returns its own concrete type; Resolver sees them as any.
-type Snapshot = any
-
-// Module describes a storage module that participates in garbage collection.
-type Module struct {
-	Name string
-
-	// Locker is used by GC to coordinate with active operations (e.g. pull).
-	// TryLock returns false when another operation is in progress; GC skips the
-	// module and retries on the next run.
+// Module[S] describes a typed storage module that participates in GC.
+// S is the snapshot type returned by ReadDB and consumed by Resolve,
+// giving the Resolve implementation full type safety on its own data.
+type Module[S any] struct {
+	Name   string
 	Locker lock.Locker
 
-	// ReadDB reads the module's current index state.
-	// Called while the lock is held — must not re-acquire it.
-	ReadDB func(ctx context.Context) (Snapshot, error)
+	// ReadDB reads the module's current state (called while the lock is held).
+	ReadDB func(ctx context.Context) (S, error)
 
-	// Collect removes the given resource IDs.
-	// Called while the lock is held — must not re-acquire it.
+	// Resolve analyses this module's typed snapshot and returns IDs to delete.
+	// others contains snapshots from all other modules (typed as any).
+	// Use type assertions on others for cross-module analysis (e.g. vm pinning images).
+	Resolve func(snap S, others map[string]any) []string
+
+	// Collect removes the given IDs (called while the lock is held).
 	Collect func(ctx context.Context, ids []string) error
 }
 
-// Resolver analyses snapshots from all successfully-read modules and returns
-// the resource IDs to delete per module.
-// key = Module.Name, value = IDs to pass to that module's Collect.
-type Resolver func(snapshots map[string]Snapshot) map[string][]string
+// Module[S] implements runner — internal to the gc package.
+func (m Module[S]) getName() string        { return m.Name }
+func (m Module[S]) getLocker() lock.Locker { return m.Locker }
 
-// Orchestrator runs GC across all registered modules.
-type Orchestrator struct {
-	modules  []Module
-	resolver Resolver
+func (m Module[S]) readSnapshot(ctx context.Context) (any, error) {
+	return m.ReadDB(ctx)
 }
 
-// New creates an Orchestrator with the given cross-module Resolver.
-func New(resolver Resolver) *Orchestrator {
-	return &Orchestrator{resolver: resolver}
+func (m Module[S]) resolveTargets(snap any, others map[string]any) []string {
+	return m.Resolve(snap.(S), others)
 }
 
-// Register adds a module to the GC cycle.
-func (o *Orchestrator) Register(m Module) {
-	o.modules = append(o.modules, m)
-}
-
-// Run executes one GC cycle:
-//
-//  1. For each module: TryLock → ReadDB → Unlock (skip if busy).
-//  2. Resolver analyses all collected snapshots and returns deletion targets.
-//  3. For each module with targets: TryLock → Collect → Unlock (skip if busy).
-//
-// Step 3 re-acquires the lock rather than holding it from step 1 to keep
-// lock contention minimal. The window is safe: GC is conservative (only deletes
-// unreferenced items), and commitAndRecord validates file existence under lock
-// before writing the index, so a deletion that races with a commit is caught
-// there and the pull retries.
-func (o *Orchestrator) Run(ctx context.Context) error {
-	snapshots := make(map[string]Snapshot, len(o.modules))
-
-	// Phase 1: read each module's DB state under lock.
-	for _, m := range o.modules {
-		ok, err := m.Locker.TryLock(ctx)
-		if err != nil {
-			// log
-			continue
-		}
-		if !ok {
-			// log: module busy, will retry next run
-			continue
-		}
-		snap, readErr := m.ReadDB(ctx)
-		m.Locker.Unlock(ctx) //nolint:errcheck
-		if readErr != nil {
-			// log
-			continue
-		}
-		snapshots[m.Name] = snap
-	}
-
-	// Phase 2: cross-module analysis — no locks held.
-	targets := o.resolver(snapshots)
-	if len(targets) == 0 {
-		return nil
-	}
-
-	// Phase 3: collect under lock, skipping busy modules.
-	var errs []string
-	for _, m := range o.modules {
-		ids := targets[m.Name]
-		if len(ids) == 0 {
-			continue
-		}
-		ok, err := m.Locker.TryLock(ctx)
-		if err != nil || !ok {
-			// log: will retry next run
-			continue
-		}
-		collectErr := m.Collect(ctx, ids)
-		m.Locker.Unlock(ctx) //nolint:errcheck
-		if collectErr != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", m.Name, collectErr))
-		}
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("gc errors: %s", strings.Join(errs, "; "))
-	}
-	return nil
+func (m Module[S]) collect(ctx context.Context, ids []string) error {
+	return m.Collect(ctx, ids)
 }

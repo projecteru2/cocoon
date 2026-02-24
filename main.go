@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/images/cloudimg"
 	"github.com/projecteru2/cocoon/images/oci"
@@ -286,10 +287,12 @@ func printCommonCHArgs(cpu, maxCPU, memory, balloon int) {
 }
 
 func cmdGC(ctx context.Context, backends []images.Images) {
+	o := gc.New()
 	for _, b := range backends {
-		if err := b.GC(ctx); err != nil {
-			fatalf("gc %s: %v", b.Type(), err)
-		}
+		b.RegisterGC(o)
+	}
+	if err := o.Run(ctx); err != nil {
+		fatalf("gc: %v", err)
 	}
 	fmt.Println("GC completed.")
 }
