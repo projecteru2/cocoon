@@ -178,10 +178,3 @@ func extractBlobIDs(sc []*types.StorageConfig, boot *types.BootConfig) map[strin
 	}
 	return ids
 }
-
-// blobHexFromPath extracts the digest hex from a blob file path.
-// e.g., "/var/lib/cocoon/oci/blobs/abc123.erofs" → "abc123"
-func blobHexFromPath(path string) string {
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
-}

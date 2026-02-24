@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/projecteru2/core/log"
-
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
@@ -71,28 +69,18 @@ func (ch *CloudHypervisor) savePayload(vmID string, cfg *chVMConfig) {
 }
 
 // cleanupRuntimeFiles removes transient runtime files (socket, PID, vm.json)
-// from a VM's run directory. Safe to call unconditionally.
+// from a VM's run directory. Used by start/stop to clean stale state without
+// touching overlays or logs. Safe to call unconditionally.
 func (ch *CloudHypervisor) cleanupRuntimeFiles(vmID string) {
 	_ = os.Remove(ch.conf.CHVMSocketPath(vmID))
 	_ = os.Remove(ch.conf.CHVMPIDFile(vmID))
 	_ = os.Remove(ch.conf.CHVMPayloadFile(vmID))
 }
 
-// forEachVM runs fn for each ID, collects successes, and logs failures.
-// When bestEffort is true, individual errors are logged and skipped.
-// When bestEffort is false, the first error stops processing and is returned.
-func forEachVM(ctx context.Context, ids []string, op string, bestEffort bool, fn func(context.Context, string) error) ([]string, error) {
-	logger := log.WithFunc("cloudhypervisor." + op)
-	var succeeded []string
-	for _, id := range ids {
-		if err := fn(ctx, id); err != nil {
-			if !bestEffort {
-				return succeeded, fmt.Errorf("%s VM %s: %w", op, id, err)
-			}
-			logger.Warnf(ctx, "%s VM %s: %v", op, id, err)
-			continue
-		}
-		succeeded = append(succeeded, id)
-	}
-	return succeeded, nil
+// removeVMDirs removes the VM's entire run and log directories, including
+// large files like overlay.qcow2, cow.raw, serial.log, etc.
+// Used by Delete for complete cleanup.
+func (ch *CloudHypervisor) removeVMDirs(vmID string) {
+	_ = os.RemoveAll(ch.conf.CHVMRunDir(vmID))
+	_ = os.RemoveAll(ch.conf.CHVMLogDir(vmID))
 }

@@ -417,11 +417,11 @@ func batchVMCmd(ctx context.Context, name, pastTense string, fn func(context.Con
 		fatalf("usage: cocoon %s <vm-id> [vm-id...]", name)
 	}
 	done, err := fn(ctx, args)
-	if err != nil {
-		fatalf("%s: %v", name, err)
-	}
 	for _, id := range done {
 		fmt.Printf("%s: %s\n", pastTense, id)
+	}
+	if err != nil {
+		fatalf("%s: %v", name, err)
 	}
 	if len(done) == 0 {
 		fmt.Printf("No VMs %s.\n", strings.ToLower(pastTense))

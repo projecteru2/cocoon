@@ -41,10 +41,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Acquire all locks up front; hold until GC finishes.
 	var locked []runner
+	var skipped []string
 	for _, m := range o.modules {
 		ok, err := m.getLocker().TryLock(ctx)
 		if err != nil || !ok {
 			logger.Warnf(ctx, "skip %s: lock busy", m.getName())
+			skipped = append(skipped, m.getName())
 			continue
 		}
 		locked = append(locked, m)
@@ -88,6 +90,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if err := m.collect(ctx, ids); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", m.getName(), err))
 		}
+	}
+	if len(skipped) > 0 {
+		errs = append(errs, fmt.Sprintf("skipped (lock busy): %s", strings.Join(skipped, ", ")))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("gc errors: %s", strings.Join(errs, "; "))

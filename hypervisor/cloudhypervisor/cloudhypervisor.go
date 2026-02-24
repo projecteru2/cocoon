@@ -72,9 +72,9 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 
 // Delete removes VM records from the index and returns the IDs that were deleted.
 // Running VMs are rejected unless force is true, in which case they are stopped first.
-// Uses early-return mode: the first error aborts the loop.
+// Best-effort: all IDs are attempted; partial results and collected errors are returned.
 func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string, force bool) ([]string, error) {
-	return forEachVM(ctx, ids, "Delete", false, func(ctx context.Context, id string) error {
+	return forEachVM(ctx, ids, "Delete", true, func(ctx context.Context, id string) error {
 		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
 		if utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
 			if !force {
@@ -93,7 +93,7 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string, force bool)
 		}); err != nil {
 			return err
 		}
-		ch.cleanupRuntimeFiles(id)
+		ch.removeVMDirs(id)
 		return nil
 	})
 }

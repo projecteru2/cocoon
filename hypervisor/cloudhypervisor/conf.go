@@ -101,9 +101,12 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	}
 	args = append(args, "--memory", mem)
 
-	// --disk (one per disk)
-	for _, d := range cfg.Disks {
-		args = append(args, "--disk", diskToCLIArg(d))
+	// --disk (single flag, all specs as positional args)
+	if len(cfg.Disks) > 0 {
+		args = append(args, "--disk")
+		for _, d := range cfg.Disks {
+			args = append(args, diskToCLIArg(d))
+		}
 	}
 
 	// boot payload (kernel/firmware)
