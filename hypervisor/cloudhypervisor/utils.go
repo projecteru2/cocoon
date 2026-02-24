@@ -2,13 +2,12 @@ package cloudhypervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/projecteru2/core/log"
 
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
@@ -69,12 +68,22 @@ func (ch *CloudHypervisor) cleanupRuntimeFiles(vmID string) {
 	_ = os.Remove(ch.conf.CHVMCmdlineFile(vmID))
 }
 
-func (ch *CloudHypervisor) removeVMDirs(ctx context.Context, vmID string) {
-	logger := log.WithFunc("cloudhypervisor.removeVMDirs")
+func (ch *CloudHypervisor) removeVMDirs(_ context.Context, vmID string) error {
+	var errs []error
 	if err := os.RemoveAll(ch.conf.CHVMRunDir(vmID)); err != nil {
-		logger.Warnf(ctx, "run dir %s: %v", vmID, err)
+		errs = append(errs, fmt.Errorf("run dir %s: %w", vmID, err))
 	}
 	if err := os.RemoveAll(ch.conf.CHVMLogDir(vmID)); err != nil {
-		logger.Warnf(ctx, "log dir %s: %v", vmID, err)
+		errs = append(errs, fmt.Errorf("log dir %s: %w", vmID, err))
 	}
+	return errors.Join(errs...)
+}
+
+// rollbackCreate removes a placeholder VM record from the DB.
+func (ch *CloudHypervisor) rollbackCreate(ctx context.Context, id, name string) {
+	_ = ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		delete(idx.VMs, id)
+		delete(idx.Names, name)
+		return nil
+	})
 }

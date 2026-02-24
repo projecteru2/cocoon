@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // cloudimgSnapshot is the typed GC snapshot for the cloud image backend.
@@ -20,7 +21,7 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 	return gc.Module[cloudimgSnapshot]{
 		Name:   typ,
 		Locker: c.locker,
-		ReadDB: func(ctx context.Context) (cloudimgSnapshot, error) {
+		ReadDB: func(_ context.Context) (cloudimgSnapshot, error) {
 			var snap cloudimgSnapshot
 			if err := c.store.Read(func(idx *imageIndex) error {
 				snap.refs = images.ReferencedDigests(idx.Images)
@@ -28,20 +29,22 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
-			snap.blobs = images.ScanBlobHexes(c.conf.CloudimgBlobsDir(), ".qcow2")
+			snap.blobs = utils.ScanFileStems(c.conf.CloudimgBlobsDir(), ".qcow2")
 			return snap, nil
 		},
 		Resolve: func(snap cloudimgSnapshot, others map[string]any) []string {
 			used := gc.CollectUsedBlobIDs(others)
 
-			var result []string
-			for _, hex := range images.FilterUnreferenced(snap.blobs, snap.refs) {
-				if _, inUse := used[hex]; inUse {
-					continue
-				}
-				result = append(result, hex)
+			// Merge index refs + VM-pinned blobs into one protection set.
+			allRefs := make(map[string]struct{}, len(snap.refs)+len(used))
+			for k := range snap.refs {
+				allRefs[k] = struct{}{}
 			}
-			return result
+			for k := range used {
+				allRefs[k] = struct{}{}
+			}
+
+			return utils.FilterUnreferenced(snap.blobs, allRefs)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error

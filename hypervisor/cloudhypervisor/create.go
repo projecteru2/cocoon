@@ -18,14 +18,42 @@ const CowSerial = "cocoon-cow"
 
 // Create registers a new VM, prepares the COW disk, and persists the record.
 // The VM is left in Created state — call Start to launch it.
+//
+// To avoid a race with GC (which scans directories and removes those not in
+// the DB), we write a placeholder record first, then create directories and
+// prepare disks, and finally update the record to Created state.
 func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, bootCfg *types.BootConfig) (*types.VMInfo, error) {
 	id := hypervisor.GenerateID()
-
-	if err := ch.conf.EnsureCHVMDirs(id); err != nil {
-		return nil, fmt.Errorf("ensure dirs: %w", err)
-	}
+	now := time.Now()
 
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+
+	// Step 1: write a placeholder record so GC won't treat our dirs as orphans.
+	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		if idx.VMs[id] != nil {
+			return fmt.Errorf("ID collision %q (retry)", id)
+		}
+		if dup, ok := idx.Names[vmCfg.Name]; ok {
+			return fmt.Errorf("VM name %q already exists (id: %s)", vmCfg.Name, dup)
+		}
+		idx.VMs[id] = &hypervisor.VMRecord{
+			VMInfo: types.VMInfo{
+				ID: id, State: types.VMStateCreating,
+				Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
+			},
+			ImageBlobIDs: blobIDs,
+		}
+		idx.Names[vmCfg.Name] = id
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("reserve VM record: %w", err)
+	}
+
+	// Step 2: create directories and prepare disks.
+	if err := ch.conf.EnsureCHVMDirs(id); err != nil {
+		ch.rollbackCreate(ctx, id, vmCfg.Name)
+		return nil, fmt.Errorf("ensure dirs: %w", err)
+	}
 
 	var (
 		sc       []*types.StorageConfig
@@ -42,17 +70,15 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		sc, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs)
 	}
 	if err != nil {
-		ch.removeVMDirs(ctx, id)
+		_ = ch.removeVMDirs(ctx, id)
+		ch.rollbackCreate(ctx, id, vmCfg.Name)
 		return nil, err
 	}
 
-	now := time.Now()
+	// Step 3: finalize the record with full data and Created state.
 	info := types.VMInfo{
-		ID:        id,
-		State:     types.VMStateCreated,
-		Config:    *vmCfg,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID: id, State: types.VMStateCreated,
+		Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
 	}
 	rec := hypervisor.VMRecord{
 		VMInfo:         info,
@@ -60,20 +86,13 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		BootConfig:     bootCopy,
 		ImageBlobIDs:   blobIDs,
 	}
-
 	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		if idx.VMs[id] != nil {
-			return fmt.Errorf("ID collision %q (retry)", id)
-		}
-		if dup, ok := idx.Names[vmCfg.Name]; ok {
-			return fmt.Errorf("VM name %q already exists (id: %s)", vmCfg.Name, dup)
-		}
 		idx.VMs[id] = &rec
-		idx.Names[vmCfg.Name] = id
 		return nil
 	}); err != nil {
-		ch.removeVMDirs(ctx, id)
-		return nil, fmt.Errorf("persist VM record: %w", err)
+		_ = ch.removeVMDirs(ctx, id)
+		ch.rollbackCreate(ctx, id, vmCfg.Name)
+		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
 
 	return &info, nil
