@@ -2,6 +2,8 @@ package cloudhypervisor
 
 import (
 	"context"
+	"errors"
+	"os"
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -10,21 +12,14 @@ import (
 // compile-time interface check.
 var _ hypervisor.Hypervisor = (*CloudHypervisor)(nil)
 
-// chSnapshot is the typed GC snapshot for the Cloud Hypervisor backend.
-// Its sole purpose is to expose the union of all VMs' ImageBlobIDs so that
-// image GC modules can skip blobs still needed by active VMs.
 type chSnapshot struct {
 	blobIDs map[string]struct{} // union of all VMs' ImageBlobIDs
+	vmIDs   map[string]struct{} // all VM IDs in the DB
 }
 
-// UsedBlobIDs implements gc.UsedBlobIDs.
 func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 
-// GCModule returns a typed gc.Module[chSnapshot] for the Cloud Hypervisor backend.
-//
-// ReadDB (under lock): collects all image blob IDs referenced by VMs.
-// Resolve/Collect are no-ops — VM residual cleanup is done by Delete directly.
-// The module exists purely as a data provider for cross-module GC.
+// GCModule returns the GC module for cross-module blob pinning and orphan cleanup.
 func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 	return gc.Module[chSnapshot]{
 		Name:   typ,
@@ -33,10 +28,12 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			var snap chSnapshot
 			if err := ch.store.Read(func(idx *hypervisor.VMIndex) error {
 				snap.blobIDs = make(map[string]struct{})
-				for _, rec := range idx.VMs {
+				snap.vmIDs = make(map[string]struct{})
+				for id, rec := range idx.VMs {
 					if rec == nil {
 						continue
 					}
+					snap.vmIDs[id] = struct{}{}
 					for hex := range rec.ImageBlobIDs {
 						snap.blobIDs[hex] = struct{}{}
 					}
@@ -47,8 +44,35 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			}
 			return snap, nil
 		},
-		Resolve: func(_ chSnapshot, _ map[string]any) []string { return nil },
-		Collect: func(_ context.Context, _ []string) error { return nil },
+		Resolve: func(snap chSnapshot, _ map[string]any) []string {
+			// Scan run dir for VM directories not in the DB (orphans).
+			entries, err := os.ReadDir(ch.conf.CHRunDir())
+			if err != nil {
+				return nil
+			}
+			var orphans []string
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				if _, inDB := snap.vmIDs[e.Name()]; !inDB {
+					orphans = append(orphans, e.Name())
+				}
+			}
+			return orphans
+		},
+		Collect: func(ctx context.Context, ids []string) error {
+			var errs []error
+			for _, id := range ids {
+				if err := os.RemoveAll(ch.conf.CHVMRunDir(id)); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, err)
+				}
+				if err := os.RemoveAll(ch.conf.CHVMLogDir(id)); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, err)
+				}
+			}
+			return errors.Join(errs...)
+		},
 	}
 }
 

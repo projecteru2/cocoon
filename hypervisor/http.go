@@ -12,15 +12,12 @@ import (
 )
 
 const (
-	// HTTPTimeout is the per-request timeout for hypervisor REST API calls.
 	HTTPTimeout = 30 * time.Second
-	// MaxRetries is the number of retry attempts for transient API errors.
-	MaxRetries = 3
-	// BaseBackoff is the initial backoff duration; doubled on each retry.
+	MaxRetries  = 3
 	BaseBackoff = 100 * time.Millisecond
 )
 
-// APIError carries the HTTP status code from a hypervisor REST API response.
+// APIError carries the HTTP status code from a REST API response.
 type APIError struct {
 	Code    int
 	Message string
@@ -28,7 +25,7 @@ type APIError struct {
 
 func (e *APIError) Error() string { return e.Message }
 
-// NewSocketHTTPClient creates an HTTP client that dials a Unix domain socket.
+// NewSocketHTTPClient creates an HTTP client that dials a Unix socket.
 func NewSocketHTTPClient(socketPath string) *http.Client {
 	return &http.Client{
 		Timeout: HTTPTimeout,
@@ -41,8 +38,7 @@ func NewSocketHTTPClient(socketPath string) *http.Client {
 	}
 }
 
-// DoPUT sends a PUT request over a Unix socket and expects 204 No Content.
-// Returns an *APIError for non-204 responses.
+// DoPUT sends a PUT request over a Unix socket. Expects 204 No Content.
 func DoPUT(ctx context.Context, socketPath, path string, body []byte) error {
 	hc := NewSocketHTTPClient(socketPath)
 	var reqBody io.Reader
@@ -71,7 +67,7 @@ func DoPUT(ctx context.Context, socketPath, path string, body []byte) error {
 	return nil
 }
 
-// DoGET sends a GET request over a Unix socket and returns the response body.
+// DoGET sends a GET request over a Unix socket, returns the response body.
 func DoGET(ctx context.Context, socketPath, path string) ([]byte, error) {
 	hc := NewSocketHTTPClient(socketPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost"+path, nil)
@@ -93,7 +89,7 @@ func DoGET(ctx context.Context, socketPath, path string) ([]byte, error) {
 	return body, nil
 }
 
-// CheckSocket verifies that a Unix domain socket is connectable.
+// CheckSocket verifies that a Unix socket is connectable.
 func CheckSocket(socketPath string) error {
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
 	if err != nil {
@@ -102,8 +98,7 @@ func CheckSocket(socketPath string) error {
 	return conn.Close()
 }
 
-// DoWithRetry retries fn up to MaxRetries times with exponential backoff
-// for transient errors (connection failures, HTTP 5xx, 429).
+// DoWithRetry retries fn with exponential backoff for transient errors.
 func DoWithRetry(ctx context.Context, fn func() error) error {
 	var lastErr error
 	for i := 0; i <= MaxRetries; i++ {
@@ -126,8 +121,7 @@ func DoWithRetry(ctx context.Context, fn func() error) error {
 	return lastErr
 }
 
-// IsRetryable returns true for transient errors worth retrying:
-// connection-level failures and HTTP 5xx/429 responses.
+// IsRetryable returns true for transient errors (connection failures, 5xx, 429).
 func IsRetryable(err error) bool {
 	var ae *APIError
 	if errors.As(err, &ae) {

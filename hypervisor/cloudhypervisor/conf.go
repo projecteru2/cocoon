@@ -25,8 +25,18 @@ func buildVMConfig(rec *hypervisor.VMRecord, serialLogPath string) *chVMConfig {
 		Memory:   chMemory{Size: mem, HugePages: utils.DetectHugePages()},
 		RNG:      chRNG{Src: "/dev/urandom"},
 		Watchdog: true,
-		Serial:   chSerial{Mode: "File", File: serialLogPath},
-		Console:  chConsole{Mode: "Pty"},
+	}
+
+	// OCI (direct boot): kernel cmdline has console=hvc0, so console=pty works.
+	//   serial → log file, console → pty (hvc0)
+	// cloudimg (UEFI): guest outputs to ttyS0 by default.
+	//   serial → pty (ttyS0), console → off
+	if isDirectBoot(rec.BootConfig) {
+		cfg.Serial = chSerial{Mode: "File", File: serialLogPath}
+		cfg.Console = chConsole{Mode: "Pty"}
+	} else {
+		cfg.Serial = chSerial{Mode: "Pty"}
+		cfg.Console = chConsole{Mode: "Off"}
 	}
 
 	// Balloon: 25% of memory, only when memory >= 256 MiB.
@@ -91,17 +101,14 @@ func storageConfigToDisk(sc *types.StorageConfig, cpuCount int) chDisk {
 func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	args := []string{"--api-socket", socketPath}
 
-	// --cpus
 	args = append(args, "--cpus", fmt.Sprintf("boot=%d,max=%d", cfg.CPUs.BootVCPUs, cfg.CPUs.MaxVCPUs))
 
-	// --memory
 	mem := fmt.Sprintf("size=%d", cfg.Memory.Size)
 	if cfg.Memory.HugePages {
 		mem += ",hugepages=on"
 	}
 	args = append(args, "--memory", mem)
 
-	// --disk (single flag, all specs as positional args)
 	if len(cfg.Disks) > 0 {
 		args = append(args, "--disk")
 		for _, d := range cfg.Disks {
@@ -109,7 +116,6 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 		}
 	}
 
-	// boot payload (kernel/firmware)
 	if p := cfg.Payload; p != nil {
 		if p.Kernel != "" {
 			args = append(args, "--kernel", p.Kernel)
@@ -125,20 +131,16 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 		}
 	}
 
-	// --rng
 	args = append(args, "--rng", fmt.Sprintf("src=%s", cfg.RNG.Src))
 
-	// --watchdog
 	if cfg.Watchdog {
 		args = append(args, "--watchdog")
 	}
 
-	// --balloon
 	if b := cfg.Balloon; b != nil {
 		args = append(args, "--balloon", balloonToCLIArg(b))
 	}
 
-	// --serial / --console
 	args = append(args, "--serial", serialToCLIArg(cfg.Serial))
 	args = append(args, "--console", strings.ToLower(cfg.Console.Mode))
 

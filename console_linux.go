@@ -22,7 +22,10 @@ func handleSIGWINCH(local *os.File, remote *os.File) func() {
 		}
 	}()
 
-	return func() { signal.Stop(sigCh) }
+	return func() {
+		signal.Stop(sigCh)
+		close(sigCh)
+	}
 }
 
 func propagateTerminalSize(local *os.File, remote *os.File) {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/lock"
@@ -23,9 +25,10 @@ const (
 // OCI implements the images.Images interface using OCI container images
 // converted to EROFS filesystems for use with Cloud Hypervisor.
 type OCI struct {
-	conf   *config.Config
-	store  storage.Store[imageIndex]
-	locker lock.Locker
+	conf      *config.Config
+	store     storage.Store[imageIndex]
+	locker    lock.Locker
+	pullGroup singleflight.Group
 }
 
 // New creates a new OCI image backend.
@@ -49,7 +52,10 @@ func (o *OCI) Type() string { return typ }
 // Pull downloads an OCI image from a container registry, extracts boot files
 // (kernel, initrd), and converts each layer to EROFS concurrently.
 func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) error {
-	return pull(ctx, o.conf, o.store, image, tracker)
+	_, err, _ := o.pullGroup.Do(image, func() (any, error) {
+		return nil, pull(ctx, o.conf, o.store, image, tracker)
+	})
+	return err
 }
 
 // Inspect returns the record for a single image. Returns (nil, nil) if not found.

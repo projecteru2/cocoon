@@ -38,11 +38,11 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer ch.cleanupRuntimeFiles(id)
 
 	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-	// Fast path: no running process — just mark stopped.
-	if !utils.IsProcessAlive(pid) {
+	// Fast path: no running process — clean up and mark stopped.
+	if !ch.verifyVMProcess(pid, id) {
+		ch.cleanupRuntimeFiles(id)
 		return ch.updateState(ctx, id, types.VMStateStopped)
 	}
 
@@ -57,9 +57,13 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	}
 
 	if shutdownErr != nil {
+		// Stop failed — do NOT clean runtime files; the process may still be
+		// running and we need socket/PID to control it later.
 		ch.markError(ctx, id)
 		return shutdownErr
 	}
+
+	ch.cleanupRuntimeFiles(id)
 	return ch.updateState(ctx, id, types.VMStateStopped)
 }
 
@@ -92,10 +96,7 @@ func (ch *CloudHypervisor) forceTerminate(ctx context.Context, vmID, socketPath 
 	if err := shutdownVM(ctx, socketPath); err != nil {
 		log.WithFunc("cloudhypervisor.forceTerminate").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)
 	}
-	if !utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
-		return nil
-	}
-	return utils.TerminateProcess(ctx, pid, terminateGracePeriod)
+	return utils.TerminateProcess(ctx, pid, filepath.Base(ch.conf.CHBinary), socketPath, terminateGracePeriod)
 }
 
 // isDirectBoot returns true when the VM was started with a direct kernel boot

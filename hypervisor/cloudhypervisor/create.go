@@ -25,24 +25,24 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	var boot types.BootConfig
-	if bootCfg != nil {
-		boot = *bootCfg
-	}
-
-	// Extract blob IDs before prepare transforms the StorageConfigs.
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
 
 	var (
-		sc  []*types.StorageConfig
-		err error
+		sc       []*types.StorageConfig
+		bootCopy *types.BootConfig
+		err      error
 	)
-	if boot.KernelPath != "" {
-		sc, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, &boot)
+	if bootCfg != nil {
+		b := *bootCfg
+		bootCopy = &b
+	}
+	if bootCopy != nil && bootCopy.KernelPath != "" {
+		sc, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, bootCopy)
 	} else {
 		sc, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs)
 	}
 	if err != nil {
+		ch.removeVMDirs(ctx, id)
 		return nil, err
 	}
 
@@ -57,7 +57,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	rec := hypervisor.VMRecord{
 		VMInfo:         info,
 		StorageConfigs: sc,
-		BootConfig:     &boot,
+		BootConfig:     bootCopy,
 		ImageBlobIDs:   blobIDs,
 	}
 
@@ -72,6 +72,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		idx.Names[vmCfg.Name] = id
 		return nil
 	}); err != nil {
+		ch.removeVMDirs(ctx, id)
 		return nil, fmt.Errorf("persist VM record: %w", err)
 	}
 

@@ -57,13 +57,19 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 	}()
 
+	// Fail-closed: if any module was skipped, abort the entire cycle.
+	// Collecting without a complete cross-module snapshot risks deleting data
+	// still protected by the missing module (e.g. blobs pinned by VMs).
+	if len(skipped) > 0 {
+		return fmt.Errorf("gc aborted: modules skipped (lock busy): %s", strings.Join(skipped, ", "))
+	}
+
 	// Phase 1: snapshot all locked modules.
 	snapshots := make(map[string]any, len(locked))
 	for _, m := range locked {
 		snap, err := m.readSnapshot(ctx)
 		if err != nil {
-			logger.Warnf(ctx, "snapshot %s: %v", m.getName(), err)
-			continue
+			return fmt.Errorf("gc aborted: snapshot %s: %w", m.getName(), err)
 		}
 		snapshots[m.getName()] = snap
 	}
@@ -71,11 +77,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 2: resolve deletion targets (cross-module via snapshots).
 	targets := make(map[string][]string)
 	for _, m := range locked {
-		snap, ok := snapshots[m.getName()]
-		if !ok {
-			continue
-		}
-		if ids := m.resolveTargets(snap, snapshots); len(ids) > 0 {
+		if ids := m.resolveTargets(snapshots[m.getName()], snapshots); len(ids) > 0 {
 			targets[m.getName()] = ids
 		}
 	}
@@ -83,16 +85,10 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 3: collect.
 	var errs []string
 	for _, m := range locked {
-		if _, snapshotted := snapshots[m.getName()]; !snapshotted {
-			continue
-		}
 		ids := targets[m.getName()]
 		if err := m.collect(ctx, ids); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", m.getName(), err))
 		}
-	}
-	if len(skipped) > 0 {
-		errs = append(errs, fmt.Sprintf("skipped (lock busy): %s", strings.Join(skipped, ", ")))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("gc errors: %s", strings.Join(errs, "; "))

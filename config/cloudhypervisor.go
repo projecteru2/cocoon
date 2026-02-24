@@ -29,6 +29,12 @@ func (c *Config) chDir() string    { return filepath.Join(c.RootDir, "cloudhyper
 func (c *Config) chDBDir() string  { return filepath.Join(c.chDir(), "db") }
 func (c *Config) chRunDir() string { return filepath.Join(c.RunDir, "cloudhypervisor") }
 
+// CHRunDir returns the top-level CH runtime directory (for GC orphan scanning).
+func (c *Config) CHRunDir() string { return c.chRunDir() }
+
+// CHLogDir returns the top-level CH log directory (for GC orphan scanning).
+func (c *Config) CHLogDir() string { return c.chLogDir() }
+
 // CHIndexFile and CHIndexLock are the VM index store paths.
 func (c *Config) CHIndexFile() string { return filepath.Join(c.chDBDir(), "vms.json") }
 func (c *Config) CHIndexLock() string { return filepath.Join(c.chDBDir(), "vms.lock") }
