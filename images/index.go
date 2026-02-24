@@ -148,6 +148,31 @@ func ListImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64)
 	return result
 }
 
+// ScanBlobHexes returns the digest hexes of all files with the given suffix in dir.
+// Used by GC ReadDB implementations to build the on-disk candidate set.
+func ScanBlobHexes(dir, suffix string) []string {
+	entries, _ := os.ReadDir(dir)
+	var hexes []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), suffix) {
+			hexes = append(hexes, strings.TrimSuffix(e.Name(), suffix))
+		}
+	}
+	return hexes
+}
+
+// FilterUnreferenced returns elements of candidates not present in refs.
+// Used by GC Resolve implementations to compute the deletion set.
+func FilterUnreferenced(candidates []string, refs map[string]struct{}) []string {
+	var out []string
+	for _, s := range candidates {
+		if _, ok := refs[s]; !ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // GCStaleTemp removes temp entries older than StaleTempAge.
 // Set dirOnly=true to only remove directories (OCI uses dirs, cloudimg uses files).
 func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
