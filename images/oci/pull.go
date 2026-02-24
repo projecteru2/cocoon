@@ -37,10 +37,10 @@ type pullLayerResult struct {
 
 // pull downloads an OCI image, extracts boot files, and converts each layer
 // to EROFS concurrently using errgroup.
-func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
+func pull(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
 	logger := log.WithFunc("oci.pull")
 
-	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, cfg, store, imageRef, tracker)
+	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, conf, store, imageRef, tracker)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageInde
 	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseCommit, Index: -1, Total: len(results)})
 	manifestDigest := types.NewDigest(digestHex)
 	if err := store.Update(ctx, func(idx *imageIndex) error {
-		return commitAndRecord(cfg, idx, ref, manifestDigest, results)
+		return commitAndRecord(conf, idx, ref, manifestDigest, results)
 	}); err != nil {
 		return fmt.Errorf("update image index: %w", err)
 	}
@@ -72,7 +72,7 @@ func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageInde
 // fetchAndProcess downloads the image and processes all layers concurrently.
 // Returns nil results if the image is already up-to-date.
 // The caller owns workDir cleanup via the returned path (empty when already up-to-date).
-func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
+func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
 	logger := log.WithFunc("oci.pull")
 
 	parsedRef, parseErr := name.ParseReference(imageRef)
@@ -129,12 +129,12 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 		if !ok || entry == nil || entry.ManifestDigest != types.NewDigest(digestHex) {
 			return nil
 		}
-		if !utils.ValidFile(cfg.KernelPath(entry.KernelLayer.Hex())) ||
-			!utils.ValidFile(cfg.InitrdPath(entry.InitrdLayer.Hex())) {
+		if !utils.ValidFile(conf.KernelPath(entry.KernelLayer.Hex())) ||
+			!utils.ValidFile(conf.InitrdPath(entry.InitrdLayer.Hex())) {
 			return nil
 		}
 		for _, layer := range entry.Layers {
-			if !utils.ValidFile(cfg.BlobPath(layer.Digest.Hex())) {
+			if !utils.ValidFile(conf.BlobPath(layer.Digest.Hex())) {
 				return nil
 			}
 		}
@@ -158,7 +158,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: len(layers)})
 
 	// Create working directory under temp. Caller is responsible for cleanup.
-	workDir, mkErr := os.MkdirTemp(cfg.OCITempDir(), "pull-*")
+	workDir, mkErr := os.MkdirTemp(conf.OCITempDir(), "pull-*")
 	if mkErr != nil {
 		return "", "", "", nil, fmt.Errorf("create work dir: %w", mkErr)
 	}
@@ -166,7 +166,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 	// Process layers concurrently with bounded parallelism.
 	results = make([]pullLayerResult, len(layers))
 	g, gctx := errgroup.WithContext(ctx)
-	limit := cfg.PoolSize
+	limit := conf.PoolSize
 	if limit <= 0 {
 		limit = runtime.NumCPU()
 	}
@@ -177,7 +177,7 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 		layerIdx := i
 		layerRef := layer
 		g.Go(func() error {
-			return processLayer(gctx, cfg, layerIdx, totalLayers, layerRef, workDir, knownBootHexes, tracker, &results[layerIdx])
+			return processLayer(gctx, conf, layerIdx, totalLayers, layerRef, workDir, knownBootHexes, tracker, &results[layerIdx])
 		})
 	}
 
@@ -186,14 +186,14 @@ func fetchAndProcess(ctx context.Context, cfg *config.Config, store storage.Stor
 		return "", "", "", nil, fmt.Errorf("process layers: %w", waitErr)
 	}
 
-	healCachedBootFiles(ctx, cfg, layers, results, workDir)
+	healCachedBootFiles(ctx, conf, layers, results, workDir)
 
 	return ref, digestHex, workDir, results, nil
 }
 
 // commitAndRecord moves artifacts to shared image paths and records the image entry.
 // Must be called under flock (inside idx.Update).
-func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDigest types.Digest, results []pullLayerResult) error {
+func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestDigest types.Digest, results []pullLayerResult) error {
 	var (
 		layerEntries []layerEntry
 		kernelLayer  types.Digest
@@ -205,26 +205,26 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 		layerDigestHex := r.digest.Hex()
 
 		// Move erofs to shared blob path if not already there.
-		if r.erofsPath != cfg.BlobPath(layerDigestHex) {
-			if err := os.Rename(r.erofsPath, cfg.BlobPath(layerDigestHex)); err != nil {
+		if r.erofsPath != conf.BlobPath(layerDigestHex) {
+			if err := os.Rename(r.erofsPath, conf.BlobPath(layerDigestHex)); err != nil {
 				return fmt.Errorf("move layer %d erofs: %w", r.index, err)
 			}
 		}
 
 		// Move boot files to shared boot dir if not already there.
-		if r.kernelPath != "" && r.kernelPath != cfg.KernelPath(layerDigestHex) {
-			if err := os.MkdirAll(cfg.BootDir(layerDigestHex), 0o750); err != nil {
+		if r.kernelPath != "" && r.kernelPath != conf.KernelPath(layerDigestHex) {
+			if err := os.MkdirAll(conf.BootDir(layerDigestHex), 0o750); err != nil {
 				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
 			}
-			if err := os.Rename(r.kernelPath, cfg.KernelPath(layerDigestHex)); err != nil {
+			if err := os.Rename(r.kernelPath, conf.KernelPath(layerDigestHex)); err != nil {
 				return fmt.Errorf("move layer %d kernel: %w", r.index, err)
 			}
 		}
-		if r.initrdPath != "" && r.initrdPath != cfg.InitrdPath(layerDigestHex) {
-			if err := os.MkdirAll(cfg.BootDir(layerDigestHex), 0o750); err != nil {
+		if r.initrdPath != "" && r.initrdPath != conf.InitrdPath(layerDigestHex) {
+			if err := os.MkdirAll(conf.BootDir(layerDigestHex), 0o750); err != nil {
 				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
 			}
-			if err := os.Rename(r.initrdPath, cfg.InitrdPath(layerDigestHex)); err != nil {
+			if err := os.Rename(r.initrdPath, conf.InitrdPath(layerDigestHex)); err != nil {
 				return fmt.Errorf("move layer %d initrd: %w", r.index, err)
 			}
 		}
@@ -248,14 +248,14 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 	// Guards against concurrent GC deleting cached blobs/boot files between
 	// processLayer (no flock) and this point (under flock).
 	for _, le := range layerEntries {
-		if !utils.ValidFile(cfg.BlobPath(le.Digest.Hex())) {
+		if !utils.ValidFile(conf.BlobPath(le.Digest.Hex())) {
 			return fmt.Errorf("blob missing for layer %s (concurrent GC?)", le.Digest)
 		}
 	}
-	if !utils.ValidFile(cfg.KernelPath(kernelLayer.Hex())) {
+	if !utils.ValidFile(conf.KernelPath(kernelLayer.Hex())) {
 		return fmt.Errorf("kernel missing for %s (concurrent GC?)", kernelLayer)
 	}
-	if !utils.ValidFile(cfg.InitrdPath(initrdLayer.Hex())) {
+	if !utils.ValidFile(conf.InitrdPath(initrdLayer.Hex())) {
 		return fmt.Errorf("initrd missing for %s (concurrent GC?)", initrdLayer)
 	}
 
@@ -279,7 +279,7 @@ func commitAndRecord(cfg *config.Config, idx *imageIndex, ref string, manifestDi
 // healCachedBootFiles closes that gap by running after all layers are processed:
 // if kernel or initrd (or both) are still missing across results, it sequentially
 // re-scans every cached layer to find them.
-func healCachedBootFiles(ctx context.Context, cfg *config.Config, layers []v1.Layer, results []pullLayerResult, workDir string) {
+func healCachedBootFiles(ctx context.Context, conf *config.Config, layers []v1.Layer, results []pullLayerResult, workDir string) {
 	logger := log.WithFunc("oci.healCachedBootFiles")
 
 	var hasKernel, hasInitrd bool
@@ -300,7 +300,7 @@ func healCachedBootFiles(ctx context.Context, cfg *config.Config, layers []v1.La
 	for i, layer := range layers {
 		digestHex := results[i].digest.Hex()
 		// Only re-scan cached layers; freshly processed layers were already fully scanned.
-		if results[i].erofsPath != cfg.BlobPath(digestHex) {
+		if results[i].erofsPath != conf.BlobPath(digestHex) {
 			continue
 		}
 		healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", i))
@@ -333,7 +333,7 @@ func healCachedBootFiles(ctx context.Context, cfg *config.Config, layers []v1.La
 // for missing boot files and self-heals by re-extracting them.
 // knownBootHexes contains digest hex strings of layers previously recorded as boot
 // layers in the index, enabling targeted self-heal even when bootDir is deleted.
-func processLayer(ctx context.Context, cfg *config.Config, idx, total int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) error {
+func processLayer(ctx context.Context, conf *config.Config, idx, total int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) error {
 	logger := log.WithFunc("oci.processLayer")
 
 	layerDigest, err := layer.Digest()
@@ -346,16 +346,16 @@ func processLayer(ctx context.Context, cfg *config.Config, idx, total int, layer
 	result.digest = types.NewDigest(digestHex)
 
 	// Check if this layer's blob already exists and is valid (shared across images).
-	if utils.ValidFile(cfg.BlobPath(digestHex)) {
+	if utils.ValidFile(conf.BlobPath(digestHex)) {
 		logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
-		result.erofsPath = cfg.BlobPath(digestHex)
+		result.erofsPath = conf.BlobPath(digestHex)
 
 		// Check for cached boot files (must exist and be non-empty).
-		if utils.ValidFile(cfg.KernelPath(digestHex)) {
-			result.kernelPath = cfg.KernelPath(digestHex)
+		if utils.ValidFile(conf.KernelPath(digestHex)) {
+			result.kernelPath = conf.KernelPath(digestHex)
 		}
-		if utils.ValidFile(cfg.InitrdPath(digestHex)) {
-			result.initrdPath = cfg.InitrdPath(digestHex)
+		if utils.ValidFile(conf.InitrdPath(digestHex)) {
+			result.initrdPath = conf.InitrdPath(digestHex)
 		}
 
 		// Best-effort self-heal: re-extract missing/invalid boot files.
@@ -366,7 +366,7 @@ func processLayer(ctx context.Context, cfg *config.Config, idx, total int, layer
 		// validates at image level.
 		hasBootEvidence := result.kernelPath != "" || result.initrdPath != ""
 		if !hasBootEvidence {
-			_, statErr := os.Stat(cfg.BootDir(digestHex))
+			_, statErr := os.Stat(conf.BootDir(digestHex))
 			hasBootEvidence = statErr == nil
 		}
 		if !hasBootEvidence {

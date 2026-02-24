@@ -30,14 +30,14 @@ const (
 	maxDownloadBytes int64 = 20 << 30
 )
 
-func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageIndex], url string, tracker progress.Tracker) error {
+func pull(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], url string, tracker progress.Tracker) error {
 	logger := log.WithFunc("cloudimg.pull")
 
 	// Idempotency check: if the URL is already indexed and the blob is valid, skip.
 	var skip bool
 	if err := store.With(ctx, func(idx *imageIndex) error {
 		if _, entry, ok := idx.Lookup(url); ok {
-			blobPath := cfg.CloudimgBlobPath(entry.ContentSum.Hex())
+			blobPath := conf.CloudimgBlobPath(entry.ContentSum.Hex())
 			if utils.ValidFile(blobPath) {
 				logger.Infof(ctx, "image %s already cached, skipping", url)
 				skip = true
@@ -52,7 +52,7 @@ func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageInde
 	}
 
 	// Download and convert (blob not placed yet — returned as temp path).
-	digestHex, tmpBlobPath, err := downloadAndConvert(ctx, cfg, url, tracker)
+	digestHex, tmpBlobPath, err := downloadAndConvert(ctx, conf, url, tracker)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageInde
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseCommit})
 
 	if err := store.Update(ctx, func(idx *imageIndex) error {
-		blobPath := cfg.CloudimgBlobPath(digestHex)
+		blobPath := conf.CloudimgBlobPath(digestHex)
 
 		// Place blob if not already present (content dedup or concurrent pull).
 		if tmpBlobPath != "" && !utils.ValidFile(blobPath) {
@@ -104,11 +104,11 @@ func pull(ctx context.Context, cfg *config.Config, store storage.Store[imageInde
 // Returns (digestHex, tmpBlobPath, err). tmpBlobPath is empty when the blob
 // already exists on disk; otherwise the caller is responsible for placing
 // (renaming) and cleaning up the temp file.
-func downloadAndConvert(ctx context.Context, cfg *config.Config, url string, tracker progress.Tracker) (string, string, error) {
+func downloadAndConvert(ctx context.Context, conf *config.Config, url string, tracker progress.Tracker) (string, string, error) {
 	logger := log.WithFunc("cloudimg.downloadAndConvert")
 
 	// Create temp file for download.
-	tmpFile, err := os.CreateTemp(cfg.CloudimgTempDir(), "pull-*.img")
+	tmpFile, err := os.CreateTemp(conf.CloudimgTempDir(), "pull-*.img")
 	if err != nil {
 		return "", "", fmt.Errorf("create temp file: %w", err)
 	}
@@ -123,7 +123,7 @@ func downloadAndConvert(ctx context.Context, cfg *config.Config, url string, tra
 	logger.Infof(ctx, "downloaded %s -> %s (sha256:%s)", url, tmpPath, digestHex)
 
 	// Check if blob already exists (another URL might have same content).
-	blobPath := cfg.CloudimgBlobPath(digestHex)
+	blobPath := conf.CloudimgBlobPath(digestHex)
 	if utils.ValidFile(blobPath) {
 		logger.Infof(ctx, "blob %s already exists, skipping conversion", digestHex)
 		return digestHex, "", nil
@@ -141,7 +141,7 @@ func downloadAndConvert(ctx context.Context, cfg *config.Config, url string, tra
 	// Convert to qcow2 v3 (compat=1.1).
 	// Create temp in the temp dir (not blobs dir) so GC won't delete it
 	// while qemu-img is still writing.
-	tmpBlob, err := os.CreateTemp(cfg.CloudimgTempDir(), ".tmp-*.qcow2")
+	tmpBlob, err := os.CreateTemp(conf.CloudimgTempDir(), ".tmp-*.qcow2")
 	if err != nil {
 		return "", "", fmt.Errorf("create temp blob: %w", err)
 	}

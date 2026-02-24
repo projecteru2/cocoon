@@ -23,9 +23,9 @@ import (
 const cowSerial = "cocoon-cow"
 
 func main() {
-	cfg := config.DefaultConfig()
+	conf := config.DefaultConfig()
 	if root := os.Getenv("COCOON_ROOT"); root != "" {
-		cfg.RootDir = root
+		conf.RootDir = root
 	}
 
 	if len(os.Args) < 2 {
@@ -34,11 +34,11 @@ func main() {
 
 	ctx := context.Background()
 
-	ociStore, err := oci.New(ctx, cfg)
+	ociStore, err := oci.New(ctx, conf)
 	if err != nil {
 		fatalf("init oci backend: %v", err)
 	}
-	cloudimgStore, err := cloudimg.New(ctx, cfg)
+	cloudimgStore, err := cloudimg.New(ctx, conf)
 	if err != nil {
 		fatalf("init cloudimg backend: %v", err)
 	}
@@ -50,7 +50,7 @@ func main() {
 	case "list", "ls":
 		cmdList(ctx, backends)
 	case "run":
-		cmdRun(ctx, cfg, backends, os.Args[2:])
+		cmdRun(ctx, conf, backends, os.Args[2:])
 	case "delete", "rm":
 		cmdDelete(ctx, backends, os.Args[2:])
 	case "gc":
@@ -156,7 +156,7 @@ func cmdList(ctx context.Context, backends []images.Images) {
 	w.Flush() //nolint:errcheck
 }
 
-func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, args []string) {
+func cmdRun(ctx context.Context, conf *config.Config, backends []images.Images, args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	vmName := fs.String("name", "cocoon-vm", "VM name")
 	cpu := fs.Int("cpu", 2, "boot CPUs")
@@ -185,11 +185,11 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 	var boot *types.BootConfig
 	var backendType string
 	for _, b := range backends {
-		cfgs, boots, err := b.Config(ctx, vms)
+		confs, boots, err := b.Config(ctx, vms)
 		if err != nil {
 			continue
 		}
-		configs = cfgs[0]
+		configs = confs[0]
 		boot = boots[0]
 		backendType = b.Type()
 		break
@@ -203,13 +203,13 @@ func cmdRun(ctx context.Context, cfg *config.Config, backends []images.Images, a
 	}
 
 	if boot.KernelPath != "" {
-		cmdRunOCI(cfg, configs, boot, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
+		cmdRunOCI(conf, configs, boot, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
 	} else {
-		cmdRunCloudimg(cfg, configs, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
+		cmdRunCloudimg(conf, configs, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
 	}
 }
 
-func cmdRunOCI(cfg *config.Config, configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+func cmdRunOCI(conf *config.Config, configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
 	if cowPath == "" {
 		cowPath = fmt.Sprintf("cow-%s.raw", vmName)
 	}
@@ -254,7 +254,7 @@ func cmdRunOCI(cfg *config.Config, configs []*types.StorageConfig, boot *types.B
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)
 }
 
-func cmdRunCloudimg(cfg *config.Config, configs []*types.StorageConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+func cmdRunCloudimg(conf *config.Config, configs []*types.StorageConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
 	if cowPath == "" {
 		cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
 	}
@@ -271,7 +271,7 @@ func cmdRunCloudimg(cfg *config.Config, configs []*types.StorageConfig, vmName, 
 
 	fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmName, image)
 	fmt.Printf("%s \\\n", chBin)
-	fmt.Printf("  --firmware %s \\\n", cfg.FirmwarePath())
+	fmt.Printf("  --firmware %s \\\n", conf.FirmwarePath())
 	fmt.Printf("  --disk \\\n")
 	fmt.Printf("    \"path=%s,readonly=off,direct=on,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)

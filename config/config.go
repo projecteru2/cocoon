@@ -37,27 +37,27 @@ func DefaultConfig() *Config {
 
 // LoadConfig loads configuration from file, falling back to defaults.
 func LoadConfig(path string) (*Config, error) {
-	cfg := DefaultConfig()
+	conf := DefaultConfig()
 	if path == "" {
-		return cfg, nil
+		return conf, nil
 	}
 
 	data, err := os.ReadFile(path) //nolint:gosec // config path from CLI flag
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return conf, nil
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	if err := json.Unmarshal(data, cfg); err != nil {
+	if err := json.Unmarshal(data, conf); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	if cfg.PoolSize <= 0 {
-		cfg.PoolSize = runtime.NumCPU()
+	if conf.PoolSize <= 0 {
+		conf.PoolSize = runtime.NumCPU()
 	}
-	return cfg, nil
+	return conf, nil
 }
 
 // FirmwarePath returns the path to the UEFI firmware file (CLOUDHV.fd).
