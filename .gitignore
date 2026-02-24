@@ -46,3 +46,4 @@ dev/
 TODO*
 
 tmp/*
+.cache/*
