@@ -54,28 +54,23 @@ func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) 
 	return pull(ctx, o.conf, o.store, image, tracker)
 }
 
+// Inspect returns the record for a single image. Returns (nil, nil) if not found.
+func (o *OCI) Inspect(ctx context.Context, id string) (result *types.Image, err error) {
+	err = o.store.With(ctx, func(idx *imageIndex) error {
+		refs := idx.LookupRefs(id)
+		if len(refs) == 0 {
+			return nil
+		}
+		result = images.EntryToImage(idx.Images[refs[0]], typ, o.imageSizer)
+		return nil
+	})
+	return
+}
+
 // List returns all locally stored images.
 func (o *OCI) List(ctx context.Context) (result []*types.Image, err error) {
 	err = o.store.With(ctx, func(idx *imageIndex) error {
-		result = images.ListImages(idx.Images, typ, func(e *imageEntry) int64 {
-			var total int64
-			for _, layer := range e.Layers {
-				if info, err := os.Stat(o.conf.BlobPath(layer.Digest.Hex())); err == nil {
-					total += info.Size()
-				}
-			}
-			if e.KernelLayer != "" {
-				if info, err := os.Stat(o.conf.KernelPath(e.KernelLayer.Hex())); err == nil {
-					total += info.Size()
-				}
-			}
-			if e.InitrdLayer != "" {
-				if info, err := os.Stat(o.conf.InitrdPath(e.InitrdLayer.Hex())); err == nil {
-					total += info.Size()
-				}
-			}
-			return total
-		})
+		result = images.ListImages(idx.Images, typ, o.imageSizer)
 		return nil
 	})
 	return
@@ -135,4 +130,24 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 		return nil
 	})
 	return
+}
+
+func (o *OCI) imageSizer(e *imageEntry) int64 {
+	var total int64
+	for _, layer := range e.Layers {
+		if info, err := os.Stat(o.conf.BlobPath(layer.Digest.Hex())); err == nil {
+			total += info.Size()
+		}
+	}
+	if e.KernelLayer != "" {
+		if info, err := os.Stat(o.conf.KernelPath(e.KernelLayer.Hex())); err == nil {
+			total += info.Size()
+		}
+	}
+	if e.InitrdLayer != "" {
+		if info, err := os.Stat(o.conf.InitrdPath(e.InitrdLayer.Hex())); err == nil {
+			total += info.Size()
+		}
+	}
+	return total
 }
