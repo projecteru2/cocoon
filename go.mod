@@ -3,6 +3,7 @@ module github.com/projecteru2/cocoon
 go 1.25.6
 
 require (
+	github.com/docker/go-units v0.5.0
 	github.com/gofrs/flock v0.13.0
 	github.com/google/go-containerregistry v0.21.0
 	github.com/google/uuid v1.6.0

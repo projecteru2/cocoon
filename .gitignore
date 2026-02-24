@@ -43,4 +43,6 @@ coverage/
 dev/
 
 # Implementation plan (internal)
-TODO
+TODO*
+
+tmp/*

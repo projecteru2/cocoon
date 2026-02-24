@@ -76,6 +76,9 @@ func LoadConfig(path string) (*Config, error) {
 	if conf.PoolSize <= 0 {
 		conf.PoolSize = runtime.NumCPU()
 	}
+	if conf.StopTimeoutSeconds <= 0 {
+		conf.StopTimeoutSeconds = 30 //nolint:mnd
+	}
 	return conf, nil
 }
 

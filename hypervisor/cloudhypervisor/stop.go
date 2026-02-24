@@ -2,8 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
-	"fmt"
-	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -27,16 +26,7 @@ const (
 //
 // Returns the IDs that were successfully stopped.
 func (ch *CloudHypervisor) Stop(ctx context.Context, ids []string) ([]string, error) {
-	logger := log.WithFunc("cloudhypervisor.Stop")
-	var stopped []string
-	for _, id := range ids {
-		if err := ch.stopOne(ctx, id); err != nil {
-			logger.Warnf(ctx, "stop VM %s: %v", id, err)
-			continue
-		}
-		stopped = append(stopped, id)
-	}
-	return stopped, nil
+	return forEachVM(ctx, ids, "Stop", true, ch.stopOne)
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
@@ -44,29 +34,23 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	defer ch.cleanupRuntimeFiles(id)
 
-	socketPath := ch.conf.CHVMSocketPath(id)
 	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-
-	// Fast path: no running process — just clean up and mark stopped.
+	// Fast path: no running process — just mark stopped.
 	if !utils.IsProcessAlive(pid) {
-		_ = os.Remove(socketPath)
-		_ = os.Remove(ch.conf.CHVMPIDFile(id))
 		return ch.updateState(ctx, id, types.VMStateStopped)
 	}
 
+	socketPath := ch.conf.CHVMSocketPath(id)
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
 
 	var shutdownErr error
 	if isDirectBoot(rec.BootConfig) {
-		shutdownErr = ch.shutdownDirect(ctx, id, socketPath, pid)
+		shutdownErr = ch.forceTerminate(ctx, id, socketPath, pid)
 	} else {
 		shutdownErr = ch.shutdownUEFI(ctx, id, socketPath, pid, stopTimeout)
 	}
-
-	// Clean up runtime files regardless of how shutdown went.
-	_ = os.Remove(socketPath)
-	_ = os.Remove(ch.conf.CHVMPIDFile(id))
 
 	if shutdownErr != nil {
 		ch.markError(ctx, id)
@@ -78,47 +62,36 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 // shutdownUEFI shuts down a UEFI-boot VM:
 //  1. Send ACPI power-button — asks the guest OS to shut down cleanly.
 //  2. Poll until the process exits or the timeout fires.
-//  3. Fallback: vm.shutdown API → SIGTERM → SIGKILL.
+//  3. Fallback: forceTerminate (vm.shutdown → SIGTERM → SIGKILL).
 func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, vmID, socketPath string, pid int, timeout time.Duration) error {
 	if err := powerButton(ctx, socketPath); err != nil {
 		log.WithFunc("cloudhypervisor.shutdownUEFI").Warnf(ctx, "power-button %s: %v — falling back", vmID, err)
-		return ch.terminateWithFallback(ctx, vmID, socketPath, pid)
+		return ch.forceTerminate(ctx, vmID, socketPath, pid)
 	}
 
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !utils.IsProcessAlive(pid) {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context canceled waiting for ACPI shutdown: %w", ctx.Err())
-		case <-time.After(acpiPollInterval):
-		}
+	// Poll until the process exits or timeout.
+	if err := utils.WaitFor(ctx, timeout, acpiPollInterval, func() (bool, error) {
+		return !utils.IsProcessAlive(pid), nil
+	}); err == nil {
+		return nil
 	}
 
 	// Guest did not power off in time — escalate.
 	log.WithFunc("cloudhypervisor.shutdownUEFI").Warnf(ctx, "VM %s did not respond to power-button within %s — falling back", vmID, timeout)
-	return ch.terminateWithFallback(ctx, vmID, socketPath, pid)
+	return ch.forceTerminate(ctx, vmID, socketPath, pid)
 }
 
-// shutdownDirect shuts down a direct-boot VM without sending ACPI events:
-//
-//	vm.shutdown API (flush disk backends) → SIGTERM → SIGKILL.
-func (ch *CloudHypervisor) shutdownDirect(ctx context.Context, vmID, socketPath string, pid int) error {
+// forceTerminate shuts down a VM by flushing disk backends via the REST API,
+// then sending SIGTERM → SIGKILL. Verifies the PID still belongs to
+// cloud-hypervisor before sending signals to avoid killing a reused PID.
+func (ch *CloudHypervisor) forceTerminate(ctx context.Context, vmID, socketPath string, pid int) error {
 	if err := shutdownVM(ctx, socketPath); err != nil {
-		log.WithFunc("cloudhypervisor.shutdownDirect").Warnf(ctx, "vm.shutdown %s: %v — proceeding to SIGTERM", vmID, err)
+		log.WithFunc("cloudhypervisor.forceTerminate").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)
 	}
-	return utils.TerminateProcess(pid, terminateGracePeriod)
-}
-
-// terminateWithFallback is used when graceful shutdown failed:
-// vm.shutdown (flush backends) → SIGTERM → SIGKILL.
-func (ch *CloudHypervisor) terminateWithFallback(ctx context.Context, vmID, socketPath string, pid int) error {
-	if err := shutdownVM(ctx, socketPath); err != nil {
-		log.WithFunc("cloudhypervisor.terminateWithFallback").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)
+	if !utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
+		return nil
 	}
-	return utils.TerminateProcess(pid, terminateGracePeriod)
+	return utils.TerminateProcess(ctx, pid, terminateGracePeriod)
 }
 
 // isDirectBoot returns true when the VM was started with a direct kernel boot

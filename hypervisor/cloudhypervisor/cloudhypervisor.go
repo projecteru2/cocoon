@@ -3,6 +3,7 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -11,6 +12,7 @@ import (
 	"github.com/projecteru2/cocoon/storage"
 	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 const typ = "cloud-hypervisor"
@@ -35,14 +37,14 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 func (ch *CloudHypervisor) Type() string { return typ }
 
 // Inspect returns the VMInfo for a single VM by ID.
-// Returns (nil, nil) if the VM is not found.
+// Returns hypervisor.ErrNotFound if the VM does not exist.
 // Runtime fields (PID, SocketPath) are populated from the PID file and config.
 func (ch *CloudHypervisor) Inspect(ctx context.Context, id string) (*types.VMInfo, error) {
 	var result *types.VMInfo
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		rec := idx.VMs[id]
 		if rec == nil {
-			return nil
+			return hypervisor.ErrNotFound
 		}
 		info := rec.VMInfo // value copy — detached from the DB record
 		ch.enrichRuntime(&info)
@@ -69,20 +71,20 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 }
 
 // Delete removes VM records from the index and returns the IDs that were deleted.
-// Unknown IDs are silently skipped. Runtime and log directories are left for GC.
-func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string) ([]string, error) {
-	var deleted []string
-	return deleted, ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		for _, id := range ids {
-			if _, ok := idx.VMs[id]; ok {
-				delete(idx.VMs, id)
-				deleted = append(deleted, id)
+// Running VMs are rejected unless force is true, in which case they are stopped first.
+// Uses early-return mode: the first error aborts the loop.
+func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string, force bool) ([]string, error) {
+	return forEachVM(ctx, ids, "Delete", false, func(ctx context.Context, id string) error {
+		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
+		if utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
+			if !force {
+				return fmt.Errorf("running (force required)")
 			}
+			_ = ch.stopOne(ctx, id)
 		}
-		return nil
+		return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+			delete(idx.VMs, id)
+			return nil
+		})
 	})
-}
-
-func (ch *CloudHypervisor) Create(_ context.Context, _ *types.VMConfig, _ []*types.StorageConfig, _ *types.BootConfig) (*types.VMInfo, error) {
-	panic("not implemented")
 }

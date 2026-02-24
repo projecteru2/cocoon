@@ -20,21 +20,20 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmpPath := tmp.Name()
 
 	defer func() {
+		// On any error the temp file is cleaned up.
 		if err != nil {
 			_ = os.Remove(tmpPath)
 		}
 	}()
+	defer tmp.Close() //nolint:errcheck
 
 	if _, err = tmp.Write(data); err != nil {
-		_ = tmp.Close()
 		return fmt.Errorf("write temp file: %w", err)
 	}
 	if err = tmp.Sync(); err != nil {
-		_ = tmp.Close()
 		return fmt.Errorf("sync temp file: %w", err)
 	}
 	if err = tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
 	if err = tmp.Close(); err != nil {
@@ -58,15 +57,6 @@ func AtomicWriteJSON(path string, v any) error {
 	data = append(data, '\n')
 	return AtomicWriteFile(path, data, 0o644)
 }
-
-//// ReadJSON reads and unmarshals a JSON file.
-//func ReadJSON(path string, v any) error {
-//	data, err := os.ReadFile(path) //nolint:gosec // internal metadata path
-//	if err != nil {
-//		return err
-//	}
-//	return json.Unmarshal(data, v)
-//}
 
 // SyncParentDir fsyncs the directory containing the file to ensure the directory entry is persisted.
 func SyncParentDir(dir string) error {

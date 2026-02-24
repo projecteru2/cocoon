@@ -1,13 +1,17 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
+
+const killWaitTimeout = 5 * time.Second
 
 // WritePIDFile writes pid to path with 0600 permissions.
 func WritePIDFile(path string, pid int) error {
@@ -36,25 +40,53 @@ func IsProcessAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
+// VerifyProcess checks whether pid is running the expected binary.
+// On Linux, reads /proc/{pid}/exe. Falls back to IsProcessAlive on other
+// platforms or when /proc is unavailable.
+func VerifyProcess(pid int, binaryName string) bool {
+	if pid <= 0 {
+		return false
+	}
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return IsProcessAlive(pid)
+	}
+	return filepath.Base(exe) == binaryName
+}
+
 // TerminateProcess sends SIGTERM to pid, waits up to gracePeriod for it to
-// exit, then falls back to SIGKILL.
-func TerminateProcess(pid int, gracePeriod time.Duration) error {
+// exit, then falls back to SIGKILL. Respects context cancellation during the
+// grace period. Waits for the process to actually exit after SIGKILL.
+func TerminateProcess(ctx context.Context, pid int, gracePeriod time.Duration) error {
+	if !IsProcessAlive(pid) {
+		return nil
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		return nil // already gone
+		return nil
 	}
+
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
 		if !IsProcessAlive(pid) {
 			return nil
 		}
-		return proc.Kill()
+		return killAndWait(ctx, proc, pid)
 	}
-	deadline := time.Now().Add(gracePeriod)
-	for time.Now().Before(deadline) {
-		if !IsProcessAlive(pid) {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
+
+	// Wait for graceful exit.
+	if err := WaitFor(ctx, gracePeriod, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
+		return !IsProcessAlive(pid), nil
+	}); err == nil {
+		return nil
 	}
-	return proc.Kill()
+
+	// Escalate to SIGKILL.
+	return killAndWait(ctx, proc, pid)
+}
+
+func killAndWait(ctx context.Context, proc *os.Process, pid int) error {
+	_ = proc.Kill()
+	return WaitFor(ctx, killWaitTimeout, 50*time.Millisecond, func() (bool, error) { //nolint:mnd
+		return !IsProcessAlive(pid), nil
+	})
 }
