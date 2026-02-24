@@ -41,9 +41,7 @@ func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 	}, nil
 }
 
-func (c *CloudImg) Type() string {
-	return typ
-}
+func (c *CloudImg) Type() string { return typ }
 
 // Pull downloads a cloud image from a URL, converts it to qcow2 v3,
 // and stores the blob in the content-addressed cache.

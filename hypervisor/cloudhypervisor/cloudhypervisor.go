@@ -42,7 +42,7 @@ func (ch *CloudHypervisor) Type() string { return typ }
 // Runtime fields (PID, SocketPath) are populated from the PID file and config.
 func (ch *CloudHypervisor) Inspect(ctx context.Context, id string) (*types.VMInfo, error) {
 	var result *types.VMInfo
-	err := ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		rec := idx.VMs[id]
 		if rec == nil {
 			return nil
@@ -52,14 +52,13 @@ func (ch *CloudHypervisor) Inspect(ctx context.Context, id string) (*types.VMInf
 		result = &info
 		return nil
 	})
-	return result, err
 }
 
 // List returns VMInfo for all known VMs.
 // Runtime fields are populated for each entry.
 func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 	var result []*types.VMInfo
-	err := ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		for _, rec := range idx.VMs {
 			if rec == nil {
 				continue
@@ -70,7 +69,6 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 		}
 		return nil
 	})
-	return result, err
 }
 
 // Delete removes VM records from the index and returns the IDs that were deleted.

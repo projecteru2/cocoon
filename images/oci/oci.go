@@ -44,9 +44,7 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 	}, nil
 }
 
-func (o *OCI) Type() string {
-	return typ
-}
+func (o *OCI) Type() string { return typ }
 
 // Pull downloads an OCI image from a container registry, extracts boot files
 // (kernel, initrd), and converts each layer to EROFS concurrently.
