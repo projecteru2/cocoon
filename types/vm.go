@@ -8,3 +8,5 @@ type VMConfig struct {
 
 	Image string `json:"image"`
 }
+
+type VMInfo struct{}

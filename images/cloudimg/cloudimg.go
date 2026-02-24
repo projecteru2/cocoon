@@ -98,8 +98,9 @@ func (c *CloudImg) Config(ctx context.Context, vms []*types.VMConfig) (result []
 				Serial: "cocoon-base",
 			}}
 
-			// UEFI boot: no external kernel/initrd needed.
-			boot[i] = &types.BootConfig{}
+			boot[i] = &types.BootConfig{
+				FirmwarePath: c.conf.FirmwarePath(),
+			}
 		}
 		return nil
 	})

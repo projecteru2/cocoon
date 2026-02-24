@@ -205,7 +205,7 @@ func cmdRun(ctx context.Context, conf *config.Config, backends []images.Images, 
 	if boot.KernelPath != "" {
 		cmdRunOCI(conf, configs, boot, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
 	} else {
-		cmdRunCloudimg(conf, configs, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
+		cmdRunCloudimg(conf, configs, boot, *vmName, image, *cowPath, *chBin, *cpu, *maxCPU, *memory, *balloon, *cowSize)
 	}
 }
 
@@ -254,7 +254,7 @@ func cmdRunOCI(conf *config.Config, configs []*types.StorageConfig, boot *types.
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)
 }
 
-func cmdRunCloudimg(conf *config.Config, configs []*types.StorageConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+func cmdRunCloudimg(conf *config.Config, configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
 	if cowPath == "" {
 		cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
 	}
@@ -271,7 +271,7 @@ func cmdRunCloudimg(conf *config.Config, configs []*types.StorageConfig, vmName,
 
 	fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmName, image)
 	fmt.Printf("%s \\\n", chBin)
-	fmt.Printf("  --firmware %s \\\n", conf.FirmwarePath())
+	fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
 	fmt.Printf("  --disk \\\n")
 	fmt.Printf("    \"path=%s,readonly=off,direct=on,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)

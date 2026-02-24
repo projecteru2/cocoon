@@ -18,10 +18,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	ociProgress "github.com/projecteru2/cocoon/progress/oci"
 	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 	"github.com/projecteru2/core/log"
 )
@@ -29,7 +29,7 @@ import (
 // pullLayerResult holds the output of processing a single layer.
 type pullLayerResult struct {
 	index      int
-	digest     types.Digest
+	digest     images.Digest
 	erofsPath  string
 	kernelPath string // non-empty if this layer contains a kernel
 	initrdPath string // non-empty if this layer contains an initrd
@@ -57,7 +57,7 @@ func pull(ctx context.Context, conf *config.Config, store storage.Store[imageInd
 	// run to move repaired artifacts into place. commitAndRecord itself is
 	// idempotent (skips rename when src == dst).
 	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseCommit, Index: -1, Total: len(results)})
-	manifestDigest := types.NewDigest(digestHex)
+	manifestDigest := images.NewDigest(digestHex)
 	if err := store.Update(ctx, func(idx *imageIndex) error {
 		return commitAndRecord(conf, idx, ref, manifestDigest, results)
 	}); err != nil {
@@ -126,7 +126,7 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 
 		// Idempotency check: same ref and manifest digest with all files intact.
 		entry, ok := idx.Images[ref]
-		if !ok || entry == nil || entry.ManifestDigest != types.NewDigest(digestHex) {
+		if !ok || entry == nil || entry.ManifestDigest != images.NewDigest(digestHex) {
 			return nil
 		}
 		if !utils.ValidFile(conf.KernelPath(entry.KernelLayer.Hex())) ||
@@ -193,11 +193,11 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 
 // commitAndRecord moves artifacts to shared image paths and records the image entry.
 // Must be called under flock (inside idx.Update).
-func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestDigest types.Digest, results []pullLayerResult) error {
+func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestDigest images.Digest, results []pullLayerResult) error {
 	var (
 		layerEntries []layerEntry
-		kernelLayer  types.Digest
-		initrdLayer  types.Digest
+		kernelLayer  images.Digest
+		initrdLayer  images.Digest
 	)
 
 	for i := range results {
@@ -343,7 +343,7 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 	digestHex := layerDigest.Hex
 
 	result.index = idx
-	result.digest = types.NewDigest(digestHex)
+	result.digest = images.NewDigest(digestHex)
 
 	// Check if this layer's blob already exists and is valid (shared across images).
 	if utils.ValidFile(conf.BlobPath(digestHex)) {

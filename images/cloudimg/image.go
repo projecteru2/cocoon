@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/types"
 )
 
 // imageIndex is the top-level structure of the cloudimg images.json file.
@@ -36,10 +35,10 @@ func (idx *imageIndex) LookupRefs(id string) []string {
 
 // imageEntry records one pulled cloud image.
 type imageEntry struct {
-	Ref        string       `json:"ref"`         // Original URL.
-	ContentSum types.Digest `json:"content_sum"` // SHA-256 of downloaded content.
-	Size       int64        `json:"size"`        // qcow2 blob size on disk.
-	CreatedAt  time.Time    `json:"created_at"`
+	Ref        string        `json:"ref"`         // Original URL.
+	ContentSum images.Digest `json:"content_sum"` // SHA-256 of downloaded content.
+	Size       int64         `json:"size"`        // qcow2 blob size on disk.
+	CreatedAt  time.Time     `json:"created_at"`
 }
 
 // images.Entry implementation (value receivers).

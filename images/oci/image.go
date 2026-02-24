@@ -6,7 +6,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 
 	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/types"
 )
 
 // imageIndex is the top-level structure of the OCI images.json file.
@@ -50,12 +49,12 @@ func (idx *imageIndex) LookupRefs(id string) []string {
 // imageEntry records one pulled OCI image.
 // Paths are not stored; they are derived from digests and config at runtime.
 type imageEntry struct {
-	Ref            string       `json:"ref"`
-	ManifestDigest types.Digest `json:"manifest_digest"`
-	Layers         []layerEntry `json:"layers"`
-	KernelLayer    types.Digest `json:"kernel_layer"` // digest of layer containing vmlinuz
-	InitrdLayer    types.Digest `json:"initrd_layer"` // digest of layer containing initrd.img
-	CreatedAt      time.Time    `json:"created_at"`
+	Ref            string        `json:"ref"`
+	ManifestDigest images.Digest `json:"manifest_digest"`
+	Layers         []layerEntry  `json:"layers"`
+	KernelLayer    images.Digest `json:"kernel_layer"` // digest of layer containing vmlinuz
+	InitrdLayer    images.Digest `json:"initrd_layer"` // digest of layer containing initrd.img
+	CreatedAt      time.Time     `json:"created_at"`
 }
 
 // images.Entry implementation (value receivers).
@@ -73,5 +72,5 @@ func (e imageEntry) DigestHexes() []string {
 
 // layerEntry records one EROFS layer within an image.
 type layerEntry struct {
-	Digest types.Digest `json:"digest"`
+	Digest images.Digest `json:"digest"`
 }

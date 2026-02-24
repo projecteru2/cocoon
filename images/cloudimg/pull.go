@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	cloudimgProgress "github.com/projecteru2/cocoon/progress/cloudimg"
 	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 	"github.com/projecteru2/core/log"
 )
@@ -86,7 +86,7 @@ func pull(ctx context.Context, conf *config.Config, store storage.Store[imageInd
 
 		idx.Images[url] = &imageEntry{
 			Ref:        url,
-			ContentSum: types.NewDigest(digestHex),
+			ContentSum: images.NewDigest(digestHex),
 			Size:       info.Size(),
 			CreatedAt:  time.Now(),
 		}
