@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strings"
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/images"
@@ -30,13 +29,7 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
-			if entries, err := os.ReadDir(o.conf.OCIBlobsDir()); err == nil {
-				for _, e := range entries {
-					if strings.HasSuffix(e.Name(), ".erofs") {
-						snap.blobs = append(snap.blobs, strings.TrimSuffix(e.Name(), ".erofs"))
-					}
-				}
-			}
+			snap.blobs = images.ScanBlobHexes(o.conf.OCIBlobsDir(), ".erofs")
 			if entries, err := os.ReadDir(o.conf.OCIBootBaseDir()); err == nil {
 				for _, e := range entries {
 					if e.IsDir() {
@@ -47,19 +40,15 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(snap ociSnapshot, _ map[string]any) []string {
-			seen := make(map[string]struct{})
-			var unreferenced []string
-			for _, hex := range snap.blobs {
-				if _, ok := snap.refs[hex]; !ok {
-					unreferenced = append(unreferenced, hex)
-					seen[hex] = struct{}{}
-				}
+			// Collect unreferenced blobs, then any boot dirs not already included.
+			unreferenced := images.FilterUnreferenced(snap.blobs, snap.refs)
+			seen := make(map[string]struct{}, len(unreferenced))
+			for _, h := range unreferenced {
+				seen[h] = struct{}{}
 			}
-			for _, hex := range snap.bootDirs {
-				if _, ok := snap.refs[hex]; !ok {
-					if _, already := seen[hex]; !already {
-						unreferenced = append(unreferenced, hex)
-					}
+			for _, hex := range images.FilterUnreferenced(snap.bootDirs, snap.refs) {
+				if _, already := seen[hex]; !already {
+					unreferenced = append(unreferenced, hex)
 				}
 			}
 			return unreferenced

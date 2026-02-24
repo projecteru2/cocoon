@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strings"
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/images"
@@ -29,23 +28,11 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
-			if entries, err := os.ReadDir(c.conf.CloudimgBlobsDir()); err == nil {
-				for _, e := range entries {
-					if strings.HasSuffix(e.Name(), ".qcow2") {
-						snap.blobs = append(snap.blobs, strings.TrimSuffix(e.Name(), ".qcow2"))
-					}
-				}
-			}
+			snap.blobs = images.ScanBlobHexes(c.conf.CloudimgBlobsDir(), ".qcow2")
 			return snap, nil
 		},
 		Resolve: func(snap cloudimgSnapshot, _ map[string]any) []string {
-			var unreferenced []string
-			for _, hex := range snap.blobs {
-				if _, ok := snap.refs[hex]; !ok {
-					unreferenced = append(unreferenced, hex)
-				}
-			}
-			return unreferenced
+			return images.FilterUnreferenced(snap.blobs, snap.refs)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error
