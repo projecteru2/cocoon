@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/projecteru2/core v0.0.0-20241016125006-ff909eefe04c
 	golang.org/x/sync v0.19.0
+	golang.org/x/term v0.40.0
 )
 
 require (

@@ -2,6 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -51,6 +52,38 @@ func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VMIn
 		result = &info
 		return nil
 	})
+}
+
+// Console returns the PTY device path for a running VM's virtio-console.
+// Resolves ref to an exact ID, verifies the VM is running, then queries
+// GET /api/v1/vm.info to obtain the PTY path allocated by Cloud Hypervisor.
+func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (string, error) {
+	info, err := ch.Inspect(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+
+	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
+	if !utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
+		return "", fmt.Errorf("VM %s is not running", info.ID)
+	}
+
+	socketPath := ch.conf.CHVMSocketPath(info.ID)
+	body, err := hypervisor.DoGET(ctx, socketPath, "/api/v1/vm.info")
+	if err != nil {
+		return "", fmt.Errorf("query vm.info: %w", err)
+	}
+
+	var vmInfo chVMInfoResponse
+	if err := json.Unmarshal(body, &vmInfo); err != nil {
+		return "", fmt.Errorf("decode vm.info: %w", err)
+	}
+
+	ptyPath := vmInfo.Config.Console.File
+	if ptyPath == "" {
+		return "", fmt.Errorf("no console PTY allocated for VM %s (mode: %s)", info.ID, vmInfo.Config.Console.Mode)
+	}
+	return ptyPath, nil
 }
 
 // List returns VMInfo for all known VMs.

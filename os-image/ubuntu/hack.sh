@@ -81,7 +81,7 @@ mountroot() {
     # index=on: Prevents broken file handles and ensures inode consistency during copy-up.
     # redirect_dir=on: Enables renaming of directories that exist in the lower (read-only) layers.
     # metacopy=on: Optimizes metadata-only changes (like chmod/chown) to avoid full file copy-up.
-    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work,index=on,redirect_dir=on,metacopy=on"
+    OVL_OPTS="lowerdir=${LOWER},upperdir=${COCOON_INTERNAL}/cow/upper,workdir=${COCOON_INTERNAL}/cow/work,index=on,redirect_dir=on,metacopy=on,xino=on"
     
     mount -t overlay overlay -o "$OVL_OPTS" "${rootmnt}" || panic "overlay failed"
 

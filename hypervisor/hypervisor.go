@@ -17,14 +17,15 @@ type Hypervisor interface {
 	Type() string
 
 	Create(context.Context, *types.VMConfig, []*types.StorageConfig, *types.BootConfig) (*types.VMInfo, error)
-	Start(context.Context, []string) ([]string, error)
-	Stop(context.Context, []string) ([]string, error)
-	Inspect(context.Context, string) (*types.VMInfo, error)
+	Start(ctx context.Context, refs []string) ([]string, error)
+	Stop(ctx context.Context, refs []string) ([]string, error)
+	Inspect(ctx context.Context, ref string) (*types.VMInfo, error)
 	List(context.Context) ([]*types.VMInfo, error)
-	Delete(ctx context.Context, ids []string, force bool) ([]string, error)
-	// TODO Console
+	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
+	Console(ctx context.Context, ref string) (string, error)
+
 	// TODO SNAPSHOT
 	// TODO RESTORE
-	// TODO MIGRTE
+	// TODO MIGRATE
 	RegisterGC(*gc.Orchestrator)
 }

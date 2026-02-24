@@ -82,6 +82,8 @@ func main() {
 		cmdInspect(ctx, ch, os.Args[2:])
 	case "rm":
 		cmdRM(ctx, ch, os.Args[2:])
+	case "console":
+		cmdConsole(ctx, ch, os.Args[2:])
 
 	default:
 		fatalf("unknown command: %s", os.Args[1])
@@ -531,6 +533,7 @@ VM Commands:
   stop   <vm-id> [vm-id...]       Stop running VM(s)
   ps                              List VMs with status
   inspect <vm-id|name>            Show detailed VM info (JSON)
+  console <vm-ref>               Attach interactive console to a running VM
   rm     [--force] <vm-id> [...]  Delete VM(s) (--force to stop running VMs first)
 
 Create flags:

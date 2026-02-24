@@ -71,6 +71,28 @@ func DoPUT(ctx context.Context, socketPath, path string, body []byte) error {
 	return nil
 }
 
+// DoGET sends a GET request over a Unix socket and returns the response body.
+func DoGET(ctx context.Context, socketPath, path string) ([]byte, error) {
+	hc := NewSocketHTTPClient(socketPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost"+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request %s: %w", path, err)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s: %w", path, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, &APIError{
+			Code:    resp.StatusCode,
+			Message: fmt.Sprintf("GET %s → %d: %s", path, resp.StatusCode, body),
+		}
+	}
+	return body, nil
+}
+
 // CheckSocket verifies that a Unix domain socket is connectable.
 func CheckSocket(socketPath string) error {
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)

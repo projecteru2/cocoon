@@ -65,4 +65,13 @@ type chSerial struct {
 
 type chConsole struct {
 	Mode string `json:"mode"`
+	File string `json:"file,omitempty"`
+}
+
+// chVMInfoResponse is the JSON shape returned by GET /api/v1/vm.info.
+// Only the fields we actually use are declared.
+type chVMInfoResponse struct {
+	Config struct {
+		Console chConsole `json:"console"`
+	} `json:"config"`
 }

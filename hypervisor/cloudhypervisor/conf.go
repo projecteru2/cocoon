@@ -26,7 +26,7 @@ func buildVMConfig(rec *hypervisor.VMRecord, serialLogPath string) *chVMConfig {
 		RNG:      chRNG{Src: "/dev/urandom"},
 		Watchdog: true,
 		Serial:   chSerial{Mode: "File", File: serialLogPath},
-		Console:  chConsole{Mode: "Off"},
+		Console:  chConsole{Mode: "Pty"},
 	}
 
 	// Balloon: 25% of memory, only when memory >= 256 MiB.
