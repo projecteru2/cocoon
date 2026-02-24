@@ -28,6 +28,9 @@ const (
 
 	// maxDownloadBytes is the maximum allowed download size (20 GiB).
 	maxDownloadBytes int64 = 20 << 30
+
+	// report every 1 MiB
+	progressInterval = 1 << 20
 )
 
 func pull(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], url string, tracker progress.Tracker) error {
@@ -236,8 +239,6 @@ type progressWriter struct {
 	tracker    progress.Tracker
 	lastReport int64
 }
-
-const progressInterval = 1 << 20 // report every 1 MiB
 
 func (pw *progressWriter) Write(p []byte) (int, error) {
 	n, err := pw.w.Write(p)

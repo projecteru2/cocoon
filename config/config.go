@@ -22,6 +22,13 @@ type Config struct {
 	// LogDir is the base directory for VM and process logs.
 	// Env: COCOON_LOG_DIR. Default: /var/log/cocoon.
 	LogDir string `json:"log_dir"`
+	// CHBinary is the path or name of the cloud-hypervisor executable.
+	// Default: "cloud-hypervisor".
+	CHBinary string `json:"ch_binary"`
+	// StopTimeoutSeconds is how long to wait for a guest to respond to an
+	// ACPI power-button before falling back to SIGTERM/SIGKILL.
+	// Default: 30.
+	StopTimeoutSeconds int `json:"stop_timeout_seconds"`
 	// PoolSize is the goroutine pool size for concurrent operations.
 	// Defaults to runtime.NumCPU() if zero.
 	PoolSize int `json:"pool_size"`
@@ -32,10 +39,12 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		RootDir:  "/var/lib/cocoon",
-		RunDir:   "/var/run/cocoon",
-		LogDir:   "/var/log/cocoon",
-		PoolSize: runtime.NumCPU(),
+		RootDir:            "/var/lib/cocoon",
+		RunDir:             "/var/run/cocoon",
+		LogDir:             "/var/log/cocoon",
+		CHBinary:           "cloud-hypervisor",
+		StopTimeoutSeconds: 30,
+		PoolSize:           runtime.NumCPU(),
 		Log: coretypes.ServerLogConfig{
 			Level:      "info",
 			MaxSize:    500,

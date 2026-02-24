@@ -3,9 +3,6 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -86,38 +83,6 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string) ([]string, 
 	})
 }
 
-// Create, Start, Stop — to be implemented.
-
 func (ch *CloudHypervisor) Create(_ context.Context, _ *types.VMConfig, _ []*types.StorageConfig, _ *types.BootConfig) (*types.VMInfo, error) {
 	panic("not implemented")
-}
-
-func (ch *CloudHypervisor) Start(_ context.Context, _ []string) ([]string, error) {
-	panic("not implemented")
-}
-
-func (ch *CloudHypervisor) Stop(_ context.Context, _ []string) ([]string, error) {
-	panic("not implemented")
-}
-
-// enrichRuntime populates the runtime-only fields of info from live sources:
-//   - SocketPath is always derived from config (deterministic).
-//   - PID is read from the PID file; 0 means the VM is not running.
-func (ch *CloudHypervisor) enrichRuntime(info *types.VMInfo) {
-	info.SocketPath = ch.conf.CHVMSocketPath(info.ID)
-	info.PID = readPID(ch.conf.CHVMPIDFile(info.ID))
-}
-
-// readPID reads a process ID from path.
-// Returns 0 if the file does not exist or cannot be parsed.
-func readPID(path string) int {
-	data, err := os.ReadFile(path) //nolint:gosec // internal runtime path
-	if err != nil {
-		return 0
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0
-	}
-	return pid
 }
