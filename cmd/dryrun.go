@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -30,7 +29,7 @@ var dryrunCmd = func() *cobra.Command {
 }()
 
 func runDryrun(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := commandContext(cmd)
 	backends, _, _, err := initImageBackends(ctx)
 	if err != nil {
 		return err

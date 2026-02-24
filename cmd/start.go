@@ -17,8 +17,8 @@ var startCmd = &cobra.Command{
 	RunE:  runStart,
 }
 
-func runStart(_ *cobra.Command, args []string) error {
-	ctx := context.Background()
+func runStart(cmd *cobra.Command, args []string) error {
+	ctx := commandContext(cmd)
 	hyper, err := initHypervisor()
 	if err != nil {
 		return err

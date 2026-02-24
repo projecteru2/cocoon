@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/spf13/cobra"
 )
 
@@ -13,8 +11,8 @@ var stopCmd = &cobra.Command{
 	RunE:  runStop,
 }
 
-func runStop(_ *cobra.Command, args []string) error {
-	ctx := context.Background()
+func runStop(cmd *cobra.Command, args []string) error {
+	ctx := commandContext(cmd)
 	hyper, err := initHypervisor()
 	if err != nil {
 		return err

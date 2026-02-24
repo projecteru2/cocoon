@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -19,8 +18,8 @@ var listCmd = &cobra.Command{
 	RunE:    runList,
 }
 
-func runList(_ *cobra.Command, _ []string) error {
-	ctx := context.Background()
+func runList(cmd *cobra.Command, _ []string) error {
+	ctx := commandContext(cmd)
 	backends, _, _, err := initImageBackends(ctx)
 	if err != nil {
 		return err

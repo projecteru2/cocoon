@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"context"
-
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 
@@ -15,8 +13,8 @@ var gcCmd = &cobra.Command{
 	RunE:  runGC,
 }
 
-func runGC(_ *cobra.Command, _ []string) error {
-	ctx := context.Background()
+func runGC(cmd *cobra.Command, _ []string) error {
+	ctx := commandContext(cmd)
 	backends, hyper, err := initBackends(ctx)
 	if err != nil {
 		return err

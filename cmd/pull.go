@@ -21,8 +21,8 @@ var pullCmd = &cobra.Command{
 	RunE:  runPull,
 }
 
-func runPull(_ *cobra.Command, args []string) error {
-	ctx := context.Background()
+func runPull(cmd *cobra.Command, args []string) error {
+	ctx := commandContext(cmd)
 	_, ociStore, cloudimgStore, err := initImageBackends(ctx)
 	if err != nil {
 		return err

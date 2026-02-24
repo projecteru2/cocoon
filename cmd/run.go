@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	units "github.com/docker/go-units"
@@ -26,7 +25,7 @@ var runCmd = func() *cobra.Command {
 }()
 
 func runRun(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := commandContext(cmd)
 	logger := log.WithFunc("cmd.run")
 	backends, hyper, err := initBackends(ctx)
 	if err != nil {

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -26,7 +25,7 @@ var consoleCmd = func() *cobra.Command {
 }()
 
 func runConsole(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := commandContext(cmd)
 	hyper, err := initHypervisor()
 	if err != nil {
 		return err
