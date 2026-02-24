@@ -51,15 +51,23 @@ func (c *CloudImg) Pull(ctx context.Context, url string, tracker progress.Tracke
 	return pull(ctx, c.conf, c.store, url, tracker)
 }
 
+// Inspect returns the record for a single image. Returns (nil, nil) if not found.
+func (c *CloudImg) Inspect(ctx context.Context, id string) (result *types.Image, err error) {
+	err = c.store.With(ctx, func(idx *imageIndex) error {
+		refs := idx.LookupRefs(id)
+		if len(refs) == 0 {
+			return nil
+		}
+		result = images.EntryToImage(idx.Images[refs[0]], typ, c.imageSizer)
+		return nil
+	})
+	return
+}
+
 // List returns all locally stored cloud images.
 func (c *CloudImg) List(ctx context.Context) (result []*types.Image, err error) {
 	err = c.store.With(ctx, func(idx *imageIndex) error {
-		result = images.ListImages(idx.Images, typ, func(e *imageEntry) int64 {
-			if info, err := os.Stat(c.conf.CloudimgBlobPath(e.ContentSum.Hex())); err == nil {
-				return info.Size()
-			}
-			return 0
-		})
+		result = images.ListImages(idx.Images, typ, c.imageSizer)
 		return nil
 	})
 	return
@@ -105,4 +113,11 @@ func (c *CloudImg) Config(ctx context.Context, vms []*types.VMConfig) (result []
 		return nil
 	})
 	return
+}
+
+func (c *CloudImg) imageSizer(e *imageEntry) int64 {
+	if info, err := os.Stat(c.conf.CloudimgBlobPath(e.ContentSum.Hex())); err == nil {
+		return info.Size()
+	}
+	return 0
 }

@@ -112,6 +112,22 @@ func DeleteByID[E any](ctx context.Context, logPrefix string, images map[string]
 	return deleted
 }
 
+// EntryToImage converts a single index entry to *types.Image.
+// Cheaper than ListImages for single-entry lookups — no map or slice allocation.
+func EntryToImage[E Entry](entry *E, typ string, sizer func(*E) int64) *types.Image {
+	if entry == nil {
+		return nil
+	}
+	e := *entry
+	return &types.Image{
+		ID:        e.EntryID(),
+		Name:      e.EntryRef(),
+		Type:      typ,
+		Size:      sizer(entry),
+		CreatedAt: e.EntryCreatedAt(),
+	}
+}
+
 // ListImages iterates the index and builds a list of types.Image.
 // sizer is provided by each backend to compute per-entry disk usage.
 func ListImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64) []*types.Image {
