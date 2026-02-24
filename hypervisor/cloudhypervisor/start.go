@@ -39,7 +39,9 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
 	if ch.verifyVMProcess(pid, id) {
 		if rec.State != types.VMStateRunning {
-			_ = ch.updateState(ctx, id, types.VMStateRunning)
+			if stateErr := ch.updateState(ctx, id, types.VMStateRunning); stateErr != nil {
+				return fmt.Errorf("reconcile running state: %w", stateErr)
+			}
 		}
 		return nil
 	}

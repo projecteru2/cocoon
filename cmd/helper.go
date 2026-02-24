@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	units "github.com/docker/go-units"
+	"github.com/spf13/cobra"
 
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
@@ -76,6 +77,41 @@ func resolveImage(ctx context.Context, backends []images.Images, vmCfg *types.VM
 		return nil, nil, fmt.Errorf("image %q not resolved: %s", vmCfg.Image, strings.Join(backendErrs, "; "))
 	}
 	return storageConfigs, bootCfg, nil
+}
+
+// vmConfigFromFlags builds VMConfig for create/run commands.
+func vmConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error) {
+	vmName, _ := cmd.Flags().GetString("name")
+	cpu, _ := cmd.Flags().GetInt("cpu")
+	memStr, _ := cmd.Flags().GetString("memory")
+	storStr, _ := cmd.Flags().GetString("storage")
+
+	if vmName == "" {
+		vmName = fmt.Sprintf("cocoon-%s", image)
+	}
+
+	memBytes, err := units.RAMInBytes(memStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --memory %q: %w", memStr, err)
+	}
+	storBytes, err := units.RAMInBytes(storStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid --storage %q: %w", storStr, err)
+	}
+
+	return &types.VMConfig{
+		Name:    vmName,
+		CPU:     cpu,
+		Memory:  memBytes,
+		Storage: storBytes,
+		Image:   image,
+	}, nil
+}
+
+func ensureFirmwarePath(bootCfg *types.BootConfig) {
+	if bootCfg != nil && bootCfg.KernelPath == "" && bootCfg.FirmwarePath == "" {
+		bootCfg.FirmwarePath = conf.FirmwarePath()
+	}
 }
 
 func formatSize(bytes int64) string {

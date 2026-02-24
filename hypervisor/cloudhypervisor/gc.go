@@ -3,6 +3,7 @@ package cloudhypervisor
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -13,10 +14,15 @@ import (
 // compile-time interface check.
 var _ hypervisor.Hypervisor = (*CloudHypervisor)(nil)
 
+// creatingStateGCGrace is the minimum age for a "creating" record to be
+// considered stale by GC. This avoids racing with legitimate long-running
+// Create operations.
+const creatingStateGCGrace = 24 * time.Hour
+
 type chSnapshot struct {
 	blobIDs     map[string]struct{} // union of all VMs' ImageBlobIDs
 	vmIDs       map[string]struct{} // all VM IDs in the DB
-	staleCreate []string            // IDs in "creating" state (crash remnants)
+	staleCreate []string            // IDs in stale "creating" state (crash remnants)
 }
 
 func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
@@ -28,6 +34,7 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 		Locker: ch.locker,
 		ReadDB: func(_ context.Context) (chSnapshot, error) {
 			var snap chSnapshot
+			cutoff := time.Now().Add(-creatingStateGCGrace)
 			if err := ch.store.Read(func(idx *hypervisor.VMIndex) error {
 				snap.blobIDs = make(map[string]struct{})
 				snap.vmIDs = make(map[string]struct{})
@@ -39,7 +46,7 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 					for hex := range rec.ImageBlobIDs {
 						snap.blobIDs[hex] = struct{}{}
 					}
-					if rec.State == types.VMStateCreating {
+					if rec.State == types.VMStateCreating && rec.UpdatedAt.Before(cutoff) {
 						snap.staleCreate = append(snap.staleCreate, id)
 					}
 				}
@@ -50,10 +57,19 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(snap chSnapshot, _ map[string]any) []string {
-			// Orphan directories not in the DB.
-			orphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHRunDir()), snap.vmIDs)
-			// Stale "creating" records from interrupted Create calls.
-			return append(orphans, snap.staleCreate...)
+			runOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHRunDir()), snap.vmIDs)
+			logOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHLogDir()), snap.vmIDs)
+			candidates := append(append(runOrphans, logOrphans...), snap.staleCreate...)
+			seen := make(map[string]struct{}, len(candidates))
+			var result []string
+			for _, id := range candidates {
+				if _, ok := seen[id]; ok {
+					continue
+				}
+				seen[id] = struct{}{}
+				result = append(result, id)
+			}
+			return result
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error
@@ -63,8 +79,8 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 					errs = append(errs, err)
 				}
 			}
-			// Clean up stale "creating" DB records.
-			if err := ch.cleanStalePlaceholders(ctx); err != nil {
+			// Clean up stale "creating" DB records from this GC snapshot.
+			if err := ch.cleanStalePlaceholders(ctx, ids); err != nil {
 				errs = append(errs, err)
 			}
 			return errors.Join(errs...)
@@ -72,14 +88,28 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 	}
 }
 
-// cleanStalePlaceholders removes DB records stuck in "creating" state.
-func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context) error {
+// cleanStalePlaceholders removes selected DB records stuck in stale "creating"
+// state. IDs not found (or no longer stale) are skipped.
+func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	targets := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		targets[id] = struct{}{}
+	}
+	cutoff := time.Now().Add(-creatingStateGCGrace)
 	return ch.store.Write(func(idx *hypervisor.VMIndex) error {
-		for id, rec := range idx.VMs {
-			if rec != nil && rec.State == types.VMStateCreating {
-				delete(idx.Names, rec.Config.Name)
-				delete(idx.VMs, id)
+		for id := range targets {
+			rec := idx.VMs[id]
+			if rec == nil {
+				continue
 			}
+			if rec.State != types.VMStateCreating || rec.UpdatedAt.After(cutoff) {
+				continue
+			}
+			delete(idx.Names, rec.Config.Name)
+			delete(idx.VMs, id)
 		}
 		return nil
 	})

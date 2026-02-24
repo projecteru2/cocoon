@@ -3,11 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	units "github.com/docker/go-units"
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
-
-	"github.com/projecteru2/cocoon/types"
 )
 
 var runCmd = func() *cobra.Command {
@@ -33,30 +30,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	image := args[0]
 
-	vmName, _ := cmd.Flags().GetString("name")
-	cpu, _ := cmd.Flags().GetInt("cpu")
-	memStr, _ := cmd.Flags().GetString("memory")
-	storStr, _ := cmd.Flags().GetString("storage")
-
-	if vmName == "" {
-		vmName = fmt.Sprintf("cocoon-%s", image)
-	}
-
-	memBytes, err := units.RAMInBytes(memStr)
+	vmCfg, err := vmConfigFromFlags(cmd, image)
 	if err != nil {
-		return fmt.Errorf("invalid --memory %q: %w", memStr, err)
-	}
-	storBytes, err := units.RAMInBytes(storStr)
-	if err != nil {
-		return fmt.Errorf("invalid --storage %q: %w", storStr, err)
-	}
-
-	vmCfg := &types.VMConfig{
-		Name:    vmName,
-		CPU:     cpu,
-		Memory:  memBytes,
-		Storage: storBytes,
-		Image:   image,
+		return err
 	}
 
 	storageConfigs, bootCfg, err := resolveImage(ctx, backends, vmCfg)
@@ -64,9 +40,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if bootCfg.KernelPath == "" && bootCfg.FirmwarePath == "" {
-		bootCfg.FirmwarePath = conf.FirmwarePath()
-	}
+	ensureFirmwarePath(bootCfg)
 
 	info, err := hyper.Create(ctx, vmCfg, storageConfigs, bootCfg)
 	if err != nil {

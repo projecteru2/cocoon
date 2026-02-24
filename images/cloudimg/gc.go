@@ -34,16 +34,7 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 		},
 		Resolve: func(snap cloudimgSnapshot, others map[string]any) []string {
 			used := gc.CollectUsedBlobIDs(others)
-
-			// Merge index refs + VM-pinned blobs into one protection set.
-			allRefs := make(map[string]struct{}, len(snap.refs)+len(used))
-			for k := range snap.refs {
-				allRefs[k] = struct{}{}
-			}
-			for k := range used {
-				allRefs[k] = struct{}{}
-			}
-
+			allRefs := utils.MergeSets(snap.refs, used)
 			return utils.FilterUnreferenced(snap.blobs, allRefs)
 		},
 		Collect: func(ctx context.Context, ids []string) error {

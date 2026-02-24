@@ -36,15 +36,7 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 		},
 		Resolve: func(snap ociSnapshot, others map[string]any) []string {
 			used := gc.CollectUsedBlobIDs(others)
-
-			// Merge index refs + VM-pinned blobs into one protection set.
-			allRefs := make(map[string]struct{}, len(snap.refs)+len(used))
-			for k := range snap.refs {
-				allRefs[k] = struct{}{}
-			}
-			for k := range used {
-				allRefs[k] = struct{}{}
-			}
+			allRefs := utils.MergeSets(snap.refs, used)
 
 			candidates := append(
 				utils.FilterUnreferenced(snap.blobs, allRefs),
