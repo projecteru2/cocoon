@@ -104,8 +104,12 @@ func (c *CloudImg) Config(ctx context.Context, vms []*types.VMConfig) (result []
 				Serial: "cocoon-base",
 			}}
 
+			firmwarePath := c.conf.FirmwarePath()
+			if !utils.ValidFile(firmwarePath) {
+				return fmt.Errorf("firmware not found: %s", firmwarePath)
+			}
 			boot[i] = &types.BootConfig{
-				FirmwarePath: c.conf.FirmwarePath(),
+				FirmwarePath: firmwarePath,
 			}
 		}
 		return nil

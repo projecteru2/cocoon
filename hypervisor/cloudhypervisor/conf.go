@@ -15,8 +15,13 @@ func buildVMConfig(rec *hypervisor.VMRecord, serialLogPath string) *chVMConfig {
 	cpu := rec.Config.CPU
 	mem := rec.Config.Memory
 
+	maxVCPUs := runtime.NumCPU()
+	if cpu > maxVCPUs {
+		maxVCPUs = cpu
+	}
+
 	cfg := &chVMConfig{
-		CPUs:     chCPUs{BootVCPUs: cpu, MaxVCPUs: runtime.NumCPU()},
+		CPUs:     chCPUs{BootVCPUs: cpu, MaxVCPUs: maxVCPUs},
 		Memory:   chMemory{Size: mem, HugePages: utils.DetectHugePages()},
 		RNG:      chRNG{Src: "/dev/urandom"},
 		Watchdog: true,

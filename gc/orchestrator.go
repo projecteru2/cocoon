@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/projecteru2/core/log"
 )
 
 // Orchestrator runs GC across all registered modules.
@@ -26,23 +28,29 @@ func Register[S any](o *Orchestrator, m Module[S]) {
 //  1. For each module: TryLock → ReadDB → Unlock (skip if busy).
 //  2. Each module's Resolve analyses its typed snapshot, with other modules'
 //     snapshots available as map[string]any for cross-module analysis.
-//  3. For each module with targets: TryLock → Collect → Unlock (skip if busy).
+//  3. For each snapshotted module: TryLock → Collect → Unlock (skip if busy).
+//     Collect is called even with empty targets so modules can run housekeeping
+//     (e.g. stale temp cleanup).
 //
 // Step 3 re-acquires the lock rather than holding it from step 1 to keep
 // contention minimal. commitAndRecord validates blob existence under lock
 // before writing the index, so a deletion racing with a commit is caught
 // there and the pull retries.
 func (o *Orchestrator) Run(ctx context.Context) error {
+	logger := log.WithFunc("gc.Run")
+
 	// Phase 1: collect each module's snapshot under lock.
 	snapshots := make(map[string]any, len(o.modules))
 	for _, m := range o.modules {
 		ok, err := m.getLocker().TryLock(ctx)
 		if err != nil || !ok {
+			logger.Warnf(ctx, "skip %s: lock busy", m.getName())
 			continue
 		}
 		snap, readErr := m.readSnapshot(ctx)
 		m.getLocker().Unlock(ctx) //nolint:errcheck
 		if readErr != nil {
+			logger.Warnf(ctx, "snapshot %s: %v", m.getName(), readErr)
 			continue
 		}
 		snapshots[m.getName()] = snap
@@ -60,19 +68,18 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			targets[m.getName()] = ids
 		}
 	}
-	if len(targets) == 0 {
-		return nil
-	}
 
-	// Phase 3: collect under lock, skipping busy modules.
+	// Phase 3: collect under lock for every snapshotted module.
+	// Collect is called even with empty targets so modules can do housekeeping.
 	var errs []string
 	for _, m := range o.modules {
-		ids := targets[m.getName()]
-		if len(ids) == 0 {
+		if _, snapshotted := snapshots[m.getName()]; !snapshotted {
 			continue
 		}
+		ids := targets[m.getName()] // nil if no targets — Collect handles this
 		ok, err := m.getLocker().TryLock(ctx)
 		if err != nil || !ok {
+			logger.Warnf(ctx, "skip collect %s: lock busy", m.getName())
 			continue
 		}
 		collectErr := m.collect(ctx, ids)

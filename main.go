@@ -211,9 +211,11 @@ func cmdRun(ctx context.Context, conf *config.Config, backends []images.Images, 
 	var configs []*types.StorageConfig
 	var boot *types.BootConfig
 	var backendType string
+	var backendErrs []string
 	for _, b := range backends {
 		confs, boots, err := b.Config(ctx, vms)
 		if err != nil {
+			backendErrs = append(backendErrs, fmt.Sprintf("%s: %v", b.Type(), err))
 			continue
 		}
 		configs = confs[0]
@@ -222,7 +224,7 @@ func cmdRun(ctx context.Context, conf *config.Config, backends []images.Images, 
 		break
 	}
 	if backendType == "" || boot == nil {
-		fatalf("image %q not found in any backend", image)
+		fatalf("image %q not resolved: %s", image, strings.Join(backendErrs, "; "))
 	}
 
 	if *balloon == 0 {
@@ -379,9 +381,11 @@ func cmdCreate(ctx context.Context, conf *config.Config, backends []images.Image
 	vms := []*types.VMConfig{vmCfg}
 	var storageConfigs []*types.StorageConfig
 	var bootCfg *types.BootConfig
+	var backendErrs []string
 	for _, b := range backends {
 		confs, boots, bErr := b.Config(ctx, vms)
 		if bErr != nil {
+			backendErrs = append(backendErrs, fmt.Sprintf("%s: %v", b.Type(), bErr))
 			continue
 		}
 		storageConfigs = confs[0]
@@ -389,7 +393,7 @@ func cmdCreate(ctx context.Context, conf *config.Config, backends []images.Image
 		break
 	}
 	if bootCfg == nil {
-		fatalf("image %q not found in any backend", image)
+		fatalf("image %q not resolved: %s", image, strings.Join(backendErrs, "; "))
 	}
 
 	// If cloudimg, set firmware path from global config.
@@ -442,7 +446,7 @@ func cmdPS(ctx context.Context, hyper hypervisor.Hypervisor) {
 	for _, vm := range vms {
 		state := reconcileState(vm)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			vm.ID[:12],
+			truncateID(vm.ID, 12),
 			vm.Config.Name,
 			state,
 			vm.Config.CPU,
@@ -473,11 +477,11 @@ func cmdRM(ctx context.Context, hyper hypervisor.Hypervisor, args []string) {
 	}
 
 	deleted, err := hyper.Delete(ctx, ids, *force)
-	if err != nil {
-		fatalf("rm: %v", err)
-	}
 	for _, id := range deleted {
 		fmt.Printf("Deleted VM: %s\n", id)
+	}
+	if err != nil {
+		fatalf("rm: %v", err)
 	}
 	if len(deleted) == 0 {
 		fmt.Println("No VMs deleted.")
@@ -488,6 +492,13 @@ func cmdRM(ctx context.Context, hyper hypervisor.Hypervisor, args []string) {
 
 func formatSize(bytes int64) string {
 	return units.HumanSize(float64(bytes))
+}
+
+func truncateID(id string, n int) string {
+	if len(id) <= n {
+		return id
+	}
+	return id[:n]
 }
 
 func usage() {
