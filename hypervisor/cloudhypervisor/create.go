@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -31,6 +32,9 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		boot = *bootCfg
 	}
 
+	// Extract blob IDs before prepare transforms the StorageConfigs.
+	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+
 	var (
 		sc  []*types.StorageConfig
 		err error
@@ -56,6 +60,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		VMInfo:         info,
 		StorageConfigs: sc,
 		BootConfig:     &boot,
+		ImageBlobIDs:   blobIDs,
 	}
 
 	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
@@ -149,4 +154,34 @@ func ReverseLayerSerials(sc []*types.StorageConfig) []string {
 	}
 	slices.Reverse(serials)
 	return serials
+}
+
+// extractBlobIDs extracts digest hexes from the original image StorageConfigs
+// and BootConfig paths. Must be called before prepare transforms them.
+func extractBlobIDs(sc []*types.StorageConfig, boot *types.BootConfig) map[string]struct{} {
+	ids := make(map[string]struct{})
+	if boot != nil && boot.KernelPath != "" {
+		// OCI: erofs layer blobs + boot dir hexes.
+		for _, s := range sc {
+			if s.RO {
+				ids[blobHexFromPath(s.Path)] = struct{}{}
+			}
+		}
+		// boot/{hex}/vmlinuz → hex
+		ids[filepath.Base(filepath.Dir(boot.KernelPath))] = struct{}{}
+		if boot.InitrdPath != "" {
+			ids[filepath.Base(filepath.Dir(boot.InitrdPath))] = struct{}{}
+		}
+	} else if len(sc) > 0 {
+		// Cloudimg: base qcow2 blob hex (before overlay replaces it).
+		ids[blobHexFromPath(sc[0].Path)] = struct{}{}
+	}
+	return ids
+}
+
+// blobHexFromPath extracts the digest hex from a blob file path.
+// e.g., "/var/lib/cocoon/oci/blobs/abc123.erofs" → "abc123"
+func blobHexFromPath(path string) string {
+	base := filepath.Base(path)
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }

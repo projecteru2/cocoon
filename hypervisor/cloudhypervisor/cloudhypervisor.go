@@ -84,12 +84,16 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, ids []string, force bool)
 				return fmt.Errorf("stop before delete: %w", err)
 			}
 		}
-		return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 			if _, ok := idx.VMs[id]; !ok {
 				return hypervisor.ErrNotFound
 			}
 			delete(idx.VMs, id)
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
+		ch.cleanupRuntimeFiles(id)
+		return nil
 	})
 }
