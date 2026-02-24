@@ -17,7 +17,7 @@ func buildVMConfig(rec *hypervisor.VMRecord, serialLogPath string) *chVMConfig {
 
 	maxVCPUs := runtime.NumCPU()
 	if cpu > maxVCPUs {
-		maxVCPUs = cpu
+		cpu = maxVCPUs
 	}
 
 	cfg := &chVMConfig{
