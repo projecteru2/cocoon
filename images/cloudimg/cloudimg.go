@@ -57,35 +57,29 @@ func (c *CloudImg) Pull(ctx context.Context, url string, tracker progress.Tracke
 }
 
 // Inspect returns the record for a single image. Returns (nil, nil) if not found.
-func (c *CloudImg) Inspect(ctx context.Context, id string) (result *types.Image, err error) {
-	err = c.store.With(ctx, func(idx *imageIndex) error {
-		refs := idx.LookupRefs(id)
-		if len(refs) == 0 {
-			return nil
-		}
-		result = images.EntryToImage(idx.Images[refs[0]], typ, c.imageSizer)
-		return nil
-	})
-	return
+func (c *CloudImg) Inspect(ctx context.Context, id string) (*types.Image, error) {
+	return images.InspectEntry(ctx, c.store, id, typ,
+		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
+		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+		c.imageSizer,
+	)
 }
 
 // List returns all locally stored cloud images.
-func (c *CloudImg) List(ctx context.Context) (result []*types.Image, err error) {
-	err = c.store.With(ctx, func(idx *imageIndex) error {
-		result = images.ListImages(idx.Images, typ, c.imageSizer)
-		return nil
-	})
-	return
+func (c *CloudImg) List(ctx context.Context) ([]*types.Image, error) {
+	return images.ListEntries(ctx, c.store, typ,
+		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+		c.imageSizer,
+	)
 }
 
 // Delete removes images from the index.
 // Returns the list of actually deleted refs.
 func (c *CloudImg) Delete(ctx context.Context, ids []string) ([]string, error) {
-	var deleted []string
-	return deleted, c.store.Update(ctx, func(idx *imageIndex) error {
-		deleted = images.DeleteByID(ctx, "cloudimg.Delete", idx.Images, idx.LookupRefs, ids)
-		return nil
-	})
+	return images.DeleteEntries(ctx, c.store, "cloudimg.Delete", ids,
+		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
+	)
 }
 
 // Config generates StorageConfig and BootConfig entries for the given VMs.

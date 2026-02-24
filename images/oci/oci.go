@@ -60,35 +60,29 @@ func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) 
 }
 
 // Inspect returns the record for a single image. Returns (nil, nil) if not found.
-func (o *OCI) Inspect(ctx context.Context, id string) (result *types.Image, err error) {
-	err = o.store.With(ctx, func(idx *imageIndex) error {
-		refs := idx.LookupRefs(id)
-		if len(refs) == 0 {
-			return nil
-		}
-		result = images.EntryToImage(idx.Images[refs[0]], typ, o.imageSizer)
-		return nil
-	})
-	return
+func (o *OCI) Inspect(ctx context.Context, id string) (*types.Image, error) {
+	return images.InspectEntry(ctx, o.store, id, typ,
+		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
+		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+		o.imageSizer,
+	)
 }
 
 // List returns all locally stored images.
-func (o *OCI) List(ctx context.Context) (result []*types.Image, err error) {
-	err = o.store.With(ctx, func(idx *imageIndex) error {
-		result = images.ListImages(idx.Images, typ, o.imageSizer)
-		return nil
-	})
-	return
+func (o *OCI) List(ctx context.Context) ([]*types.Image, error) {
+	return images.ListEntries(ctx, o.store, typ,
+		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+		o.imageSizer,
+	)
 }
 
 // Delete removes images from the index.
 // Returns the list of actually deleted refs. Images not found are logged and skipped.
 func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
-	var deleted []string
-	return deleted, o.store.Update(ctx, func(idx *imageIndex) error {
-		deleted = images.DeleteByID(ctx, "oci.Delete", idx.Images, idx.LookupRefs, ids)
-		return nil
-	})
+	return images.DeleteEntries(ctx, o.store, "oci.Delete", ids,
+		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
+	)
 }
 
 // Config generates StorageConfig and BootConfig entries for the given VMs.

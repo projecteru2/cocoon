@@ -128,7 +128,9 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 		}); err != nil {
 			return err
 		}
-		_ = ch.removeVMDirs(ctx, id)
+		if err := ch.removeVMDirs(ctx, id); err != nil {
+			return fmt.Errorf("cleanup VM dirs: %w", err)
+		}
 		return nil
 	})
 }

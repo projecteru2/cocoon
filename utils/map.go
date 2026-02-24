@@ -13,3 +13,18 @@ func LookupCopy[T any](m map[string]*T, key string) (T, error) {
 	}
 	return *v, nil
 }
+
+// MergeSets unions any number of set maps into a new set.
+func MergeSets[K comparable](sets ...map[K]struct{}) map[K]struct{} {
+	total := 0
+	for _, s := range sets {
+		total += len(s)
+	}
+	out := make(map[K]struct{}, total)
+	for _, s := range sets {
+		for k := range s {
+			out[k] = struct{}{}
+		}
+	}
+	return out
+}
