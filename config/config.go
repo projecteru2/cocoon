@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+
 	"runtime"
 
 	coretypes "github.com/projecteru2/core/types"
@@ -12,8 +12,16 @@ import (
 
 // Config holds global Cocoon configuration.
 type Config struct {
-	// RootDir is the base directory for persistent data.
+	// RootDir is the base directory for persistent data (images, firmware, VM DB).
+	// Env: COCOON_ROOT_DIR. Default: /var/lib/cocoon.
 	RootDir string `json:"root_dir"`
+	// RunDir is the base directory for runtime state (PID files, Unix sockets).
+	// Contents are ephemeral and may not survive reboots.
+	// Env: COCOON_RUN_DIR. Default: /var/run/cocoon.
+	RunDir string `json:"run_dir"`
+	// LogDir is the base directory for VM and process logs.
+	// Env: COCOON_LOG_DIR. Default: /var/log/cocoon.
+	LogDir string `json:"log_dir"`
 	// PoolSize is the goroutine pool size for concurrent operations.
 	// Defaults to runtime.NumCPU() if zero.
 	PoolSize int `json:"pool_size"`
@@ -25,6 +33,8 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		RootDir:  "/var/lib/cocoon",
+		RunDir:   "/var/run/cocoon",
+		LogDir:   "/var/log/cocoon",
 		PoolSize: runtime.NumCPU(),
 		Log: coretypes.ServerLogConfig{
 			Level:      "info",
@@ -60,7 +70,3 @@ func LoadConfig(path string) (*Config, error) {
 	return conf, nil
 }
 
-// FirmwarePath returns the path to the UEFI firmware file (CLOUDHV.fd).
-func (c *Config) FirmwarePath() string {
-	return filepath.Join(c.RootDir, "firmware", "CLOUDHV.fd")
-}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -27,6 +28,44 @@ func EnsureDirs(dirs ...string) error {
 func ValidFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+}
+
+// ScanFileStems returns the name-without-suffix of every file in dir whose
+// name ends with suffix. Used by GC to enumerate on-disk blobs.
+func ScanFileStems(dir, suffix string) []string {
+	entries, _ := os.ReadDir(dir)
+	var stems []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
+			stems = append(stems, strings.TrimSuffix(e.Name(), suffix))
+		}
+	}
+	return stems
+}
+
+// ScanSubdirs returns the names of all immediate subdirectories of dir.
+// Used by GC to enumerate per-VM runtime and log directories.
+func ScanSubdirs(dir string) []string {
+	entries, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
+// FilterUnreferenced returns the elements of candidates not present in refs.
+// Used by GC Resolve implementations to compute the deletion set.
+func FilterUnreferenced(candidates []string, refs map[string]struct{}) []string {
+	var out []string
+	for _, s := range candidates {
+		if _, ok := refs[s]; !ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // RemoveMatching scans dir and removes entries where match returns true.
