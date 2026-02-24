@@ -83,7 +83,7 @@ func main() {
 	case "rm":
 		cmdRM(ctx, ch, os.Args[2:])
 	case "console":
-		cmdConsole(ctx, ch, os.Args[2:])
+		cmdConsole(ctx, conf, ch, os.Args[2:])
 
 	default:
 		fatalf("unknown command: %s", os.Args[1])

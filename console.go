@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/hypervisor"
 )
 
@@ -24,7 +25,7 @@ const (
 	stateEscaped             // ctrl+] received, waiting for command char
 )
 
-func cmdConsole(ctx context.Context, hyper hypervisor.Hypervisor, args []string) {
+func cmdConsole(ctx context.Context, conf *config.Config, hyper hypervisor.Hypervisor, args []string) {
 	if len(args) == 0 {
 		fatalf("usage: cocoon console <vm-ref>")
 	}
@@ -34,6 +35,13 @@ func cmdConsole(ctx context.Context, hyper hypervisor.Hypervisor, args []string)
 	if err != nil {
 		fatalf("console: %v", err)
 	}
+
+	// Derive serial log path for tee: Inspect → VM ID → serial.log.
+	info, err := hyper.Inspect(ctx, ref)
+	if err != nil {
+		fatalf("inspect: %v", err)
+	}
+	logPath := conf.CHVMSerialLog(info.ID)
 
 	pty, err := os.OpenFile(ptyPath, os.O_RDWR, 0) //nolint:gosec
 	if err != nil {
@@ -69,21 +77,30 @@ func cmdConsole(ctx context.Context, hyper hypervisor.Hypervisor, args []string)
 
 	fmt.Fprintf(os.Stderr, "Connected to %s (escape: ^]).\r\n", ref)
 
-	if err := relayConsole(ctx, pty); err != nil {
+	if err := relayConsole(ctx, pty, logPath); err != nil {
 		fmt.Fprintf(os.Stderr, "\r\nrelay error: %v\r\n", err)
 	}
 }
 
 // relayConsole runs bidirectional I/O between the user terminal and the PTY.
-func relayConsole(ctx context.Context, pty *os.File) error {
+// If logPath is non-empty, PTY output is teed to that file (for cloudimg VMs
+// whose serial goes to PTY instead of a log file).
+func relayConsole(ctx context.Context, pty *os.File, logPath string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	errCh := make(chan error, 2) //nolint:mnd
 
-	// PTY → stdout
+	// PTY → stdout (+ optional serial log tee)
 	go func() {
-		_, err := io.Copy(os.Stdout, pty)
+		var dst io.Writer = os.Stdout
+		if logPath != "" {
+			if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil { //nolint:gosec
+				defer f.Close() //nolint:errcheck
+				dst = io.MultiWriter(os.Stdout, f)
+			}
+		}
+		_, err := io.Copy(dst, pty)
 		errCh <- err
 		cancel()
 	}()
