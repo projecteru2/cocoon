@@ -54,16 +54,34 @@ func VerifyProcess(pid int, binaryName string) bool {
 	return filepath.Base(exe) == binaryName
 }
 
-// TerminateProcess sends SIGTERM to pid, waits up to gracePeriod for it to
-// exit, then falls back to SIGKILL. Respects context cancellation during the
-// grace period. Waits for the process to actually exit after SIGKILL.
-func TerminateProcess(ctx context.Context, pid int, gracePeriod time.Duration) error {
-	if !IsProcessAlive(pid) {
+// VerifyProcessCmdline checks binary name and that expectArg appears in
+// /proc/{pid}/cmdline. This prevents cross-instance misidentification when
+// multiple processes of the same binary are running (e.g. multiple VMs).
+func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
+	if pid <= 0 {
+		return false
+	}
+	if expectArg == "" {
+		return VerifyProcess(pid, binaryName)
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return IsProcessAlive(pid)
+	}
+	cmdline := string(data)
+	return strings.Contains(cmdline, binaryName) && strings.Contains(cmdline, expectArg)
+}
+
+// TerminateProcess verifies the PID belongs to binaryName (with optional
+// cmdline arg check), then sends SIGTERM, waits up to gracePeriod, and
+// falls back to SIGKILL.
+func TerminateProcess(ctx context.Context, pid int, binaryName, expectArg string, gracePeriod time.Duration) error {
+	if !VerifyProcessCmdline(pid, binaryName, expectArg) {
 		return nil
 	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		return nil
+		return fmt.Errorf("find process %d: %w", pid, err)
 	}
 
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
@@ -73,14 +91,12 @@ func TerminateProcess(ctx context.Context, pid int, gracePeriod time.Duration) e
 		return killAndWait(ctx, proc, pid)
 	}
 
-	// Wait for graceful exit.
 	if err := WaitFor(ctx, gracePeriod, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
 		return !IsProcessAlive(pid), nil
 	}); err == nil {
 		return nil
 	}
 
-	// Escalate to SIGKILL.
 	return killAndWait(ctx, proc, pid)
 }
 

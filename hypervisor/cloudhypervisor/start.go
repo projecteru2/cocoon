@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
+	"github.com/projecteru2/core/log"
 )
 
 const socketWaitTimeout = 5 * time.Second
@@ -32,12 +32,14 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Idempotent: skip if already running.
-	if rec.State == types.VMStateRunning {
-		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-		if utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
-			return nil
+	// Idempotent: skip if the VM process is already running regardless of
+	// recorded state — prevents double-launch after a state-update failure.
+	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
+	if ch.verifyVMProcess(pid, id) {
+		if rec.State != types.VMStateRunning {
+			_ = ch.updateState(ctx, id, types.VMStateRunning)
 		}
+		return nil
 	}
 
 	// Ensure per-VM runtime and log directories.
@@ -69,8 +71,10 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 // the process handle so CH lives as an independent OS process past the
 // lifetime of this binary.
 func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath string, args []string) (int, error) {
-	logFile, _ := os.Create(ch.conf.CHVMProcessLog(vmID)) //nolint:gosec
-	if logFile != nil {
+	logFile, err := os.Create(ch.conf.CHVMProcessLog(vmID)) //nolint:gosec
+	if err != nil {
+		log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "create process log: %v", err)
+	} else {
 		defer logFile.Close() //nolint:errcheck
 	}
 

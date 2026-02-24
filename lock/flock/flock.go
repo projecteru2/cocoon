@@ -15,18 +15,11 @@ const retryDelay = 100 * time.Millisecond
 // compile-time interface check.
 var _ lock.Locker = (*Lock)(nil)
 
-// Lock provides mutual exclusion combining:
-//   - In-process exclusion via a size-1 buffered channel. A goroutine acquires
-//     the in-process token by sending to ch; it releases by receiving from ch.
-//     Using a channel (rather than sync.Mutex) enables context-aware blocking in
-//     Lock() and non-blocking short-circuit in TryLock() without any syscall.
-//   - Cross-process exclusion via flock(2) with a fresh fd on every acquisition,
-//     so concurrent callers on the same Lock instance properly block each other.
+// Lock provides in-process (channel) + cross-process (flock) mutual exclusion.
 type Lock struct {
 	path string
 	ch   chan struct{}
-	// fl is the active flock fd, non-nil while the lock is held.
-	fl *flock.Flock
+	fl *flock.Flock // active flock fd, non-nil while held
 }
 
 // New creates a Lock for the given path.

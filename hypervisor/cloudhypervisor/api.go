@@ -72,6 +72,7 @@ type chConsole struct {
 // Only the fields we actually use are declared.
 type chVMInfoResponse struct {
 	Config struct {
+		Serial  chSerial  `json:"serial"`
 		Console chConsole `json:"console"`
 	} `json:"config"`
 }

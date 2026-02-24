@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/lock"
@@ -20,9 +22,10 @@ const typ = "cloudimg"
 // CloudImg implements the images.Images interface using cloud images (qcow2/raw)
 // downloaded from HTTP/HTTPS URLs, converted to qcow2 v3 for use with Cloud Hypervisor via UEFI boot.
 type CloudImg struct {
-	conf   *config.Config
-	store  storage.Store[imageIndex]
-	locker lock.Locker
+	conf      *config.Config
+	store     storage.Store[imageIndex]
+	locker    lock.Locker
+	pullGroup singleflight.Group
 }
 
 // New creates a new cloud image backend.
@@ -46,7 +49,10 @@ func (c *CloudImg) Type() string { return typ }
 // Pull downloads a cloud image from a URL, converts it to qcow2 v3,
 // and stores the blob in the content-addressed cache.
 func (c *CloudImg) Pull(ctx context.Context, url string, tracker progress.Tracker) error {
-	return pull(ctx, c.conf, c.store, url, tracker)
+	_, err, _ := c.pullGroup.Do(url, func() (any, error) {
+		return nil, pull(ctx, c.conf, c.store, url, tracker)
+	})
+	return err
 }
 
 // Inspect returns the record for a single image. Returns (nil, nil) if not found.

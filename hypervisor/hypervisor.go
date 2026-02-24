@@ -8,11 +8,9 @@ import (
 	"github.com/projecteru2/cocoon/types"
 )
 
-// ErrNotFound is returned when a VM ID does not exist in the index.
 var ErrNotFound = errors.New("VM not found")
 
-// Hypervisor manages the lifecycle of Cloud Hypervisor processes.
-// Each backend (e.g. cloud-hypervisor) implements this interface.
+// Hypervisor manages VM lifecycle. Implemented by each backend.
 type Hypervisor interface {
 	Type() string
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -18,7 +17,7 @@ import (
 
 const typ = "cloud-hypervisor"
 
-// CloudHypervisor implements hypervisor.Hypervisor using the Cloud Hypervisor VMM.
+// CloudHypervisor implements hypervisor.Hypervisor.
 type CloudHypervisor struct {
 	conf   *config.Config
 	store  storage.Store[hypervisor.VMIndex]
@@ -37,9 +36,7 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 
 func (ch *CloudHypervisor) Type() string { return typ }
 
-// Inspect returns the VMInfo for a single VM by ref (ID, name, or prefix).
-// Returns hypervisor.ErrNotFound if the VM does not exist.
-// Runtime fields (PID, SocketPath) are populated from the PID file and config.
+// Inspect returns VMInfo for a single VM by ref (ID, name, or prefix).
 func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VMInfo, error) {
 	var result *types.VMInfo
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
@@ -54,9 +51,7 @@ func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VMIn
 	})
 }
 
-// Console returns the PTY device path for a running VM's virtio-console.
-// Resolves ref to an exact ID, verifies the VM is running, then queries
-// GET /api/v1/vm.info to obtain the PTY path allocated by Cloud Hypervisor.
+// Console returns the PTY path for a running VM's virtio-console.
 func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (string, error) {
 	info, err := ch.Inspect(ctx, ref)
 	if err != nil {
@@ -64,7 +59,7 @@ func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (string, err
 	}
 
 	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
-	if !utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
+	if !ch.verifyVMProcess(pid, info.ID) {
 		return "", fmt.Errorf("VM %s is not running", info.ID)
 	}
 
@@ -79,15 +74,18 @@ func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (string, err
 		return "", fmt.Errorf("decode vm.info: %w", err)
 	}
 
+	// OCI: console=pty (hvc0), cloudimg: serial=pty (ttyS0).
 	ptyPath := vmInfo.Config.Console.File
 	if ptyPath == "" {
-		return "", fmt.Errorf("no console PTY allocated for VM %s (mode: %s)", info.ID, vmInfo.Config.Console.Mode)
+		ptyPath = vmInfo.Config.Serial.File
+	}
+	if ptyPath == "" {
+		return "", fmt.Errorf("no PTY allocated for VM %s", info.ID)
 	}
 	return ptyPath, nil
 }
 
 // List returns VMInfo for all known VMs.
-// Runtime fields are populated for each entry.
 func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 	var result []*types.VMInfo
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
@@ -103,9 +101,7 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 	})
 }
 
-// Delete removes VM records from the index and returns the IDs that were deleted.
-// Running VMs are rejected unless force is true, in which case they are stopped first.
-// Best-effort: all IDs are attempted; partial results and collected errors are returned.
+// Delete removes VMs. Running VMs require force=true (stops them first).
 func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
 	ids, err := ch.resolveRefs(ctx, refs)
 	if err != nil {
@@ -113,7 +109,7 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 	}
 	return forEachVM(ctx, ids, "Delete", true, func(ctx context.Context, id string) error {
 		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-		if utils.VerifyProcess(pid, filepath.Base(ch.conf.CHBinary)) {
+		if ch.verifyVMProcess(pid, id) {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}
@@ -132,13 +128,12 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 		}); err != nil {
 			return err
 		}
-		ch.removeVMDirs(id)
+		ch.removeVMDirs(ctx, id)
 		return nil
 	})
 }
 
-// resolveRefs batch-resolves user-supplied references (IDs, names, or prefixes)
-// to exact VM IDs under a single lock.
+// resolveRefs batch-resolves refs to exact VM IDs under a single lock.
 func (ch *CloudHypervisor) resolveRefs(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	return ids, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
