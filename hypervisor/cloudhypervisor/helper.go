@@ -2,6 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -25,6 +26,20 @@ func powerButton(ctx context.Context, socketPath string) error {
 	return hypervisor.DoWithRetry(ctx, func() error {
 		return hypervisor.DoPUT(ctx, socketPath, "/api/v1/vm.power-button", nil)
 	})
+}
+
+// queryConsolePTY retrieves the virtio-console PTY path from a running CH instance
+// via GET /api/v1/vm.info. Returns empty string if the console is not in Pty mode.
+func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
+	body, err := hypervisor.DoGET(ctx, apiSocketPath, "/api/v1/vm.info")
+	if err != nil {
+		return "", fmt.Errorf("query vm.info: %w", err)
+	}
+	var info chVMInfoResponse
+	if err := json.Unmarshal(body, &info); err != nil {
+		return "", fmt.Errorf("decode vm.info: %w", err)
+	}
+	return info.Config.Console.File, nil
 }
 
 // blobHexFromPath extracts the digest hex from a blob file path.

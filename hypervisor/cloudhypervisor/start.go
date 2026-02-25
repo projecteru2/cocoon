@@ -67,9 +67,26 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		return fmt.Errorf("launch VM: %w", err)
 	}
 
-	if err := ch.updateState(ctx, id, types.VMStateRunning); err != nil {
-		// Kill orphan process — the DB doesn't know the VM is running,
-		// so clean up and let the next start retry from a clean slate.
+	var consolePath string
+	if isDirectBoot(rec.BootConfig) {
+		consolePath, _ = queryConsolePTY(ctx, socketPath)
+	} else {
+		consolePath = ch.conf.CHVMConsoleSock(id)
+	}
+
+	// Persist running state + console path.
+	now := time.Now()
+	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		r := idx.VMs[id]
+		if r == nil {
+			return fmt.Errorf("VM %s disappeared from index", id)
+		}
+		r.State = types.VMStateRunning
+		r.StartedAt = &now
+		r.UpdatedAt = now
+		r.ConsolePath = consolePath
+		return nil
+	}); err != nil {
 		_ = utils.TerminateProcess(ctx, pid, filepath.Base(ch.conf.CHBinary), socketPath, terminateGracePeriod)
 		ch.cleanupRuntimeFiles(id)
 		return fmt.Errorf("update state: %w", err)
