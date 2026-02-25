@@ -127,7 +127,7 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 
 	// Build cmdline with reversed layer serials for overlayfs lowerdir ordering (top layer first).
 	boot.Cmdline = fmt.Sprintf(
-		"console=ttyS0 console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
+		"console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		strings.Join(ReverseLayerSerials(sc), ","), CowSerial,
 	)
 

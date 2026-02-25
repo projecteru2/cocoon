@@ -2,7 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/projecteru2/cocoon/config"
@@ -12,7 +12,6 @@ import (
 	"github.com/projecteru2/cocoon/storage"
 	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
 )
 
 const typ = "cloud-hypervisor"
@@ -51,40 +50,6 @@ func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VMIn
 	})
 }
 
-// Console returns the PTY path for a running VM's virtio-console.
-func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (string, error) {
-	info, err := ch.Inspect(ctx, ref)
-	if err != nil {
-		return "", err
-	}
-
-	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
-	if !ch.verifyVMProcess(pid, info.ID) {
-		return "", fmt.Errorf("VM %s is not running", info.ID)
-	}
-
-	socketPath := ch.conf.CHVMSocketPath(info.ID)
-	body, err := hypervisor.DoGET(ctx, socketPath, "/api/v1/vm.info")
-	if err != nil {
-		return "", fmt.Errorf("query vm.info: %w", err)
-	}
-
-	var vmInfo chVMInfoResponse
-	if err := json.Unmarshal(body, &vmInfo); err != nil {
-		return "", fmt.Errorf("decode vm.info: %w", err)
-	}
-
-	// OCI: console=pty (hvc0), cloudimg: serial=pty (ttyS0).
-	ptyPath := vmInfo.Config.Console.File
-	if ptyPath == "" {
-		ptyPath = vmInfo.Config.Serial.File
-	}
-	if ptyPath == "" {
-		return "", fmt.Errorf("no PTY allocated for VM %s", info.ID)
-	}
-	return ptyPath, nil
-}
-
 // List returns VMInfo for all known VMs.
 func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
 	var result []*types.VMInfo
@@ -108,14 +73,13 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 		return nil, err
 	}
 	return forEachVM(ctx, ids, "Delete", true, func(ctx context.Context, id string) error {
-		pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-		if ch.verifyVMProcess(pid, id) {
+		if err := ch.withRunningVM(id, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}
-			if err := ch.stopOne(ctx, id); err != nil {
-				return fmt.Errorf("stop before delete: %w", err)
-			}
+			return ch.stopOne(ctx, id)
+		}); err != nil && !errors.Is(err, hypervisor.ErrNotRunning) {
+			return fmt.Errorf("stop before delete: %w", err)
 		}
 		if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 			rec := idx.VMs[id]

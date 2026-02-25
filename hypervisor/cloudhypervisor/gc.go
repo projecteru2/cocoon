@@ -11,12 +11,6 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
-// compile-time interface check.
-var _ hypervisor.Hypervisor = (*CloudHypervisor)(nil)
-
-// creatingStateGCGrace is the minimum age for a "creating" record to be
-// considered stale by GC. This avoids racing with legitimate long-running
-// Create operations.
 const creatingStateGCGrace = 24 * time.Hour
 
 type chSnapshot struct {

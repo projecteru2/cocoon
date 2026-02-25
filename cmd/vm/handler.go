@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
-	"os/signal"
 	"sort"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -212,16 +211,11 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 	}
 	ref := args[0]
 
-	ptyPath, err := hyper.Console(ctx, ref)
+	conn, err := hyper.Console(ctx, ref)
 	if err != nil {
 		return fmt.Errorf("console: %w", err)
 	}
-
-	pty, err := os.OpenFile(ptyPath, os.O_RDWR, 0) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("open PTY %s: %w", ptyPath, err)
-	}
-	defer pty.Close() //nolint:errcheck
+	defer conn.Close() //nolint:errcheck
 
 	escapeStr, _ := cmd.Flags().GetString("escape-char")
 	escapeChar, err := console.ParseEscapeChar(escapeStr)
@@ -243,21 +237,15 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "\r\nDisconnected from %s.\r\n", ref)
 	}()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-	go func() {
-		for range sigCh {
-		}
-	}()
-
-	cleanupWinch := console.HandleSIGWINCH(os.Stdin, pty)
-	defer cleanupWinch()
-
 	escapeDisplay := console.FormatEscapeChar(escapeChar)
 	fmt.Fprintf(os.Stderr, "Connected to %s (escape sequence: %s.)\r\n", ref, escapeDisplay)
 
-	if err := console.Relay(ctx, pty, escapeChar); err != nil {
+	rw, ok := conn.(io.ReadWriter)
+	if !ok {
+		return fmt.Errorf("console connection does not support writing")
+	}
+
+	if err := console.Relay(ctx, rw, escapeChar); err != nil {
 		fmt.Fprintf(os.Stderr, "\r\nrelay error: %v\r\n", err)
 	}
 	return nil
@@ -366,7 +354,7 @@ func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName,
 	cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
 
 	cmdline := fmt.Sprintf(
-		"console=ttyS0 console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
+		"console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		cocoonLayers, cloudhypervisor.CowSerial)
 
 	fmt.Println("# Prepare COW disk")

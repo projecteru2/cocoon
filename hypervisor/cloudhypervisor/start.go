@@ -36,14 +36,13 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	// Idempotent: skip if the VM process is already running regardless of
 	// recorded state — prevents double-launch after a state-update failure.
-	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-	if ch.verifyVMProcess(pid, id) {
+	if err := ch.withRunningVM(id, func(_ int) error {
 		if rec.State != types.VMStateRunning {
-			if stateErr := ch.updateState(ctx, id, types.VMStateRunning); stateErr != nil {
-				return fmt.Errorf("reconcile running state: %w", stateErr)
-			}
+			return ch.updateState(ctx, id, types.VMStateRunning)
 		}
 		return nil
+	}); err == nil {
+		return nil // already running
 	}
 
 	// Ensure per-VM runtime and log directories.
@@ -57,12 +56,12 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	ch.cleanupRuntimeFiles(id)
 
 	// Build VM config and convert to CLI args — CH boots immediately on launch.
-	vmCfg := buildVMConfig(&rec, ch.conf.CHVMSerialLog(id))
+	vmCfg := buildVMConfig(&rec, ch.conf.CHVMConsoleSock(id))
 	args := buildCLIArgs(vmCfg, socketPath)
 	ch.saveCmdline(id, args)
 
 	// Launch the CH process with full config.
-	pid, err = ch.launchProcess(ctx, id, socketPath, args)
+	pid, err := ch.launchProcess(ctx, id, socketPath, args)
 	if err != nil {
 		ch.markError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
