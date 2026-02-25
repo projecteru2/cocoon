@@ -68,6 +68,11 @@ func (c *Config) CHVMOverlayPath(vmID string) string {
 	return filepath.Join(c.CHVMRunDir(vmID), "overlay.qcow2")
 }
 
+// CHVMCidataPath returns the path for the cloud-init NoCloud cidata disk.
+func (c *Config) CHVMCidataPath(vmID string) string {
+	return filepath.Join(c.CHVMRunDir(vmID), "cidata.img")
+}
+
 // FirmwarePath returns the path to the UEFI firmware blob (CLOUDHV.fd).
 func (c *Config) FirmwarePath() string {
 	return filepath.Join(c.RootDir, "firmware", "CLOUDHV.fd")

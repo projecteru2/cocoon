@@ -28,6 +28,9 @@ type Config struct {
 	// PoolSize is the goroutine pool size for concurrent operations.
 	// Defaults to runtime.NumCPU() if zero.
 	PoolSize int `json:"pool_size" mapstructure:"pool_size"`
+	// DefaultRootPassword is the root password injected into cloudimg VMs
+	// via cloud-init metadata. Empty means no password is set.
+	DefaultRootPassword string `json:"default_root_password" mapstructure:"default_root_password"`
 	// Log configuration, uses eru core's ServerLogConfig.
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
 }
