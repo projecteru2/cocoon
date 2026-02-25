@@ -254,7 +254,7 @@ func (h Handler) initHyper(cmd *cobra.Command) (context.Context, hypervisor.Hype
 
 // createResult holds the output of createVM for Create/Run to consume.
 type createResult struct {
-	*types.VMInfo
+	*types.VM
 	hyper hypervisor.Hypervisor
 }
 
@@ -280,11 +280,12 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *c
 	}
 	cmdcore.EnsureFirmwarePath(conf, bootCfg)
 
-	info, err := hyper.Create(ctx, vmCfg, storageConfigs, bootCfg)
+	// TODO pass network configs
+	info, err := hyper.Create(ctx, vmCfg, storageConfigs, nil, bootCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create VM: %w", err)
 	}
-	return ctx, &createResult{VMInfo: info, hyper: hyper}, nil
+	return ctx, &createResult{VM: info, hyper: hyper}, nil
 }
 
 func batchVMCmd(ctx context.Context, name, pastTense string, fn func(context.Context, []string) ([]string, error), refs []string) error {

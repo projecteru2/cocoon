@@ -18,11 +18,11 @@ var (
 type Hypervisor interface {
 	Type() string
 
-	Create(context.Context, *types.VMConfig, []*types.StorageConfig, *types.BootConfig) (*types.VMInfo, error)
+	Create(context.Context, *types.VMConfig, []*types.StorageConfig, []*types.NetworkConfig, *types.BootConfig) (*types.VM, error)
 	Start(ctx context.Context, refs []string) ([]string, error)
 	Stop(ctx context.Context, refs []string) ([]string, error)
-	Inspect(ctx context.Context, ref string) (*types.VMInfo, error)
-	List(context.Context) ([]*types.VMInfo, error)
+	Inspect(ctx context.Context, ref string) (*types.VM, error)
+	List(context.Context) ([]*types.VM, error)
 	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
 	Console(ctx context.Context, ref string) (io.ReadCloser, error)
 

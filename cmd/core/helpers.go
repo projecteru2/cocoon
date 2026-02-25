@@ -151,7 +151,7 @@ func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
 }
 
 // ReconcileState checks actual process liveness to detect stale "running" records.
-func ReconcileState(vm *types.VMInfo) string {
+func ReconcileState(vm *types.VM) string {
 	if vm.State == types.VMStateRunning && !utils.IsProcessAlive(vm.PID) {
 		return "stopped (stale)"
 	}

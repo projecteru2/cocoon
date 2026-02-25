@@ -23,8 +23,8 @@ type VMConfig struct {
 	Image string `json:"image"`
 }
 
-// VMInfo is the runtime record for a VM, persisted by the hypervisor backend.
-type VMInfo struct {
+// VM is the runtime record for a VM, persisted by the hypervisor backend.
+type VM struct {
 	ID     string   `json:"id"`
 	State  VMState  `json:"state"`
 	Config VMConfig `json:"config"`

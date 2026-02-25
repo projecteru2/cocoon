@@ -23,7 +23,7 @@ const CowSerial = "cocoon-cow"
 // To avoid a race with GC (which scans directories and removes those not in
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
-func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, bootCfg *types.BootConfig) (*types.VMInfo, error) {
+func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, _ []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
 	id := hypervisor.GenerateID()
 	now := time.Now()
 
@@ -38,7 +38,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 			return fmt.Errorf("VM name %q already exists (id: %s)", vmCfg.Name, dup)
 		}
 		idx.VMs[id] = &hypervisor.VMRecord{
-			VMInfo: types.VMInfo{
+			VM: types.VM{
 				ID: id, State: types.VMStateCreating,
 				Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
 			},
@@ -77,12 +77,12 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	}
 
 	// Step 3: finalize the record with full data and Created state.
-	info := types.VMInfo{
+	info := types.VM{
 		ID: id, State: types.VMStateCreated,
 		Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
 	}
 	rec := hypervisor.VMRecord{
-		VMInfo:         info,
+		VM:             info,
 		StorageConfigs: sc,
 		BootConfig:     bootCopy,
 		ImageBlobIDs:   blobIDs,
