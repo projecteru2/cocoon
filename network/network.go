@@ -13,7 +13,7 @@ type Network interface {
 	Config(context.Context, []*types.VMConfig) ([][]*types.NetworkConfig, error)
 	Delete(context.Context, []string) ([]string, error)
 	Inspect(context.Context, string) (*types.Network, error)
-	List() ([]*types.Network, error)
+	List(context.Context) ([]*types.Network, error)
 
 	RegisterGC(*gc.Orchestrator)
 }
