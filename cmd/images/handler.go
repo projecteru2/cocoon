@@ -140,7 +140,7 @@ func (h Handler) pullOCI(ctx context.Context, store *oci.OCI, image string) erro
 		case ociProgress.PhaseLayer:
 			logger.Infof(ctx, "[%d/%d] %s done", e.Index+1, e.Total, e.Digest)
 		case ociProgress.PhaseCommit:
-			logger.Infof(ctx, "committing...")
+			logger.Info(ctx, "committing...")
 		case ociProgress.PhaseDone:
 			logger.Infof(ctx, "done: %s", image)
 		}
@@ -171,7 +171,7 @@ func (h Handler) pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url
 			fmt.Println()
 			logger.Infof(ctx, "converting to qcow2...")
 		case cloudimgProgress.PhaseCommit:
-			logger.Infof(ctx, "committing...")
+			logger.Info(ctx, "committing...")
 		case cloudimgProgress.PhaseDone:
 			logger.Infof(ctx, "done: %s", url)
 		}
