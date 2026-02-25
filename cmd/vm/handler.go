@@ -280,8 +280,14 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *c
 	}
 	cmdcore.EnsureFirmwarePath(conf, bootCfg)
 
-	// TODO pass network configs
-	info, err := hyper.Create(ctx, vmCfg, storageConfigs, nil, bootCfg)
+	var networkConfigs []*types.NetworkConfig
+	noNetwork, _ := cmd.Flags().GetBool("no-network")
+	if !noNetwork {
+		// TODO: call network.Config(ctx, []*types.VMConfig{vmCfg}) when a network provider is available.
+		_ = noNetwork
+	}
+
+	info, err := hyper.Create(ctx, vmCfg, storageConfigs, networkConfigs, bootCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create VM: %w", err)
 	}

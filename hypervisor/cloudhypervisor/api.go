@@ -13,10 +13,18 @@ type chVMConfig struct {
 	CPUs     chCPUs        `json:"cpus"`
 	Memory   chMemory      `json:"memory"`
 	Disks    []chDisk      `json:"disks,omitempty"`
+	Nets     []chNet       `json:"nets,omitempty"`
 	RNG      chRNG         `json:"rng"`
 	Watchdog bool          `json:"watchdog"`
 	Serial   chRuntimeFile `json:"serial"`
 	Console  chRuntimeFile `json:"console"`
+}
+
+type chNet struct {
+	Tap       string `json:"tap"`
+	Mac       string `json:"mac,omitempty"`
+	NumQueues int64  `json:"num_queues,omitempty"`
+	QueueSize int64  `json:"queue_size,omitempty"`
 }
 
 type chPayload struct {

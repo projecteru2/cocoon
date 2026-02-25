@@ -113,4 +113,5 @@ func addVMFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
 	cmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd
 	cmd.Flags().String("storage", "10G", "COW disk size") //nolint:mnd
+	cmd.Flags().Bool("no-network", false, "skip network configuration")
 }

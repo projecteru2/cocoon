@@ -14,6 +14,7 @@ type VMRecord struct {
 	types.VM
 
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
+	NetworkConfigs []*types.NetworkConfig `json:"network_configs,omitempty"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`    // nil for UEFI boot (cloudimg)
 	ImageBlobIDs   map[string]struct{}    `json:"image_blob_ids,omitempty"` // blob hex set for GC pinning
 }

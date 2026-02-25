@@ -48,6 +48,10 @@ func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig
 		cfg.Disks = append(cfg.Disks, storageConfigToDisk(sc, cpu))
 	}
 
+	for _, nc := range rec.NetworkConfigs {
+		cfg.Nets = append(cfg.Nets, networkConfigToNet(nc))
+	}
+
 	if boot := rec.BootConfig; boot != nil {
 		switch {
 		case boot.KernelPath != "":
@@ -62,6 +66,15 @@ func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig
 	}
 
 	return cfg
+}
+
+func networkConfigToNet(nc *types.NetworkConfig) chNet {
+	return chNet{
+		Tap:       nc.Tap,
+		Mac:       nc.Mac,
+		NumQueues: nc.Queue,
+		QueueSize: nc.QueueSize,
+	}
 }
 
 func storageConfigToDisk(sc *types.StorageConfig, cpuCount int) chDisk {
@@ -127,6 +140,13 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 		}
 	}
 
+	if len(cfg.Nets) > 0 {
+		args = append(args, "--net")
+		for _, n := range cfg.Nets {
+			args = append(args, netToCLIArg(n))
+		}
+	}
+
 	args = append(args, "--rng", fmt.Sprintf("src=%s", cfg.RNG.Src))
 
 	if cfg.Watchdog {
@@ -168,6 +188,20 @@ func diskToCLIArg(d chDisk) string {
 	}
 	if d.Serial != "" {
 		parts = append(parts, "serial="+d.Serial)
+	}
+	return strings.Join(parts, ",")
+}
+
+func netToCLIArg(n chNet) string {
+	parts := []string{"tap=" + n.Tap}
+	if n.Mac != "" {
+		parts = append(parts, "mac="+n.Mac)
+	}
+	if n.NumQueues > 0 {
+		parts = append(parts, fmt.Sprintf("num_queues=%d", n.NumQueues))
+	}
+	if n.QueueSize > 0 {
+		parts = append(parts, fmt.Sprintf("queue_size=%d", n.QueueSize))
 	}
 	return strings.Join(parts, ",")
 }

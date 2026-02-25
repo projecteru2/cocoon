@@ -8,6 +8,10 @@ type NetworkConfig struct {
 	Queue     int64  `json:"queue"`
 	QueueSize int64  `json:"queue_size"`
 
+	// Guest-side IP configuration returned by the network plugin.
+	// nil means DHCP / no static config.
+	Network *Network `json:"network,omitempty"`
+
 	// offload_tso=on
 	// offload_ufo=on
 	// offload_csum=on

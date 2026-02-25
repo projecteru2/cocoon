@@ -15,6 +15,16 @@ type Config struct {
 	InstanceID   string
 	Hostname     string
 	RootPassword string
+	Networks     []NetworkInfo
+}
+
+// NetworkInfo describes a single guest network interface for cloud-init netplan.
+type NetworkInfo struct {
+	IP      string // e.g. "10.0.0.2"
+	Prefix  int    // CIDR prefix length, e.g. 24
+	Gateway string // e.g. "10.0.0.1"
+	Device  string // e.g. "eth0"
+	Mac     string // e.g. "52:54:00:01:02:03"
 }
 
 var tmplFuncs = template.FuncMap{
@@ -35,6 +45,25 @@ chpasswd:
     - 'root:{{yamlQuote .RootPassword}}'
 ssh_pwauth: true
 disable_root: false
+{{- end}}
+{{- if .Networks}}
+network:
+  version: 2
+  ethernets:
+{{- range .Networks}}
+    {{.Device}}:
+{{- if .Mac}}
+      match:
+        macaddress: '{{.Mac}}'
+{{- end}}
+      addresses:
+        - {{.IP}}/{{.Prefix}}
+{{- if .Gateway}}
+      routes:
+        - to: default
+          via: {{.Gateway}}
+{{- end}}
+{{- end}}
 {{- end}}
 `))
 

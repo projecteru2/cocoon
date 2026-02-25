@@ -3,6 +3,7 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +24,7 @@ const CowSerial = "cocoon-cow"
 // To avoid a race with GC (which scans directories and removes those not in
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
-func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, _ []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
+func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
 	id := hypervisor.GenerateID()
 	now := time.Now()
 
@@ -66,9 +67,9 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		bootCopy = &b
 	}
 	if bootCopy != nil && bootCopy.KernelPath != "" {
-		sc, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, bootCopy)
+		sc, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, networkConfigs, bootCopy)
 	} else {
-		sc, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs)
+		sc, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs, networkConfigs)
 	}
 	if err != nil {
 		_ = ch.removeVMDirs(ctx, id)
@@ -84,6 +85,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	rec := hypervisor.VMRecord{
 		VM:             info,
 		StorageConfigs: sc,
+		NetworkConfigs: networkConfigs,
 		BootConfig:     bootCopy,
 		ImageBlobIDs:   blobIDs,
 	}
@@ -102,7 +104,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 // prepareOCI creates a raw COW disk, appends the COW StorageConfig, and builds
 // the kernel cmdline with layer/cow serial mappings.
 // Returns the updated StorageConfig slice.
-func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
+func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, nc []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
 	cowPath := ch.conf.CHVMCOWRawPath(vmID)
 
 	// Create sparse COW file (equivalent to truncate -s <size>).
@@ -126,17 +128,32 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	})
 
 	// Build cmdline with reversed layer serials for overlayfs lowerdir ordering (top layer first).
-	boot.Cmdline = fmt.Sprintf(
+	var cmdline strings.Builder
+	fmt.Fprintf(&cmdline,
 		"console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		strings.Join(ReverseLayerSerials(sc), ","), CowSerial,
 	)
+
+	// Append static IP configuration for each network interface.
+	// Format: ip=<client-IP>:<server>:<gw-IP>:<netmask>:<hostname>:<device>:<autoconf>
+	if len(nc) > 0 {
+		cmdline.WriteString(" net.ifnames=0")
+		for _, n := range nc {
+			if n.Network != nil {
+				fmt.Fprintf(&cmdline, " ip=%s::%s:%s::%s:off",
+					n.Network.IP, n.Network.Gateway,
+					net.IP(n.Network.Netmask), n.Network.Device)
+			}
+		}
+	}
+	boot.Cmdline = cmdline.String()
 
 	return sc, nil
 }
 
 // prepareCloudimg creates a qcow2 COW overlay backed by the base image blob.
 // Returns the updated StorageConfig slice (replaced with the overlay).
-func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig) ([]*types.StorageConfig, error) {
+func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, nc []*types.NetworkConfig) ([]*types.StorageConfig, error) {
 	if len(sc) == 0 {
 		return nil, fmt.Errorf("cloudimg: no base image StorageConfig")
 	}
@@ -162,16 +179,30 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	}
 
 	// Generate cloud-init cidata disk.
+	metaCfg := &metadata.Config{
+		InstanceID:   vmID,
+		Hostname:     vmCfg.Name,
+		RootPassword: ch.conf.DefaultRootPassword,
+	}
+	for _, n := range nc {
+		if n.Network != nil {
+			ones, _ := n.Network.Netmask.Size()
+			metaCfg.Networks = append(metaCfg.Networks, metadata.NetworkInfo{
+				IP:      n.Network.IP.String(),
+				Prefix:  ones,
+				Gateway: n.Network.Gateway.String(),
+				Device:  n.Network.Device,
+				Mac:     n.Mac,
+			})
+		}
+	}
+
 	cidataPath := ch.conf.CHVMCidataPath(vmID)
 	f, err := os.Create(cidataPath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("create cidata: %w", err)
 	}
-	if err := metadata.Generate(f, &metadata.Config{
-		InstanceID:   vmID,
-		Hostname:     vmCfg.Name,
-		RootPassword: ch.conf.DefaultRootPassword,
-	}); err != nil {
+	if err := metadata.Generate(f, metaCfg); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("generate cidata: %w", err)
 	}
