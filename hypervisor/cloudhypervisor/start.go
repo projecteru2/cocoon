@@ -36,12 +36,12 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	// Idempotent: skip if the VM process is already running regardless of
 	// recorded state — prevents double-launch after a state-update failure.
-	if err := ch.withRunningVM(id, func(_ int) error {
+	if runErr := ch.withRunningVM(id, func(_ int) error {
 		if rec.State != types.VMStateRunning {
 			return ch.updateState(ctx, id, types.VMStateRunning)
 		}
 		return nil
-	}); err == nil {
+	}); runErr == nil {
 		return nil // already running
 	}
 
