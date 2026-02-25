@@ -17,11 +17,11 @@ type Network struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
 
-	IP       net.IP `json:"ip"`
-	Gateway  net.IP `json:"gateway"`
-	Netmask  net.IP `json:"netmask"`
-	Hostname string `json:"hostname"`
-	Device   string `json:"device"`
+	IP       net.IP     `json:"ip"`
+	Gateway  net.IP     `json:"gateway"`
+	Netmask  net.IPMask `json:"netmask"`
+	Hostname string     `json:"hostname"`
+	Device   string     `json:"device"`
 
 	// autoconf off
 	// net.ifnames 0 enforce eth0 as first interface name
