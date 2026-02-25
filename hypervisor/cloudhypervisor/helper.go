@@ -6,12 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/projecteru2/core/log"
 
 	"github.com/projecteru2/cocoon/hypervisor"
+	"github.com/projecteru2/cocoon/types"
 )
+
+// ReverseLayerSerials extracts read-only layer serial names from StorageConfigs
+// and returns them in reverse order (top layer first for overlayfs lowerdir).
+func ReverseLayerSerials(sc []*types.StorageConfig) []string {
+	var serials []string
+	for _, s := range sc {
+		if s.RO {
+			serials = append(serials, s.Serial)
+		}
+	}
+	slices.Reverse(serials)
+	return serials
+}
 
 // shutdownVM asks Cloud Hypervisor to shut down the guest (flush disk backends).
 // Used by the stop flow — the start flow uses CLI args instead of REST API.

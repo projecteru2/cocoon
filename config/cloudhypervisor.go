@@ -25,10 +25,6 @@ func (c *Config) EnsureCHVMDirs(vmID string) error {
 	)
 }
 
-func (c *Config) chDir() string    { return filepath.Join(c.RootDir, "cloudhypervisor") }
-func (c *Config) chDBDir() string  { return filepath.Join(c.chDir(), "db") }
-func (c *Config) chRunDir() string { return filepath.Join(c.RunDir, "cloudhypervisor") }
-
 // CHRunDir returns the top-level CH runtime directory (for GC orphan scanning).
 func (c *Config) CHRunDir() string { return c.chRunDir() }
 
@@ -48,7 +44,6 @@ func (c *Config) CHVMSocketPath(vmID string) string {
 }
 func (c *Config) CHVMPIDFile(vmID string) string { return filepath.Join(c.CHVMRunDir(vmID), "ch.pid") }
 
-func (c *Config) chLogDir() string              { return filepath.Join(c.LogDir, "cloudhypervisor") }
 func (c *Config) CHVMLogDir(vmID string) string { return filepath.Join(c.chLogDir(), vmID) }
 func (c *Config) CHVMConsoleSock(vmID string) string {
 	return filepath.Join(c.CHVMRunDir(vmID), "console.sock")
@@ -77,3 +72,8 @@ func (c *Config) CHVMOverlayPath(vmID string) string {
 func (c *Config) FirmwarePath() string {
 	return filepath.Join(c.RootDir, "firmware", "CLOUDHV.fd")
 }
+
+func (c *Config) chDir() string    { return filepath.Join(c.RootDir, "cloudhypervisor") }
+func (c *Config) chDBDir() string  { return filepath.Join(c.chDir(), "db") }
+func (c *Config) chRunDir() string { return filepath.Join(c.RunDir, "cloudhypervisor") }
+func (c *Config) chLogDir() string { return filepath.Join(c.LogDir, "cloudhypervisor") }

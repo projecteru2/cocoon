@@ -150,18 +150,18 @@ func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
 	}
 }
 
-func FormatSize(bytes int64) string {
-	return units.HumanSize(float64(bytes))
-}
-
-func IsURL(ref string) bool {
-	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
-}
-
 // ReconcileState checks actual process liveness to detect stale "running" records.
 func ReconcileState(vm *types.VMInfo) string {
 	if vm.State == types.VMStateRunning && !utils.IsProcessAlive(vm.PID) {
 		return "stopped (stale)"
 	}
 	return string(vm.State)
+}
+
+func FormatSize(bytes int64) string {
+	return units.HumanSize(float64(bytes))
+}
+
+func IsURL(ref string) bool {
+	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
 }
