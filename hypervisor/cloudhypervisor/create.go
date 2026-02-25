@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/projecteru2/cocoon/hypervisor"
+	"github.com/projecteru2/cocoon/metadata"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -160,11 +161,29 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		}
 	}
 
-	// Replace StorageConfigs with the overlay (base is accessed via backing file chain).
-	return []*types.StorageConfig{{
-		Path: overlayPath,
-		RO:   false,
-	}}, nil
+	// Generate cloud-init cidata disk.
+	cidataPath := ch.conf.CHVMCidataPath(vmID)
+	f, err := os.Create(cidataPath) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("create cidata: %w", err)
+	}
+	if err := metadata.Generate(f, &metadata.Config{
+		InstanceID:   vmID,
+		Hostname:     vmCfg.Name,
+		RootPassword: ch.conf.DefaultRootPassword,
+	}); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("generate cidata: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("close cidata: %w", err)
+	}
+
+	// Replace StorageConfigs with the overlay + cidata (base is accessed via backing file chain).
+	return []*types.StorageConfig{
+		{Path: overlayPath, RO: false},
+		{Path: cidataPath, RO: true},
+	}, nil
 }
 
 // extractBlobIDs extracts digest hexes from the original image StorageConfigs
