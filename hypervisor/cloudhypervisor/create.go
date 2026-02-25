@@ -138,11 +138,11 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	// Format: ip=<client-IP>:<server>:<gw-IP>:<netmask>:<hostname>:<device>:<autoconf>
 	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
-		for _, n := range networkConfigs {
+		for i, n := range networkConfigs {
 			if n.Network != nil {
-				fmt.Fprintf(&cmdline, " ip=%s::%s:%s::%s:off",
+				fmt.Fprintf(&cmdline, " ip=%s::%s:%s::eth%d:off",
 					n.Network.IP, n.Network.Gateway,
-					net.IP(n.Network.Netmask), n.Network.Device)
+					net.IP(n.Network.Netmask), i)
 			}
 		}
 	}
@@ -184,14 +184,14 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		Hostname:     vmCfg.Name,
 		RootPassword: ch.conf.DefaultRootPassword,
 	}
-	for _, n := range networkConfigs {
+	for i, n := range networkConfigs {
 		if n.Network != nil {
 			ones, _ := n.Network.Netmask.Size()
 			metaCfg.Networks = append(metaCfg.Networks, metadata.NetworkInfo{
 				IP:      n.Network.IP.String(),
 				Prefix:  ones,
 				Gateway: n.Network.Gateway.String(),
-				Device:  n.Network.Device,
+				Device:  fmt.Sprintf("eth%d", i),
 				Mac:     n.Mac,
 			})
 		}

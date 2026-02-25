@@ -1,8 +1,6 @@
 package cni
 
 import (
-	"encoding/json"
-
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -15,8 +13,6 @@ type networkRecord struct {
 	VMID string `json:"vm_id"`
 	// IfName is the CNI interface name inside the netns (eth0, eth1, ...).
 	IfName string `json:"if_name"`
-	// CNIResult stores the raw CNI ADD result so that CNI DEL can replay it.
-	CNIResult json.RawMessage `json:"cni_result,omitempty"`
 }
 
 // networkIndex is the top-level DB structure for the CNI network provider.
@@ -33,12 +29,13 @@ func (idx *networkIndex) Init() {
 	}
 }
 
-// byVMID returns all network records belonging to vmID.
-func (idx *networkIndex) byVMID(vmID string) []*networkRecord {
-	var out []*networkRecord
+// byVMID returns copies of all network records belonging to vmID.
+// The returned values are detached from the index and safe to use after the lock is released.
+func (idx *networkIndex) byVMID(vmID string) []networkRecord {
+	var out []networkRecord
 	for _, rec := range idx.Networks {
 		if rec != nil && rec.VMID == vmID {
-			out = append(out, rec)
+			out = append(out, *rec)
 		}
 	}
 	return out

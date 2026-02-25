@@ -28,6 +28,12 @@ type Config struct {
 	// PoolSize is the goroutine pool size for concurrent operations.
 	// Defaults to runtime.NumCPU() if zero.
 	PoolSize int `json:"pool_size" mapstructure:"pool_size"`
+	// CNIConfDir is the directory for CNI plugin configuration files.
+	// Default: /etc/cni/net.d.
+	CNIConfDir string `json:"cni_conf_dir" mapstructure:"cni_conf_dir"`
+	// CNIBinDir is the directory for CNI plugin binaries.
+	// Default: /opt/cni/bin.
+	CNIBinDir string `json:"cni_bin_dir" mapstructure:"cni_bin_dir"`
 	// DefaultRootPassword is the root password injected into cloudimg VMs
 	// via cloud-init metadata. Empty means no password is set.
 	DefaultRootPassword string `json:"default_root_password" mapstructure:"default_root_password"`
@@ -42,6 +48,8 @@ func DefaultConfig() *Config {
 		RunDir:             "/var/run/cocoon",
 		LogDir:             "/var/log/cocoon",
 		CHBinary:           "cloud-hypervisor",
+		CNIConfDir:         "/etc/cni/net.d",
+		CNIBinDir:          "/opt/cni/bin",
 		StopTimeoutSeconds: 30,
 		PoolSize:           runtime.NumCPU(),
 		Log: &coretypes.ServerLogConfig{
@@ -66,6 +74,12 @@ func EnsureDirs(conf *Config) (*Config, error) {
 	}
 	if conf.CHBinary == "" {
 		conf.CHBinary = defaults.CHBinary
+	}
+	if conf.CNIConfDir == "" {
+		conf.CNIConfDir = defaults.CNIConfDir
+	}
+	if conf.CNIBinDir == "" {
+		conf.CNIBinDir = defaults.CNIBinDir
 	}
 	return conf, nil
 }

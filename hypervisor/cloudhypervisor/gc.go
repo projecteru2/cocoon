@@ -3,8 +3,11 @@ package cloudhypervisor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"time"
 
+	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
@@ -19,6 +22,7 @@ type chSnapshot struct {
 	staleCreate []string            // IDs in stale "creating" state (crash remnants)
 	runDirs     []string            // subdirectory names under CHRunDir
 	logDirs     []string            // subdirectory names under CHLogDir
+	netnsNames  []string            // entries under /var/run/netns/
 }
 
 func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
@@ -57,6 +61,13 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.CHLogDir()); err != nil {
 				return snap, err
 			}
+			// Scan named netns: entries in /var/run/netns/ that match VM IDs.
+			// These are bind-mount files (not dirs), so use ScanEntries.
+			if entries, readErr := os.ReadDir(config.NetnsPath); readErr == nil {
+				for _, e := range entries {
+					snap.netnsNames = append(snap.netnsNames, e.Name())
+				}
+			}
 			return snap, nil
 		},
 		Resolve: func(snap chSnapshot, _ map[string]any) []string {
@@ -66,7 +77,8 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			reserved := map[string]struct{}{"db": {}}
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
 			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
-			candidates := append(append(runOrphans, logOrphans...), snap.staleCreate...)
+			netnsOrphans := utils.FilterUnreferenced(snap.netnsNames, snap.vmIDs)
+			candidates := append(append(append(runOrphans, logOrphans...), netnsOrphans...), snap.staleCreate...)
 			seen := make(map[string]struct{}, len(candidates))
 			var result []string
 			for _, id := range candidates {
@@ -80,8 +92,14 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error
-			// Remove orphan directories (best-effort for dirs that may not exist).
 			for _, id := range ids {
+				// Remove orphan netns (bind-mount file). Kernel cleans up
+				// bridge/tap/veth devices automatically when netns is destroyed.
+				nsPath := ch.conf.CNINetnsPath(id)
+				if err := os.Remove(nsPath); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, fmt.Errorf("remove netns %s: %w", id, err))
+				}
+				// Remove orphan run/log directories.
 				if err := ch.removeVMDirs(ctx, id); err != nil {
 					errs = append(errs, err)
 				}

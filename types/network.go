@@ -10,11 +10,10 @@ type NetworkConfig struct {
 
 	// Guest-side IP configuration returned by the network plugin.
 	// nil means DHCP / no static config.
-	Network *Network `json:"network,omitempty"`
-
 	// offload_tso=on
 	// offload_ufo=on
 	// offload_csum=on
+	Network *Network `json:"network,omitempty"`
 }
 
 type Network struct {
@@ -25,8 +24,4 @@ type Network struct {
 	Gateway  net.IP     `json:"gateway"`
 	Netmask  net.IPMask `json:"netmask"`
 	Hostname string     `json:"hostname"`
-	Device   string     `json:"device"`
-
-	// autoconf off
-	// net.ifnames 0 enforce eth0 as first interface name
 }

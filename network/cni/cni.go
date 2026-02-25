@@ -2,7 +2,12 @@ package cni
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+
+	"github.com/containernetworking/cni/libcni"
+	"github.com/projecteru2/core/log"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/lock"
@@ -16,19 +21,45 @@ const typ = "cni"
 
 // CNI implements network.Network using CNI plugins with per-VM netns + bridge + tap.
 type CNI struct {
-	conf   *config.Config
-	store  storage.Store[networkIndex]
-	locker lock.Locker
+	conf            *config.Config
+	store           storage.Store[networkIndex]
+	locker          lock.Locker
+	networkConfList *libcni.NetworkConfigList
+	cniConf         *libcni.CNIConfig
 }
 
 // New creates a CNI network provider.
+// CNI conflist loading is best-effort at creation time; if no conflist is
+// available (e.g. no network needed), Delete/Inspect/List still work.
+// Config() will fail if the conflist is not loaded.
 func New(conf *config.Config) (*CNI, error) {
 	if err := conf.EnsureCNIDirs(); err != nil {
 		return nil, fmt.Errorf("ensure cni dirs: %w", err)
 	}
+
 	locker := flock.New(conf.CNIIndexLock())
 	store := storejson.New[networkIndex](conf.CNIIndexFile(), locker)
-	return &CNI{conf: conf, store: store, locker: locker}, nil
+
+	c := &CNI{
+		conf:   conf,
+		store:  store,
+		locker: locker,
+	}
+
+	// Best-effort: load the highest-priority CNI conflist.
+	// "" means "take the first conflist found, sorted by filename".
+	// If no conflist is found, networkConfList/cni stay nil — Delete still works
+	// (skips CNI DEL, relies on netns deletion), but Config() will fail.
+	if networkConfList, err := libcni.LoadConfList(conf.CNIConfDir, ""); err == nil {
+		c.networkConfList = networkConfList
+		c.cniConf = libcni.NewCNIConfigWithCacheDir(
+			[]string{conf.CNIBinDir},
+			conf.CNICacheDir(),
+			nil,
+		)
+	}
+
+	return c, nil
 }
 
 func (c *CNI) Type() string { return typ }
@@ -63,12 +94,75 @@ func (c *CNI) List(ctx context.Context) ([]*types.Network, error) {
 	})
 }
 
-// Config, Delete — to be implemented.
-
-func (c *CNI) Config(_ context.Context, _ []*types.VMConfig) ([][]*types.NetworkConfig, error) {
-	panic("not implemented")
+// Delete removes all network resources for the given VM IDs:
+//  1. CNI DEL for each NIC (releases IP from IPAM, removes veth pair).
+//  2. Remove the named netns (kernel cleans up bridge + tap automatically).
+//  3. Remove network records from the DB.
+//
+// Best-effort: failing to clean one VM does not block others.
+// Returns the VM IDs that were fully cleaned.
+func (c *CNI) Delete(ctx context.Context, vmIDs []string) ([]string, error) {
+	var deleted []string
+	var errs []error
+	for _, vmID := range vmIDs {
+		if err := c.deleteVM(ctx, vmID); err != nil {
+			errs = append(errs, fmt.Errorf("VM %s: %w", vmID, err))
+			continue
+		}
+		deleted = append(deleted, vmID)
+	}
+	return deleted, errors.Join(errs...)
 }
 
-func (c *CNI) Delete(_ context.Context, _ []string) ([]string, error) {
-	panic("not implemented")
+// deleteVM cleans up all network resources for a single VM.
+func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
+	logger := log.WithFunc("cni.deleteVM")
+
+	// Collect value-copies of records for this VM.
+	var records []networkRecord
+	if err := c.store.With(ctx, func(idx *networkIndex) error {
+		records = idx.byVMID(vmID)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("read network index: %w", err)
+	}
+
+	// Nothing to clean — VM had no network or was already cleaned.
+	if len(records) == 0 {
+		return nil
+	}
+
+	nsPath := c.conf.CNINetnsPath(vmID)
+
+	// CNI DEL for each NIC — releases IPs from IPAM and removes veth pairs.
+	// Best-effort: log failures but continue. Netns deletion cleans up
+	// devices anyway; CNI DEL is primarily for IPAM bookkeeping.
+	if c.cniConf != nil && c.networkConfList != nil {
+		for _, rec := range records {
+			rt := &libcni.RuntimeConf{
+				ContainerID: vmID,
+				NetNS:       nsPath,
+				IfName:      rec.IfName,
+			}
+			if err := c.cniConf.DelNetworkList(ctx, c.networkConfList, rt); err != nil {
+				logger.Warnf(ctx, "CNI DEL %s/%s: %v (continuing)", vmID, rec.IfName, err)
+			}
+		}
+	}
+
+	// Remove the named netns bind-mount. Kernel destroys the netns and all
+	// its devices (bridge, tap, veth-vm) when the last reference drops.
+	if err := os.Remove(nsPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove netns %s: %w", nsPath, err)
+	}
+
+	// Remove records from DB.
+	return c.store.Update(ctx, func(idx *networkIndex) error {
+		for id, rec := range idx.Networks {
+			if rec != nil && rec.VMID == vmID {
+				delete(idx.Networks, id)
+			}
+		}
+		return nil
+	})
 }

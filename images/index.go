@@ -15,7 +15,7 @@ import (
 
 const minHexLen = 12
 
-// Entry defines the common behavior of an image index entry.
+// Entry defines the common behavior of an image index (*entry).
 // Both OCI and cloudimg imageEntry types implement this with value receivers.
 type Entry interface {
 	EntryID() string
@@ -37,15 +37,14 @@ func (idx *Index[E]) Init() {
 	}
 }
 
-// ReferencedDigests collects all blob digest hex strings referenced by any entry.
+// ReferencedDigests collects all blob digest hex strings referenced by any (*entry).
 func ReferencedDigests[E Entry](images map[string]*E) map[string]struct{} {
 	refs := make(map[string]struct{})
 	for _, ep := range images {
 		if ep == nil {
 			continue
 		}
-		e := *ep
-		for _, hex := range e.DigestHexes() {
+		for _, hex := range (*ep).DigestHexes() {
 			refs[hex] = struct{}{}
 		}
 	}
@@ -79,8 +78,7 @@ func LookupRefs[E Entry](images map[string]*E, id string, normalizers ...func(st
 		if ep == nil {
 			continue
 		}
-		e := *ep
-		dStr := e.EntryID()
+		dStr := (*ep).EntryID()
 		dHex := strings.TrimPrefix(dStr, "sha256:")
 		if dStr == id || dHex == id {
 			refs = append(refs, ref)
@@ -119,13 +117,12 @@ func entryToImage[E Entry](entry *E, typ string, sizer func(*E) int64) *types.Im
 	if entry == nil {
 		return nil
 	}
-	e := *entry
 	return &types.Image{
-		ID:        e.EntryID(),
-		Name:      e.EntryRef(),
+		ID:        (*entry).EntryID(),
+		Name:      (*entry).EntryRef(),
 		Type:      typ,
 		Size:      sizer(entry),
-		CreatedAt: e.EntryCreatedAt(),
+		CreatedAt: (*entry).EntryCreatedAt(),
 	}
 }
 
@@ -136,13 +133,12 @@ func listImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64)
 		if ep == nil {
 			continue
 		}
-		e := *ep
 		result = append(result, &types.Image{
-			ID:        e.EntryID(),
-			Name:      e.EntryRef(),
+			ID:        (*ep).EntryID(),
+			Name:      (*ep).EntryRef(),
 			Type:      typ,
 			Size:      sizer(ep),
-			CreatedAt: e.EntryCreatedAt(),
+			CreatedAt: (*ep).EntryCreatedAt(),
 		})
 	}
 	return result
