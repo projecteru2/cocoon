@@ -92,8 +92,8 @@ func Command(h Actions) *cobra.Command {
 	debugCmd := &cobra.Command{
 		Use:   "debug [flags] IMAGE",
 		Short: "Generate cloud-hypervisor launch command (dry run)",
-		Args:    cobra.ExactArgs(1),
-		RunE:    h.Debug,
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.Debug,
 	}
 	addVMFlags(debugCmd)
 	debugCmd.Flags().Int("max-cpu", 8, "max CPUs")           //nolint:mnd

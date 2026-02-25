@@ -56,12 +56,22 @@ func ScanSubdirs(dir string) []string {
 	return names
 }
 
-// FilterUnreferenced returns the elements of candidates not present in refs.
-// Used by GC Resolve implementations to compute the deletion set.
-func FilterUnreferenced(candidates []string, refs map[string]struct{}) []string {
+// FilterUnreferenced returns the elements of candidates not present in refs
+// or any of the optional exclude sets. Used by GC Resolve to compute deletions.
+func FilterUnreferenced(candidates []string, refs map[string]struct{}, exclude ...map[string]struct{}) []string {
 	var out []string
 	for _, s := range candidates {
-		if _, ok := refs[s]; !ok {
+		if _, ok := refs[s]; ok {
+			continue
+		}
+		excluded := false
+		for _, ex := range exclude {
+			if _, ok := ex[s]; ok {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
 			out = append(out, s)
 		}
 	}

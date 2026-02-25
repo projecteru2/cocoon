@@ -32,8 +32,8 @@ func Command(h Actions) *cobra.Command {
 		&cobra.Command{
 			Use:   "rm ID [ID...]",
 			Short: "Delete locally stored image(s)",
-			Args:    cobra.MinimumNArgs(1),
-			RunE:    h.RM,
+			Args:  cobra.MinimumNArgs(1),
+			RunE:  h.RM,
 		},
 		&cobra.Command{
 			Use:   "inspect IMAGE",

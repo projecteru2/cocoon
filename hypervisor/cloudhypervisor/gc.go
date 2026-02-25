@@ -51,8 +51,12 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(snap chSnapshot, _ map[string]any) []string {
-			runOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHRunDir()), snap.vmIDs)
-			logOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHLogDir()), snap.vmIDs)
+			// "db" is a reserved system subdirectory (stores vms.json/vms.lock).
+			// When RootDir == RunDir, it lives alongside per-VM dirs and must be
+			// excluded from orphan detection.
+			reserved := map[string]struct{}{"db": {}}
+			runOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHRunDir()), snap.vmIDs, reserved)
+			logOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHLogDir()), snap.vmIDs, reserved)
 			candidates := append(append(runOrphans, logOrphans...), snap.staleCreate...)
 			seen := make(map[string]struct{}, len(candidates))
 			var result []string
