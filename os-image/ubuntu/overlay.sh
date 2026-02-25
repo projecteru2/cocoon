@@ -1,6 +1,6 @@
 #!/bin/sh
-# Filename: cocoon-boot.sh
-# Target path: /etc/initramfs-tools/scripts/cocoon
+# Filename: overlay.sh
+# Target path: /etc/initramfs-tools/scripts/cocoon-overlay
 
 . /scripts/functions
 
@@ -104,52 +104,6 @@ mountroot() {
     # The only remaining requirement is Machine-ID isolation for cloned VMs.
     rm -f "${rootmnt}/etc/machine-id" 2>/dev/null || true
     : > "${rootmnt}/etc/machine-id"
-
-    # Convert initramfs network config (/run/net-*.conf) to systemd-networkd.
-    # The kernel ip= parameter is already parsed by initramfs configure_networking
-    # into /run/net-{device}.conf files. We source them and generate .network files
-    # so systemd-networkd picks up the config after switch_root.
-    for conf_file in /run/net-*.conf; do
-        [ -f "$conf_file" ] || continue
-        # Each file defines: DEVICE, IPV4ADDR, IPV4NETMASK, IPV4GATEWAY, HOSTNAME, etc.
-        unset DEVICE IPV4ADDR IPV4NETMASK IPV4GATEWAY IPV4DNS0 IPV4DNS1 HOSTNAME
-        . "$conf_file"
-        [ -z "$DEVICE" ] || [ -z "$IPV4ADDR" ] && continue
-
-        # Convert dotted netmask to prefix length.
-        prefix=0
-        IFS=. read -r a b c d <<EOF
-${IPV4NETMASK}
-EOF
-        for octet in $a $b $c $d; do
-            case $octet in
-                255) prefix=$((prefix + 8)) ;;
-                254) prefix=$((prefix + 7)) ;;
-                252) prefix=$((prefix + 6)) ;;
-                248) prefix=$((prefix + 5)) ;;
-                240) prefix=$((prefix + 4)) ;;
-                224) prefix=$((prefix + 3)) ;;
-                192) prefix=$((prefix + 2)) ;;
-                128) prefix=$((prefix + 1)) ;;
-            esac
-        done
-
-        mkdir -p "${rootmnt}/etc/systemd/network"
-        {
-            printf "[Match]\nName=%s\n\n[Network]\nAddress=%s/%d\n" "$DEVICE" "$IPV4ADDR" "$prefix"
-            [ -n "$IPV4GATEWAY" ] && printf "Gateway=%s\n" "$IPV4GATEWAY"
-            [ -n "$IPV4DNS0" ] && printf "DNS=%s\n" "$IPV4DNS0"
-            [ -n "$IPV4DNS1" ] && printf "DNS=%s\n" "$IPV4DNS1"
-            # Fallback DNS if none provided by kernel ip= parameter.
-            [ -z "$IPV4DNS0" ] && printf "DNS=8.8.8.8\nDNS=8.8.4.4\n"
-        } > "${rootmnt}/etc/systemd/network/10-${DEVICE}.network"
-
-        # Set hostname from the first interface that provides one.
-        if [ -n "$HOSTNAME" ] && [ ! -f "${rootmnt}/etc/cocoon-hostname-set" ]; then
-            echo "$HOSTNAME" > "${rootmnt}/etc/hostname"
-            : > "${rootmnt}/etc/cocoon-hostname-set"
-        fi
-    done
 
     log_success_msg "Cocoon: stealth overlay rootfs ready"
 }
