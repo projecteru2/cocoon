@@ -29,10 +29,12 @@ var metaDataTmpl = template.Must(template.New("meta-data").Parse(
 
 var userDataTmpl = template.Must(template.New("user-data").Funcs(tmplFuncs).Parse(`#cloud-config
 {{- if .RootPassword}}
-password: '{{yamlQuote .RootPassword}}'
 chpasswd:
   expire: false
+  list:
+    - root:'{{yamlQuote .RootPassword}}'
 ssh_pwauth: true
+disable_root: false
 {{- end}}
 `))
 
