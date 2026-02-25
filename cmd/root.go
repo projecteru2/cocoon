@@ -68,6 +68,7 @@ func initConfig(ctx context.Context) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
+	conf, _ = config.EnsureDirs(conf)
 	if conf.PoolSize <= 0 {
 		conf.PoolSize = runtime.NumCPU()
 	}
@@ -75,7 +76,7 @@ func initConfig(ctx context.Context) error {
 		conf.StopTimeoutSeconds = 30 //nolint:mnd
 	}
 
-	return log.SetupLog(ctx, &conf.Log, "")
+	return log.SetupLog(ctx, conf.Log, "")
 }
 
 // Execute is the main entry point called from main.go.
