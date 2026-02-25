@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/projecteru2/core/log"
+	"github.com/vishvananda/netns"
 
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
@@ -17,6 +19,8 @@ import (
 )
 
 const socketWaitTimeout = 5 * time.Second
+
+var savedNetns netns.NsHandle //nolint:gochecknoglobals
 
 // Start launches the Cloud Hypervisor process for each VM ref.
 // Returns the IDs that were successfully started.
@@ -68,7 +72,8 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	ch.saveCmdline(id, args)
 
 	// Launch the CH process with full config.
-	pid, err := ch.launchProcess(ctx, id, socketPath, args)
+	withNetwork := len(rec.NetworkConfigs) > 0
+	pid, err := ch.launchProcess(ctx, id, socketPath, args, withNetwork)
 	if err != nil {
 		ch.markError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
@@ -109,7 +114,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 // writes the PID file, waits for the API socket to be ready, then releases
 // the process handle so CH lives as an independent OS process past the
 // lifetime of this binary.
-func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath string, args []string) (int, error) {
+func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath string, args []string, withNetwork bool) (int, error) {
 	logFile, err := os.Create(ch.conf.CHVMProcessLog(vmID)) //nolint:gosec
 	if err != nil {
 		log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "create process log: %v", err)
@@ -125,8 +130,18 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 		cmd.Stderr = logFile
 	}
 
-	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("exec cloud-hypervisor: %w", err)
+	// If the VM has network, CH must be launched inside the VM's netns
+	// so it can access the tap device. We setns before fork and restore after.
+	if withNetwork {
+		if enterErr := enterNetns(ch.conf.CNINetnsPath(vmID)); enterErr != nil {
+			return 0, fmt.Errorf("enter netns: %w", enterErr)
+		}
+		// Deferred restore happens after cmd.Start() forks the child.
+		defer exitNetns()
+	}
+
+	if startErr := cmd.Start(); startErr != nil {
+		return 0, fmt.Errorf("exec cloud-hypervisor: %w", startErr)
 	}
 	pid := cmd.Process.Pid
 
@@ -160,4 +175,41 @@ func waitForSocket(ctx context.Context, socketPath string, pid int) error {
 		}
 		return false, nil
 	})
+}
+
+// enterNetns locks the OS thread, saves the current netns, and switches
+// to the target netns. The forked child process inherits the new netns.
+// Call exitNetns (via defer) after cmd.Start() to restore.
+func enterNetns(nsPath string) error {
+	runtime.LockOSThread()
+
+	orig, err := netns.Get()
+	if err != nil {
+		runtime.UnlockOSThread()
+		return fmt.Errorf("get current netns: %w", err)
+	}
+	savedNetns = orig
+
+	target, err := netns.GetFromPath(nsPath)
+	if err != nil {
+		_ = orig.Close()
+		runtime.UnlockOSThread()
+		return fmt.Errorf("open netns %s: %w", nsPath, err)
+	}
+	defer target.Close() //nolint:errcheck
+
+	if err := netns.Set(target); err != nil {
+		_ = orig.Close()
+		runtime.UnlockOSThread()
+		return fmt.Errorf("setns %s: %w", nsPath, err)
+	}
+	return nil
+}
+
+// exitNetns restores the original netns and unlocks the OS thread.
+func exitNetns() {
+	_ = netns.Set(savedNetns)
+	_ = savedNetns.Close()
+	savedNetns = -1
+	runtime.UnlockOSThread()
 }
