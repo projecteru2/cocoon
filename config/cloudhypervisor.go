@@ -50,8 +50,8 @@ func (c *Config) CHVMPIDFile(vmID string) string { return filepath.Join(c.CHVMRu
 
 func (c *Config) chLogDir() string              { return filepath.Join(c.LogDir, "cloudhypervisor") }
 func (c *Config) CHVMLogDir(vmID string) string { return filepath.Join(c.chLogDir(), vmID) }
-func (c *Config) CHVMSerialLog(vmID string) string {
-	return filepath.Join(c.CHVMLogDir(vmID), "serial.log")
+func (c *Config) CHVMConsoleSock(vmID string) string {
+	return filepath.Join(c.CHVMRunDir(vmID), "console.sock")
 }
 
 func (c *Config) CHVMProcessLog(vmID string) string {

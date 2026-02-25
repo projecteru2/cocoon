@@ -22,24 +22,25 @@ const (
 // or at session start), matching SSH client behavior.
 type escapeState int
 
-// Relay runs bidirectional I/O between the user terminal and the PTY.
-// It returns nil on clean disconnect (escape sequence, EOF, or VM shutdown EIO).
-func Relay(ctx context.Context, pty *os.File, escapeChar byte) error {
+// Relay runs bidirectional I/O between the user terminal and the remote.
+// rw can be a PTY (*os.File) or a Unix socket (net.Conn) — any io.ReadWriter.
+// Returns nil on clean disconnect (escape sequence, EOF, or EIO).
+func Relay(ctx context.Context, rw io.ReadWriter, escapeChar byte) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	errCh := make(chan error, 2) //nolint:mnd
 
-	// PTY → stdout (guest output to user).
+	// remote → stdout (guest output to user).
 	go func() {
-		_, err := io.Copy(os.Stdout, pty)
+		_, err := io.Copy(os.Stdout, rw)
 		errCh <- err
 		cancel()
 	}()
 
-	// stdin → PTY (user input to guest), with escape detection.
+	// stdin → remote (user input to guest), with escape detection.
 	go func() {
-		err := relayStdinToPTY(ctx, os.Stdin, pty, escapeChar)
+		err := relayStdinToPTY(ctx, os.Stdin, rw, escapeChar)
 		errCh <- err
 		cancel()
 	}()

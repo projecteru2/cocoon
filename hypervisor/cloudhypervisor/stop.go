@@ -2,11 +2,13 @@ package cloudhypervisor
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"time"
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
@@ -39,32 +41,30 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 		return err
 	}
 
-	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-	// Fast path: no running process — clean up and mark stopped.
-	if !ch.verifyVMProcess(pid, id) {
-		ch.cleanupRuntimeFiles(id)
-		return ch.updateState(ctx, id, types.VMStateStopped)
-	}
-
 	socketPath := ch.conf.CHVMSocketPath(id)
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
 
-	var shutdownErr error
-	if isDirectBoot(rec.BootConfig) {
-		shutdownErr = ch.forceTerminate(ctx, id, socketPath, pid)
-	} else {
-		shutdownErr = ch.shutdownUEFI(ctx, id, socketPath, pid, stopTimeout)
-	}
+	shutdownErr := ch.withRunningVM(id, func(pid int) error {
+		if isDirectBoot(rec.BootConfig) {
+			return ch.forceTerminate(ctx, id, socketPath, pid)
+		}
+		return ch.shutdownUEFI(ctx, id, socketPath, pid, stopTimeout)
+	})
 
-	if shutdownErr != nil {
+	switch {
+	case errors.Is(shutdownErr, hypervisor.ErrNotRunning):
+		// Fast path: no running process — clean up and mark stopped.
+		ch.cleanupRuntimeFiles(id)
+		return ch.updateState(ctx, id, types.VMStateStopped)
+	case shutdownErr != nil:
 		// Stop failed — do NOT clean runtime files; the process may still be
 		// running and we need socket/PID to control it later.
 		ch.markError(ctx, id)
 		return shutdownErr
+	default:
+		ch.cleanupRuntimeFiles(id)
+		return ch.updateState(ctx, id, types.VMStateStopped)
 	}
-
-	ch.cleanupRuntimeFiles(id)
-	return ch.updateState(ctx, id, types.VMStateStopped)
 }
 
 // shutdownUEFI shuts down a UEFI-boot VM:

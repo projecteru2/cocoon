@@ -11,7 +11,7 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
-func buildVMConfig(rec *hypervisor.VMRecord, serialLogPath string) *chVMConfig {
+func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {
 	cpu := rec.Config.CPU
 	mem := rec.Config.Memory
 
@@ -27,15 +27,11 @@ func buildVMConfig(rec *hypervisor.VMRecord, serialLogPath string) *chVMConfig {
 		Watchdog: true,
 	}
 
-	// OCI (direct boot): kernel cmdline has console=hvc0, so console=pty works.
-	//   serial → log file, console → pty (hvc0)
-	// cloudimg (UEFI): guest outputs to ttyS0 by default.
-	//   serial → pty (ttyS0), console → off
 	if isDirectBoot(rec.BootConfig) {
-		cfg.Serial = chSerial{Mode: "File", File: serialLogPath}
-		cfg.Console = chConsole{Mode: "Pty"}
+		cfg.Serial = chSerial{Mode: "Off"}
+		cfg.Console = chConsole{Mode: "Socket", Socket: consoleSockPath}
 	} else {
-		cfg.Serial = chSerial{Mode: "Pty"}
+		cfg.Serial = chSerial{Mode: "Socket", Socket: consoleSockPath}
 		cfg.Console = chConsole{Mode: "Off"}
 	}
 
@@ -142,7 +138,7 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	}
 
 	args = append(args, "--serial", serialToCLIArg(cfg.Serial))
-	args = append(args, "--console", strings.ToLower(cfg.Console.Mode))
+	args = append(args, "--console", consoleToCLIArg(cfg.Console))
 
 	return args
 }
@@ -191,9 +187,22 @@ func serialToCLIArg(s chSerial) string {
 	switch strings.ToLower(s.Mode) {
 	case "file":
 		return "file=" + s.File
+	case "socket":
+		return "socket=" + s.Socket
 	case "tty":
 		return "tty"
 	default:
-		return strings.ToLower(s.Mode)
+		return strings.ToLower(s.Mode) // "off", "null", "pty"
+	}
+}
+
+func consoleToCLIArg(c chConsole) string {
+	switch strings.ToLower(c.Mode) {
+	case "file":
+		return "file=" + c.File
+	case "socket":
+		return "socket=" + c.Socket
+	default:
+		return strings.ToLower(c.Mode) // "off", "pty", "tty"
 	}
 }

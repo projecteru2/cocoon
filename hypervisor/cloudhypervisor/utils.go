@@ -23,10 +23,12 @@ func (ch *CloudHypervisor) loadRecord(ctx context.Context, id string) (hyperviso
 	})
 }
 
-// verifyVMProcess checks that pid belongs to this specific VM's cloud-hypervisor
-// process by matching the --api-socket path in /proc/{pid}/cmdline.
-func (ch *CloudHypervisor) verifyVMProcess(pid int, vmID string) bool {
-	return utils.VerifyProcessCmdline(pid, filepath.Base(ch.conf.CHBinary), ch.conf.CHVMSocketPath(vmID))
+func (ch *CloudHypervisor) withRunningVM(id string, fn func(pid int) error) error {
+	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
+	if !utils.VerifyProcessCmdline(pid, filepath.Base(ch.conf.CHBinary), ch.conf.CHVMSocketPath(id)) {
+		return hypervisor.ErrNotRunning
+	}
+	return fn(pid)
 }
 
 func (ch *CloudHypervisor) enrichRuntime(info *types.VMInfo) {
@@ -66,6 +68,7 @@ func (ch *CloudHypervisor) cleanupRuntimeFiles(vmID string) {
 	_ = os.Remove(ch.conf.CHVMSocketPath(vmID))
 	_ = os.Remove(ch.conf.CHVMPIDFile(vmID))
 	_ = os.Remove(ch.conf.CHVMCmdlineFile(vmID))
+	_ = os.Remove(ch.conf.CHVMConsoleSock(vmID))
 }
 
 func (ch *CloudHypervisor) removeVMDirs(_ context.Context, vmID string) error {

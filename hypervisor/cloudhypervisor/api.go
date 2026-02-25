@@ -59,13 +59,15 @@ type chRNG struct {
 }
 
 type chSerial struct {
-	Mode string `json:"mode"`
-	File string `json:"file,omitempty"`
+	Mode   string `json:"mode"`
+	File   string `json:"file,omitempty"`
+	Socket string `json:"socket,omitempty"`
 }
 
 type chConsole struct {
-	Mode string `json:"mode"`
-	File string `json:"file,omitempty"`
+	Mode   string `json:"mode"`
+	File   string `json:"file,omitempty"`
+	Socket string `json:"socket,omitempty"`
 }
 
 // chVMInfoResponse is the JSON shape returned by GET /api/v1/vm.info.
