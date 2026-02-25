@@ -57,6 +57,13 @@ var rootCmd = func() *cobra.Command {
 	return cmd
 }()
 
+// Execute is the main entry point called from main.go.
+func Execute() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	return rootCmd.ExecuteContext(ctx)
+}
+
 func initConfig(ctx context.Context) error {
 	conf = config.DefaultConfig()
 
@@ -82,11 +89,4 @@ func initConfig(ctx context.Context) error {
 	}
 
 	return log.SetupLog(ctx, conf.Log, "")
-}
-
-// Execute is the main entry point called from main.go.
-func Execute() error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-	return rootCmd.ExecuteContext(ctx)
 }

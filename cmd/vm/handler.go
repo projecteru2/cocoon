@@ -27,54 +27,6 @@ type Handler struct {
 	cmdcore.BaseHandler
 }
 
-// initHyper is the shared init for methods that only need the hypervisor.
-func (h Handler) initHyper(cmd *cobra.Command) (context.Context, hypervisor.Hypervisor, error) {
-	ctx, conf, err := h.Init(cmd)
-	if err != nil {
-		return nil, nil, err
-	}
-	hyper, err := cmdcore.InitHypervisor(conf)
-	if err != nil {
-		return nil, nil, err
-	}
-	return ctx, hyper, nil
-}
-
-// createResult holds the output of createVM for Create/Run to consume.
-type createResult struct {
-	*types.VMInfo
-	hyper hypervisor.Hypervisor
-}
-
-// createVM is the shared logic for Create and Run: resolve image, create VM.
-func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *createResult, error) {
-	ctx, conf, err := h.Init(cmd)
-	if err != nil {
-		return nil, nil, err
-	}
-	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, image)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	storageConfigs, bootCfg, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	cmdcore.EnsureFirmwarePath(conf, bootCfg)
-
-	info, err := hyper.Create(ctx, vmCfg, storageConfigs, bootCfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create VM: %w", err)
-	}
-	return ctx, &createResult{VMInfo: info, hyper: hyper}, nil
-}
-
 func (h Handler) Create(cmd *cobra.Command, args []string) error {
 	ctx, info, err := h.createVM(cmd, args[0])
 	if err != nil {
@@ -279,6 +231,54 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		printRunCloudimg(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB)
 	}
 	return nil
+}
+
+// initHyper is the shared init for methods that only need the hypervisor.
+func (h Handler) initHyper(cmd *cobra.Command) (context.Context, hypervisor.Hypervisor, error) {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+	hyper, err := cmdcore.InitHypervisor(conf)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ctx, hyper, nil
+}
+
+// createResult holds the output of createVM for Create/Run to consume.
+type createResult struct {
+	*types.VMInfo
+	hyper hypervisor.Hypervisor
+}
+
+// createVM is the shared logic for Create and Run: resolve image, create VM.
+func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *createResult, error) {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, image)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	storageConfigs, bootCfg, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	cmdcore.EnsureFirmwarePath(conf, bootCfg)
+
+	info, err := hyper.Create(ctx, vmCfg, storageConfigs, bootCfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create VM: %w", err)
+	}
+	return ctx, &createResult{VMInfo: info, hyper: hyper}, nil
 }
 
 func batchVMCmd(ctx context.Context, name, pastTense string, fn func(context.Context, []string) ([]string, error), refs []string) error {

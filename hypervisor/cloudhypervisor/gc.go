@@ -86,6 +86,11 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 	}
 }
 
+// RegisterGC registers the Cloud Hypervisor GC module with the given Orchestrator.
+func (ch *CloudHypervisor) RegisterGC(orch *gc.Orchestrator) {
+	gc.Register(orch, ch.GCModule())
+}
+
 // cleanStalePlaceholders removes selected DB records stuck in stale "creating"
 // state. IDs not found (or no longer stale) are skipped.
 func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context, ids []string) error {
@@ -111,9 +116,4 @@ func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context, ids []strin
 		}
 		return nil
 	})
-}
-
-// RegisterGC registers the Cloud Hypervisor GC module with the given Orchestrator.
-func (ch *CloudHypervisor) RegisterGC(orch *gc.Orchestrator) {
-	gc.Register(orch, ch.GCModule())
 }

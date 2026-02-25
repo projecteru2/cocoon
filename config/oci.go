@@ -16,9 +16,6 @@ func (c *Config) EnsureOCIDirs() error {
 	)
 }
 
-// Derived path helpers. All OCI data lives under {RootDir}/oci/.
-
-func (c *Config) ociDir() string         { return filepath.Join(c.RootDir, "oci") }
 func (c *Config) OCIDBDir() string       { return filepath.Join(c.ociDir(), "db") }
 func (c *Config) OCITempDir() string     { return filepath.Join(c.ociDir(), "temp") }
 func (c *Config) OCIBlobsDir() string    { return filepath.Join(c.ociDir(), "blobs") }
@@ -41,3 +38,5 @@ func (c *Config) KernelPath(layerDigestHex string) string {
 func (c *Config) InitrdPath(layerDigestHex string) string {
 	return filepath.Join(c.BootDir(layerDigestHex), "initrd.img")
 }
+
+func (c *Config) ociDir() string { return filepath.Join(c.RootDir, "oci") }

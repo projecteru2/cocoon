@@ -15,13 +15,6 @@ type Actions interface {
 	Debug(cmd *cobra.Command, args []string) error
 }
 
-func addVMFlags(cmd *cobra.Command) {
-	cmd.Flags().String("name", "", "VM name")
-	cmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
-	cmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd
-	cmd.Flags().String("storage", "10G", "COW disk size") //nolint:mnd
-}
-
 // Command builds the "vm" parent command with all subcommands.
 func Command(h Actions) *cobra.Command {
 	vmCmd := &cobra.Command{
@@ -113,4 +106,11 @@ func Command(h Actions) *cobra.Command {
 		debugCmd,
 	)
 	return vmCmd
+}
+
+func addVMFlags(cmd *cobra.Command) {
+	cmd.Flags().String("name", "", "VM name")
+	cmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
+	cmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd
+	cmd.Flags().String("storage", "10G", "COW disk size") //nolint:mnd
 }

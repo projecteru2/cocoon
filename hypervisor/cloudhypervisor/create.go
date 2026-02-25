@@ -3,9 +3,9 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -103,11 +103,10 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 // Returns the updated StorageConfig slice.
 func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
 	cowPath := ch.conf.CHVMCOWRawPath(vmID)
-	sizeBytes := fmt.Sprintf("%d", vmCfg.Storage)
 
-	// truncate -s <size> cow.raw
-	if out, err := exec.CommandContext(ctx, "truncate", "-s", sizeBytes, cowPath).CombinedOutput(); err != nil { //nolint:gosec
-		return nil, fmt.Errorf("truncate COW: %s: %w", strings.TrimSpace(string(out)), err)
+	// Create sparse COW file (equivalent to truncate -s <size>).
+	if err := os.Truncate(cowPath, vmCfg.Storage); err != nil {
+		return nil, fmt.Errorf("truncate COW: %w", err)
 	}
 	// mkfs.ext4
 	if out, err := exec.CommandContext(ctx, //nolint:gosec
@@ -166,19 +165,6 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		Path: overlayPath,
 		RO:   false,
 	}}, nil
-}
-
-// ReverseLayerSerials extracts read-only layer serial names from StorageConfigs
-// and returns them in reverse order (top layer first for overlayfs lowerdir).
-func ReverseLayerSerials(sc []*types.StorageConfig) []string {
-	var serials []string
-	for _, s := range sc {
-		if s.RO {
-			serials = append(serials, s.Serial)
-		}
-	}
-	slices.Reverse(serials)
-	return serials
 }
 
 // extractBlobIDs extracts digest hexes from the original image StorageConfigs

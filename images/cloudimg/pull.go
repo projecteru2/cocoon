@@ -34,6 +34,29 @@ const (
 	progressInterval = 1 << 20
 )
 
+// progressWriter wraps an io.Writer and periodically emits download progress events.
+type progressWriter struct {
+	w          io.Writer
+	written    int64
+	total      int64
+	tracker    progress.Tracker
+	lastReport int64
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	pw.written += int64(n)
+	if pw.written-pw.lastReport >= progressInterval {
+		pw.lastReport = pw.written
+		pw.tracker.OnEvent(cloudimgProgress.Event{
+			Phase:      cloudimgProgress.PhaseDownload,
+			BytesTotal: pw.total,
+			BytesDone:  pw.written,
+		})
+	}
+	return n, err
+}
+
 func pull(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], url string, tracker progress.Tracker) error {
 	logger := log.WithFunc("cloudimg.pull")
 
@@ -230,27 +253,4 @@ func detectImageFormat(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("unsupported source format %q (expected qcow2 or raw)", info.Format)
 	}
 	return info.Format, nil
-}
-
-// progressWriter wraps an io.Writer and periodically emits download progress events.
-type progressWriter struct {
-	w          io.Writer
-	written    int64
-	total      int64
-	tracker    progress.Tracker
-	lastReport int64
-}
-
-func (pw *progressWriter) Write(p []byte) (int, error) {
-	n, err := pw.w.Write(p)
-	pw.written += int64(n)
-	if pw.written-pw.lastReport >= progressInterval {
-		pw.lastReport = pw.written
-		pw.tracker.OnEvent(cloudimgProgress.Event{
-			Phase:      cloudimgProgress.PhaseDownload,
-			BytesTotal: pw.total,
-			BytesDone:  pw.written,
-		})
-	}
-	return n, err
 }
