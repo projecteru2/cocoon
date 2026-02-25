@@ -32,7 +32,7 @@ type Config struct {
 	// Defaults to runtime.NumCPU() if zero.
 	PoolSize int `json:"pool_size" mapstructure:"pool_size"`
 	// Log configuration, uses eru core's ServerLogConfig.
-	Log coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
+	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -44,7 +44,7 @@ func DefaultConfig() *Config {
 		CHBinary:           "cloud-hypervisor",
 		StopTimeoutSeconds: 30,
 		PoolSize:           runtime.NumCPU(),
-		Log: coretypes.ServerLogConfig{
+		Log: &coretypes.ServerLogConfig{
 			Level:      "info",
 			MaxSize:    500,
 			MaxAge:     28,
@@ -77,6 +77,23 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if conf.StopTimeoutSeconds <= 0 {
 		conf.StopTimeoutSeconds = 30 //nolint:mnd
+	}
+	return EnsureDirs(conf)
+}
+
+func EnsureDirs(conf *Config) (*Config, error) {
+	defaults := DefaultConfig()
+	if conf.RootDir == "" {
+		conf.RootDir = defaults.RootDir
+	}
+	if conf.RunDir == "" {
+		conf.RunDir = defaults.RunDir
+	}
+	if conf.LogDir == "" {
+		conf.LogDir = defaults.LogDir
+	}
+	if conf.CHBinary == "" {
+		conf.CHBinary = defaults.CHBinary
 	}
 	return conf, nil
 }
