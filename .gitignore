@@ -47,3 +47,4 @@ TODO*
 
 tmp/*
 .cache/*
+.tmp/*

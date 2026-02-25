@@ -134,6 +134,9 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 	for _, b := range backends {
 		img, err := b.Inspect(ctx, ref)
 		if err != nil {
+			return fmt.Errorf("inspect %s: %w", b.Type(), err)
+		}
+		if img == nil {
 			continue
 		}
 		enc := json.NewEncoder(os.Stdout)
