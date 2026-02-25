@@ -83,6 +83,12 @@ func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, vmID, socketPath st
 		return nil
 	}
 
+	// Distinguish user cancellation from timeout. Ctrl-C means "abort the
+	// stop operation", not "escalate to force-kill".
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Guest did not power off in time — escalate.
 	log.WithFunc("cloudhypervisor.shutdownUEFI").Warnf(ctx, "VM %s did not respond to power-button within %s, escalating", vmID, timeout)
 	return ch.forceTerminate(ctx, vmID, socketPath, pid)

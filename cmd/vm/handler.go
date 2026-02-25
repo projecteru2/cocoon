@@ -163,6 +163,12 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("console connection does not support writing")
 	}
 
+	// Propagate terminal resize to PTY-backed consoles (direct boot / OCI).
+	if f, ok := conn.(*os.File); ok {
+		cleanup := console.HandleSIGWINCH(os.Stdin, f)
+		defer cleanup()
+	}
+
 	if err := console.Relay(ctx, rw, escapeChar); err != nil {
 		return fmt.Errorf("relay: %w", err)
 	}
