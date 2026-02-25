@@ -32,7 +32,7 @@ var userDataTmpl = template.Must(template.New("user-data").Funcs(tmplFuncs).Pars
 chpasswd:
   expire: false
   list:
-    - root:'{{yamlQuote .RootPassword}}'
+    - 'root:{{yamlQuote .RootPassword}}'
 ssh_pwauth: true
 disable_root: false
 {{- end}}
