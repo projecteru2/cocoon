@@ -10,13 +10,13 @@ type chVMConfig struct {
 	Balloon *chBalloon `json:"balloon,omitempty"`
 
 	// Required — value (always present).
-	CPUs     chCPUs    `json:"cpus"`
-	Memory   chMemory  `json:"memory"`
-	Disks    []chDisk  `json:"disks,omitempty"`
-	RNG      chRNG     `json:"rng"`
-	Watchdog bool      `json:"watchdog"`
-	Serial   chSerial  `json:"serial"`
-	Console  chConsole `json:"console"`
+	CPUs     chCPUs        `json:"cpus"`
+	Memory   chMemory      `json:"memory"`
+	Disks    []chDisk      `json:"disks,omitempty"`
+	RNG      chRNG         `json:"rng"`
+	Watchdog bool          `json:"watchdog"`
+	Serial   chRuntimeFile `json:"serial"`
+	Console  chRuntimeFile `json:"console"`
 }
 
 type chPayload struct {
@@ -58,14 +58,15 @@ type chRNG struct {
 	Src string `json:"src"`
 }
 
-type chSerial struct {
+type chRuntimeFile struct {
 	Mode   string `json:"mode"`
 	File   string `json:"file,omitempty"`
 	Socket string `json:"socket,omitempty"`
 }
 
-type chConsole struct {
-	Mode   string `json:"mode"`
-	File   string `json:"file,omitempty"`
-	Socket string `json:"socket,omitempty"`
+type chVMInfoResponse struct {
+	Config struct {
+		Serial  chRuntimeFile `json:"serial"`
+		Console chRuntimeFile `json:"console"`
+	} `json:"config"`
 }

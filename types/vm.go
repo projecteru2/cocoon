@@ -30,8 +30,9 @@ type VMInfo struct {
 	Config VMConfig `json:"config"`
 
 	// Runtime — populated only while State == VMStateRunning.
-	PID        int    `json:"pid,omitempty"`
-	SocketPath string `json:"socket_path,omitempty"` // CH API Unix socket
+	PID         int    `json:"pid,omitempty"`
+	SocketPath  string `json:"socket_path,omitempty"`  // CH API Unix socket
+	ConsolePath string `json:"console_path,omitempty"` // console output endpoint (socket or PTY)
 
 	// Timestamps.
 	CreatedAt time.Time  `json:"created_at"`

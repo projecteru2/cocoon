@@ -28,11 +28,11 @@ func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig
 	}
 
 	if isDirectBoot(rec.BootConfig) {
-		cfg.Serial = chSerial{Mode: "Off"}
-		cfg.Console = chConsole{Mode: "Socket", Socket: consoleSockPath}
+		cfg.Serial = chRuntimeFile{Mode: "Off"}
+		cfg.Console = chRuntimeFile{Mode: "Pty"}
 	} else {
-		cfg.Serial = chSerial{Mode: "Socket", Socket: consoleSockPath}
-		cfg.Console = chConsole{Mode: "Off"}
+		cfg.Serial = chRuntimeFile{Mode: "Socket", Socket: consoleSockPath}
+		cfg.Console = chRuntimeFile{Mode: "Off"}
 	}
 
 	// Balloon: 25% of memory, only when memory >= 256 MiB.
@@ -137,8 +137,8 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 		args = append(args, "--balloon", balloonToCLIArg(b))
 	}
 
-	args = append(args, "--serial", serialToCLIArg(cfg.Serial))
-	args = append(args, "--console", consoleToCLIArg(cfg.Console))
+	args = append(args, "--serial", runtimeFiletoCLIArg(cfg.Serial))
+	args = append(args, "--console", runtimeFiletoCLIArg(cfg.Console))
 
 	return args
 }
@@ -183,26 +183,15 @@ func balloonToCLIArg(b *chBalloon) string {
 	return strings.Join(parts, ",")
 }
 
-func serialToCLIArg(s chSerial) string {
-	switch strings.ToLower(s.Mode) {
-	case "file":
-		return "file=" + s.File
-	case "socket":
-		return "socket=" + s.Socket
-	case "tty":
-		return "tty"
-	default:
-		return strings.ToLower(s.Mode) // "off", "null", "pty"
-	}
-}
-
-func consoleToCLIArg(c chConsole) string {
+func runtimeFiletoCLIArg(c chRuntimeFile) string {
 	switch strings.ToLower(c.Mode) {
 	case "file":
 		return "file=" + c.File
 	case "socket":
 		return "socket=" + c.Socket
+	case "tty":
+		return "tty"
 	default:
-		return strings.ToLower(c.Mode) // "off", "pty", "tty"
+		return strings.ToLower(c.Mode) // "off", "null", "pty"
 	}
 }
