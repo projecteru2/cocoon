@@ -8,8 +8,8 @@ Lightweight VM manager built on Cloud Hypervisor.
 - **OCI VM images** -- pull OCI images with kernel + rootfs layers, content-addressed blob cache with SHA-256 deduplication
 - **Cloud image support** -- pull from HTTP/HTTPS URLs, automatic qcow2 conversion
 - **COW overlays** -- copy-on-write disks backed by shared base images (raw for OCI, qcow2 for cloud images)
-- **Interactive console** -- `cocoon console` for bidirectional PTY access to running VMs, SSH-style escape sequences
-- **Docker-like CLI** -- `cocoon create`, `cocoon start`, `cocoon stop`, `cocoon ps`, `cocoon rm`
+- **Interactive console** -- `cocoon vm console` for bidirectional PTY access to running VMs, SSH-style escape sequences
+- **Docker-like CLI** -- `cocoon vm create`, `cocoon vm start`, `cocoon vm stop`, `cocoon vm list`, `cocoon vm rm`
 - **Zero-daemon architecture** -- one Cloud Hypervisor process per VM, no long-running daemon
 - **Garbage collection** -- automatic tracking and lock-safe GC of unreferenced images, orphaned overlays, and expired temp entries
 
@@ -44,48 +44,55 @@ This produces a `cocoon` binary in the project root. Use `make install` to insta
 
 ```bash
 # Pull an OCI VM image
-cocoon pull ubuntu:24.04
+cocoon image pull ubuntu:24.04
 
 # Or pull a cloud image from URL
-cocoon pull https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img
+cocoon image pull https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img
 
 # List cached images
-cocoon list
+cocoon image list
 
-# Create a VM
-cocoon create --name my-vm --cpu 2 --memory 1G --storage 10G ubuntu:24.04
+# Create and start a VM in one step
+cocoon vm run --name my-vm --cpu 2 --memory 1G ubuntu:24.04
 
-# Start the VM
-cocoon start my-vm
+# Or create then start separately
+cocoon vm create --name my-vm ubuntu:24.04
+cocoon vm start my-vm
 
 # Attach interactive console
-cocoon console my-vm
+cocoon vm console my-vm
 
 # List running VMs
-cocoon ps
+cocoon vm list
 
 # Stop and delete
-cocoon stop my-vm
-cocoon rm my-vm
+cocoon vm stop my-vm
+cocoon vm rm my-vm
 ```
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `cocoon pull IMAGE` | Pull OCI image(s) or cloud image URL(s) |
-| `cocoon list` | List cached images (alias: `ls`) |
-| `cocoon delete ID` | Delete cached image(s) |
-| `cocoon run IMAGE` | Generate cloud-hypervisor launch command (dry run) |
-| `cocoon gc` | Run garbage collection on unreferenced resources |
-| `cocoon create IMAGE` | Create a VM from an image |
-| `cocoon start VM` | Start a stopped VM |
-| `cocoon stop VM` | Stop a running VM (graceful ACPI shutdown) |
-| `cocoon ps` | List VMs with status |
-| `cocoon inspect VM` | Display detailed VM information as JSON |
-| `cocoon console VM` | Attach an interactive console to a running VM |
-| `cocoon rm VM` | Delete VM(s) (`--force` to stop running VMs first) |
-| `cocoon version` | Show version, git revision, and build timestamp |
+```
+cocoon
+├── image
+│   ├── pull IMAGE [IMAGE...]      Pull OCI image(s) or cloud image URL(s)
+│   ├── list (alias: ls)           List locally stored images
+│   ├── rm ID [ID...]              Delete locally stored image(s)
+│   └── inspect IMAGE              Show detailed image info (JSON)
+├── vm
+│   ├── create [flags] IMAGE       Create a VM from an image
+│   ├── run [flags] IMAGE          Create and start a VM from an image
+│   ├── start VM [VM...]           Start created/stopped VM(s)
+│   ├── stop VM [VM...]            Stop running VM(s)
+│   ├── list (alias: ls)           List VMs with status
+│   ├── inspect VM                 Show detailed VM info (JSON)
+│   ├── console VM                 Attach interactive console to a running VM
+│   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop running VMs first)
+│   └── debug [flags] IMAGE        Generate cloud-hypervisor launch command (dry run)
+├── gc                             Remove unreferenced blobs, boot files, and VM dirs
+├── version                        Show version, git revision, and build timestamp
+└── completion [bash|zsh|fish|powershell]   Generate shell completion script
+```
 
 ## Global Flags
 
@@ -96,7 +103,9 @@ cocoon rm my-vm
 | `--run-dir` | `COCOON_RUN_DIR` | `/var/run/cocoon` | Runtime directory for sockets and PIDs |
 | `--log-dir` | `COCOON_LOG_DIR` | `/var/log/cocoon` | Log directory for VM serial logs |
 
-## Create Flags
+## VM Flags
+
+Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -104,6 +113,19 @@ cocoon rm my-vm
 | `--cpu` | `2` | Boot CPUs |
 | `--memory` | `1G` | Memory size (e.g., 512M, 2G) |
 | `--storage` | `10G` | COW disk size (e.g., 10G, 20G) |
+
+## Shell Completion
+
+```bash
+# Bash
+cocoon completion bash > /etc/bash_completion.d/cocoon
+
+# Zsh
+cocoon completion zsh > "${fpath[1]}/_cocoon"
+
+# Fish
+cocoon completion fish > ~/.config/fish/completions/cocoon.fish
+```
 
 ## Development
 
