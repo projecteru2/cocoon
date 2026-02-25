@@ -10,9 +10,10 @@ import (
 type Network interface {
 	Type() string
 
-	Config(context.Context, []*types.VM) ([][]*types.NetworkConfig, error)
+	Config(context.Context, []*types.VMConfig) ([][]*types.NetworkConfig, error)
+	Delete(context.Context, []string) ([]string, error)
 	Inspect(context.Context, string) (*types.Network, error)
-	List() ([]Network, error)
+	List() ([]*types.Network, error)
 
 	RegisterGC(*gc.Orchestrator)
 }
