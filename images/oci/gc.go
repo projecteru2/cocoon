@@ -2,7 +2,6 @@ package oci
 
 import (
 	"context"
-	"errors"
 	"os"
 
 	"github.com/projecteru2/cocoon/gc"
@@ -30,8 +29,13 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
-			snap.blobs = utils.ScanFileStems(o.conf.OCIBlobsDir(), ".erofs")
-			snap.bootDirs = utils.ScanSubdirs(o.conf.OCIBootBaseDir())
+			var err error
+			if snap.blobs, err = utils.ScanFileStems(o.conf.OCIBlobsDir(), ".erofs"); err != nil {
+				return snap, err
+			}
+			if snap.bootDirs, err = utils.ScanSubdirs(o.conf.OCIBootBaseDir()); err != nil {
+				return snap, err
+			}
 			return snap, nil
 		},
 		Resolve: func(snap ociSnapshot, others map[string]any) []string {
@@ -54,17 +58,10 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			return result
 		},
 		Collect: func(ctx context.Context, ids []string) error {
-			var errs []error
-			errs = append(errs, images.GCStaleTemp(ctx, o.conf.OCITempDir(), true)...)
-			for _, hex := range ids {
-				if err := os.Remove(o.conf.BlobPath(hex)); err != nil && !os.IsNotExist(err) {
-					errs = append(errs, err)
-				}
-				if err := os.RemoveAll(o.conf.BootDir(hex)); err != nil && !os.IsNotExist(err) {
-					errs = append(errs, err)
-				}
-			}
-			return errors.Join(errs...)
+			return images.GCCollectBlobs(ctx, o.conf.OCITempDir(), true, ids,
+				func(hex string) error { return os.Remove(o.conf.BlobPath(hex)) },
+				func(hex string) error { return os.RemoveAll(o.conf.BootDir(hex)) },
+			)
 		},
 	}
 }

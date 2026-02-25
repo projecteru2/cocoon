@@ -17,6 +17,8 @@ type chSnapshot struct {
 	blobIDs     map[string]struct{} // union of all VMs' ImageBlobIDs
 	vmIDs       map[string]struct{} // all VM IDs in the DB
 	staleCreate []string            // IDs in stale "creating" state (crash remnants)
+	runDirs     []string            // subdirectory names under CHRunDir
+	logDirs     []string            // subdirectory names under CHLogDir
 }
 
 func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
@@ -48,6 +50,13 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
+			var err error
+			if snap.runDirs, err = utils.ScanSubdirs(ch.conf.CHRunDir()); err != nil {
+				return snap, err
+			}
+			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.CHLogDir()); err != nil {
+				return snap, err
+			}
 			return snap, nil
 		},
 		Resolve: func(snap chSnapshot, _ map[string]any) []string {
@@ -55,8 +64,8 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			// When RootDir == RunDir, it lives alongside per-VM dirs and must be
 			// excluded from orphan detection.
 			reserved := map[string]struct{}{"db": {}}
-			runOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHRunDir()), snap.vmIDs, reserved)
-			logOrphans := utils.FilterUnreferenced(utils.ScanSubdirs(ch.conf.CHLogDir()), snap.vmIDs, reserved)
+			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
+			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
 			candidates := append(append(runOrphans, logOrphans...), snap.staleCreate...)
 			seen := make(map[string]struct{}, len(candidates))
 			var result []string

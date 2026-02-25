@@ -32,28 +32,41 @@ func ValidFile(path string) bool {
 
 // ScanFileStems returns the name-without-suffix of every file in dir whose
 // name ends with suffix. Used by GC to enumerate on-disk blobs.
-func ScanFileStems(dir, suffix string) []string {
-	entries, _ := os.ReadDir(dir)
-	var stems []string
-	for _, e := range entries {
+func ScanFileStems(dir, suffix string) ([]string, error) {
+	return scanDir(dir, func(e os.DirEntry) (string, bool) {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
-			stems = append(stems, strings.TrimSuffix(e.Name(), suffix))
+			return strings.TrimSuffix(e.Name(), suffix), true
 		}
-	}
-	return stems
+		return "", false
+	})
 }
 
 // ScanSubdirs returns the names of all immediate subdirectories of dir.
 // Used by GC to enumerate per-VM runtime and log directories.
-func ScanSubdirs(dir string) []string {
-	entries, _ := os.ReadDir(dir)
-	var names []string
-	for _, e := range entries {
+func ScanSubdirs(dir string) ([]string, error) {
+	return scanDir(dir, func(e os.DirEntry) (string, bool) {
 		if e.IsDir() {
-			names = append(names, e.Name())
+			return e.Name(), true
+		}
+		return "", false
+	})
+}
+
+func scanDir(dir string, fn func(os.DirEntry) (string, bool)) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scan %s: %w", dir, err)
+	}
+	var result []string
+	for _, e := range entries {
+		if name, ok := fn(e); ok {
+			result = append(result, name)
 		}
 	}
-	return names
+	return result, nil
 }
 
 // FilterUnreferenced returns the elements of candidates not present in refs

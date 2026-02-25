@@ -3,7 +3,6 @@ package cloudimg
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"golang.org/x/sync/singleflight"
 
@@ -27,6 +26,7 @@ type CloudImg struct {
 	store     storage.Store[imageIndex]
 	locker    lock.Locker
 	pullGroup singleflight.Group
+	ops       images.Ops[imageIndex, imageEntry]
 }
 
 // New creates a new cloud image backend.
@@ -38,11 +38,19 @@ func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 	log.WithFunc("cloudimg.New").Info(ctx, "cloud image backend initialized")
 
 	store, locker := images.NewStore[imageIndex](conf.CloudimgIndexFile(), conf.CloudimgIndexLock())
-	return &CloudImg{
+	c := &CloudImg{
 		conf:   conf,
 		store:  store,
 		locker: locker,
-	}, nil
+		ops: images.Ops[imageIndex, imageEntry]{
+			Store:      store,
+			Type:       typ,
+			LookupRefs: func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
+			Entries:    func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+			Sizer:      imageSizer,
+		},
+	}
+	return c, nil
 }
 
 func (c *CloudImg) Type() string { return typ }
@@ -58,28 +66,18 @@ func (c *CloudImg) Pull(ctx context.Context, url string, tracker progress.Tracke
 
 // Inspect returns the record for a single image. Returns (nil, nil) if not found.
 func (c *CloudImg) Inspect(ctx context.Context, id string) (*types.Image, error) {
-	return images.InspectEntry(ctx, c.store, id, typ,
-		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
-		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-		c.imageSizer,
-	)
+	return c.ops.Inspect(ctx, id)
 }
 
 // List returns all locally stored cloud images.
 func (c *CloudImg) List(ctx context.Context) ([]*types.Image, error) {
-	return images.ListEntries(ctx, c.store, typ,
-		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-		c.imageSizer,
-	)
+	return c.ops.List(ctx)
 }
 
 // Delete removes images from the index.
 // Returns the list of actually deleted refs.
 func (c *CloudImg) Delete(ctx context.Context, ids []string) ([]string, error) {
-	return images.DeleteEntries(ctx, c.store, "cloudimg.Delete", ids,
-		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
-	)
+	return c.ops.Delete(ctx, ids)
 }
 
 // Config generates StorageConfig and BootConfig entries for the given VMs.
@@ -116,11 +114,4 @@ func (c *CloudImg) Config(ctx context.Context, vms []*types.VMConfig) (result []
 		return nil
 	})
 	return result, boot, err
-}
-
-func (c *CloudImg) imageSizer(e *imageEntry) int64 {
-	if info, err := os.Stat(c.conf.CloudimgBlobPath(e.ContentSum.Hex())); err == nil {
-		return info.Size()
-	}
-	return 0
 }

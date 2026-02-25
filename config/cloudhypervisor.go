@@ -11,8 +11,8 @@ import (
 func (c *Config) EnsureCHDirs() error {
 	return utils.EnsureDirs(
 		c.chDBDir(),
-		c.chRunDir(),
-		c.chLogDir(),
+		c.CHRunDir(),
+		c.CHLogDir(),
 	)
 }
 
@@ -26,17 +26,17 @@ func (c *Config) EnsureCHVMDirs(vmID string) error {
 }
 
 // CHRunDir returns the top-level CH runtime directory (for GC orphan scanning).
-func (c *Config) CHRunDir() string { return c.chRunDir() }
+func (c *Config) CHRunDir() string { return filepath.Join(c.RunDir, "cloudhypervisor") }
 
 // CHLogDir returns the top-level CH log directory (for GC orphan scanning).
-func (c *Config) CHLogDir() string { return c.chLogDir() }
+func (c *Config) CHLogDir() string { return filepath.Join(c.LogDir, "cloudhypervisor") }
 
 // CHIndexFile and CHIndexLock are the VM index store paths.
 func (c *Config) CHIndexFile() string { return filepath.Join(c.chDBDir(), "vms.json") }
 func (c *Config) CHIndexLock() string { return filepath.Join(c.chDBDir(), "vms.lock") }
 
 func (c *Config) CHVMRunDir(vmID string) string {
-	return filepath.Join(c.chRunDir(), vmID)
+	return filepath.Join(c.CHRunDir(), vmID)
 }
 
 func (c *Config) CHVMSocketPath(vmID string) string {
@@ -44,7 +44,7 @@ func (c *Config) CHVMSocketPath(vmID string) string {
 }
 func (c *Config) CHVMPIDFile(vmID string) string { return filepath.Join(c.CHVMRunDir(vmID), "ch.pid") }
 
-func (c *Config) CHVMLogDir(vmID string) string { return filepath.Join(c.chLogDir(), vmID) }
+func (c *Config) CHVMLogDir(vmID string) string { return filepath.Join(c.CHLogDir(), vmID) }
 func (c *Config) CHVMConsoleSock(vmID string) string {
 	return filepath.Join(c.CHVMRunDir(vmID), "console.sock")
 }
@@ -73,7 +73,5 @@ func (c *Config) FirmwarePath() string {
 	return filepath.Join(c.RootDir, "firmware", "CLOUDHV.fd")
 }
 
-func (c *Config) chDir() string    { return filepath.Join(c.RootDir, "cloudhypervisor") }
-func (c *Config) chDBDir() string  { return filepath.Join(c.chDir(), "db") }
-func (c *Config) chRunDir() string { return filepath.Join(c.RunDir, "cloudhypervisor") }
-func (c *Config) chLogDir() string { return filepath.Join(c.LogDir, "cloudhypervisor") }
+func (c *Config) chDir() string   { return filepath.Join(c.RootDir, "cloudhypervisor") }
+func (c *Config) chDBDir() string { return filepath.Join(c.chDir(), "db") }

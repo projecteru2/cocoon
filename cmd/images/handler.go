@@ -20,6 +20,9 @@ import (
 	"github.com/projecteru2/cocoon/types"
 )
 
+// digestDisplayLen = len("sha256:") + 12 hex digits for compact display.
+const digestDisplayLen = 19
+
 type Handler struct {
 	cmdcore.BaseHandler
 }
@@ -74,8 +77,8 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	_, _ = fmt.Fprintln(w, "TYPE\tNAME\tDIGEST\tSIZE\tCREATED")
 	for _, img := range all {
 		digest := img.ID
-		if len(digest) > 19 {
-			digest = digest[:19]
+		if len(digest) > digestDisplayLen {
+			digest = digest[:digestDisplayLen]
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			img.Type,
