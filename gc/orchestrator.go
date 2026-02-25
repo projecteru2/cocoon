@@ -44,8 +44,13 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	var skipped []string
 	for _, m := range o.modules {
 		ok, err := m.getLocker().TryLock(ctx)
-		if err != nil || !ok {
-			logger.Warnf(ctx, "skip %s: lock busy", m.getName())
+		if err != nil {
+			logger.Warnf(ctx, "skip %s: TryLock error: %v", m.getName(), err)
+			skipped = append(skipped, m.getName())
+			continue
+		}
+		if !ok {
+			logger.Warnf(ctx, "skip %s: lock held by another operation", m.getName())
 			skipped = append(skipped, m.getName())
 			continue
 		}

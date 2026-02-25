@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/projecteru2/cocoon/config"
@@ -61,11 +62,13 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.CHLogDir()); err != nil {
 				return snap, err
 			}
-			// Scan named netns: entries in /var/run/netns/ that match VM IDs.
-			// These are bind-mount files (not dirs), so use ScanEntries.
+			// Scan named netns with the cocoon- prefix only.
+			// Other tools (docker, containerd) may have their own entries.
 			if entries, readErr := os.ReadDir(config.NetnsPath); readErr == nil {
 				for _, e := range entries {
-					snap.netnsNames = append(snap.netnsNames, e.Name())
+					if name, ok := strings.CutPrefix(e.Name(), config.NetnsPrefix); ok {
+						snap.netnsNames = append(snap.netnsNames, name)
+					}
 				}
 			}
 			return snap, nil
