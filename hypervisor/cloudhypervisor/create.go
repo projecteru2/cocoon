@@ -148,9 +148,9 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 		cmdline.WriteString(" net.ifnames=0")
 		for i, n := range networkConfigs {
 			if n.Network != nil {
-				fmt.Fprintf(&cmdline, " ip=%s::%s:%s::eth%d:off",
+				fmt.Fprintf(&cmdline, " ip=%s::%s:%s:%s:eth%d:off",
 					n.Network.IP, n.Network.Gateway,
-					net.IP(n.Network.Netmask), i)
+					net.IP(n.Network.Netmask), vmCfg.Name, i)
 			}
 		}
 	}
