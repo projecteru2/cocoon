@@ -2,6 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,13 +36,20 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	// Idempotent: skip if the VM process is already running regardless of
 	// recorded state — prevents double-launch after a state-update failure.
-	if runErr := ch.withRunningVM(id, func(_ int) error {
+	runErr := ch.withRunningVM(id, func(_ int) error {
 		if rec.State != types.VMStateRunning {
 			return ch.updateState(ctx, id, types.VMStateRunning)
 		}
 		return nil
-	}); runErr == nil {
+	})
+	switch {
+	case runErr == nil:
 		return nil // already running
+	case errors.Is(runErr, hypervisor.ErrNotRunning):
+		// expected — proceed to launch
+	default:
+		// VM is running but state update failed — do not re-launch.
+		return fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}
 
 	// Ensure per-VM runtime and log directories.
@@ -68,7 +76,11 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	var consolePath string
 	if isDirectBoot(rec.BootConfig) {
-		consolePath, _ = queryConsolePTY(ctx, socketPath)
+		var ptyErr error
+		consolePath, ptyErr = queryConsolePTY(ctx, socketPath)
+		if ptyErr != nil {
+			log.WithFunc("cloudhypervisor.startOne").Warnf(ctx, "query console PTY for %s: %v", id, ptyErr)
+		}
 	} else {
 		consolePath = ch.conf.CHVMConsoleSock(id)
 	}

@@ -164,7 +164,7 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := console.Relay(ctx, rw, escapeChar); err != nil {
-		fmt.Fprintf(os.Stderr, "\r\nrelay error: %v\r\n", err)
+		return fmt.Errorf("relay: %w", err)
 	}
 	return nil
 }
@@ -355,6 +355,9 @@ func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vm
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)
 }
 
+// printCommonCHArgs outputs CH args for manual debugging.
+// --serial tty outputs to the current terminal for interactive debugging,
+// which intentionally differs from the automated path (Console: Pty / Serial: Socket).
 func printCommonCHArgs(cpu, maxCPU, memory, balloon int) {
 	fmt.Printf("  --cpus boot=%d,max=%d \\\n", cpu, maxCPU)
 	fmt.Printf("  --memory size=%dM \\\n", memory)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/signal"
 	"runtime"
@@ -70,7 +71,13 @@ func initConfig(ctx context.Context) error {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	}
-	_ = viper.ReadInConfig() // optional; missing file is OK
+	if err := viper.ReadInConfig(); err != nil {
+		// No config file is OK; a corrupt/unreadable one is not.
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return fmt.Errorf("read config: %w", err)
+		}
+	}
 
 	if err := viper.Unmarshal(conf); err != nil {
 		return fmt.Errorf("parse config: %w", err)
