@@ -45,6 +45,9 @@ var rootCmd = func() *cobra.Command {
 
 	viper.SetEnvPrefix("COCOON")
 	viper.AutomaticEnv()
+	// Explicitly bind keys that have no flag so AutomaticEnv picks up
+	// their COCOON_* environment variables during Unmarshal.
+	_ = viper.BindEnv("default_root_password")
 
 	confProvider := func() *config.Config { return conf }
 	base := cmdcore.BaseHandler{ConfProvider: confProvider}
