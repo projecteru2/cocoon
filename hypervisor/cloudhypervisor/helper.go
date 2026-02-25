@@ -17,9 +17,9 @@ import (
 
 // ReverseLayerSerials extracts read-only layer serial names from StorageConfigs
 // and returns them in reverse order (top layer first for overlayfs lowerdir).
-func ReverseLayerSerials(sc []*types.StorageConfig) []string {
+func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 	var serials []string
-	for _, s := range sc {
+	for _, s := range storageConfigs {
 		if s.RO {
 			serials = append(serials, s.Serial)
 		}

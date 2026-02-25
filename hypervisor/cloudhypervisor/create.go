@@ -58,18 +58,18 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	}
 
 	var (
-		sc       []*types.StorageConfig
-		bootCopy *types.BootConfig
-		err      error
+		preparedStorage []*types.StorageConfig
+		bootCopy        *types.BootConfig
+		err             error
 	)
 	if bootCfg != nil {
 		b := *bootCfg
 		bootCopy = &b
 	}
 	if bootCopy != nil && bootCopy.KernelPath != "" {
-		sc, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, networkConfigs, bootCopy)
+		preparedStorage, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, networkConfigs, bootCopy)
 	} else {
-		sc, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs, networkConfigs)
+		preparedStorage, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs, networkConfigs)
 	}
 	if err != nil {
 		_ = ch.removeVMDirs(ctx, id)
@@ -84,7 +84,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	}
 	rec := hypervisor.VMRecord{
 		VM:             info,
-		StorageConfigs: sc,
+		StorageConfigs: preparedStorage,
 		NetworkConfigs: networkConfigs,
 		BootConfig:     bootCopy,
 		ImageBlobIDs:   blobIDs,
@@ -104,7 +104,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 // prepareOCI creates a raw COW disk, appends the COW StorageConfig, and builds
 // the kernel cmdline with layer/cow serial mappings.
 // Returns the updated StorageConfig slice.
-func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, nc []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
+func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
 	cowPath := ch.conf.CHVMCOWRawPath(vmID)
 
 	// Create sparse COW file (equivalent to truncate -s <size>).
@@ -121,7 +121,7 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	}
 
 	// Append COW StorageConfig.
-	sc = append(sc, &types.StorageConfig{
+	storageConfigs = append(storageConfigs, &types.StorageConfig{
 		Path:   cowPath,
 		RO:     false,
 		Serial: CowSerial,
@@ -131,14 +131,14 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	var cmdline strings.Builder
 	fmt.Fprintf(&cmdline,
 		"console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
-		strings.Join(ReverseLayerSerials(sc), ","), CowSerial,
+		strings.Join(ReverseLayerSerials(storageConfigs), ","), CowSerial,
 	)
 
 	// Append static IP configuration for each network interface.
 	// Format: ip=<client-IP>:<server>:<gw-IP>:<netmask>:<hostname>:<device>:<autoconf>
-	if len(nc) > 0 {
+	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
-		for _, n := range nc {
+		for _, n := range networkConfigs {
 			if n.Network != nil {
 				fmt.Fprintf(&cmdline, " ip=%s::%s:%s::%s:off",
 					n.Network.IP, n.Network.Gateway,
@@ -148,16 +148,16 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	}
 	boot.Cmdline = cmdline.String()
 
-	return sc, nil
+	return storageConfigs, nil
 }
 
 // prepareCloudimg creates a qcow2 COW overlay backed by the base image blob.
 // Returns the updated StorageConfig slice (replaced with the overlay).
-func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, nc []*types.NetworkConfig) ([]*types.StorageConfig, error) {
-	if len(sc) == 0 {
+func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig) ([]*types.StorageConfig, error) {
+	if len(storageConfigs) == 0 {
 		return nil, fmt.Errorf("cloudimg: no base image StorageConfig")
 	}
-	basePath := sc[0].Path
+	basePath := storageConfigs[0].Path
 	overlayPath := ch.conf.CHVMOverlayPath(vmID)
 
 	// qemu-img create -f qcow2 -F qcow2 -b <base> <overlay>
@@ -184,7 +184,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		Hostname:     vmCfg.Name,
 		RootPassword: ch.conf.DefaultRootPassword,
 	}
-	for _, n := range nc {
+	for _, n := range networkConfigs {
 		if n.Network != nil {
 			ones, _ := n.Network.Netmask.Size()
 			metaCfg.Networks = append(metaCfg.Networks, metadata.NetworkInfo{
@@ -219,11 +219,11 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 
 // extractBlobIDs extracts digest hexes from the original image StorageConfigs
 // and BootConfig paths. Must be called before prepare transforms them.
-func extractBlobIDs(sc []*types.StorageConfig, boot *types.BootConfig) map[string]struct{} {
+func extractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfig) map[string]struct{} {
 	ids := make(map[string]struct{})
 	if boot != nil && boot.KernelPath != "" {
 		// OCI: erofs layer blobs + boot dir hexes.
-		for _, s := range sc {
+		for _, s := range storageConfigs {
 			if s.RO {
 				ids[blobHexFromPath(s.Path)] = struct{}{}
 			}
@@ -233,9 +233,9 @@ func extractBlobIDs(sc []*types.StorageConfig, boot *types.BootConfig) map[strin
 		if boot.InitrdPath != "" {
 			ids[filepath.Base(filepath.Dir(boot.InitrdPath))] = struct{}{}
 		}
-	} else if len(sc) > 0 {
+	} else if len(storageConfigs) > 0 {
 		// Cloudimg: base qcow2 blob hex (before overlay replaces it).
-		ids[blobHexFromPath(sc[0].Path)] = struct{}{}
+		ids[blobHexFromPath(storageConfigs[0].Path)] = struct{}{}
 	}
 	return ids
 }

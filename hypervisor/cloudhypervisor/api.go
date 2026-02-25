@@ -25,6 +25,10 @@ type chNet struct {
 	Mac       string `json:"mac,omitempty"`
 	NumQueues int64  `json:"num_queues,omitempty"`
 	QueueSize int64  `json:"queue_size,omitempty"`
+
+	OffloadTSO  bool `json:"offload_tso,omitempty"`
+	OffloadUFO  bool `json:"offload_ufo,omitempty"`
+	OffloadCsum bool `json:"offload_csum,omitempty"`
 }
 
 type chPayload struct {
