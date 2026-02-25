@@ -17,92 +17,84 @@ import (
 	"golang.org/x/term"
 
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/console"
+	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
 	"github.com/projecteru2/cocoon/types"
 )
 
 type Handler struct {
-	ConfProvider func() *config.Config
+	cmdcore.BaseHandler
 }
 
-func (h Handler) conf() (*config.Config, error) {
-	if h.ConfProvider == nil {
-		return nil, fmt.Errorf("config provider is nil")
-	}
-	conf := h.ConfProvider()
-	if conf == nil {
-		return nil, fmt.Errorf("config not initialized")
-	}
-	return conf, nil
-}
-
-func (h Handler) Create(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
+// initHyper is the shared init for methods that only need the hypervisor.
+func (h Handler) initHyper(cmd *cobra.Command) (context.Context, hypervisor.Hypervisor, error) {
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	ctx := cmdcore.CommandContext(cmd)
+	hyper, err := cmdcore.InitHypervisor(conf)
+	if err != nil {
+		return nil, nil, err
+	}
+	return ctx, hyper, nil
+}
+
+// createResult holds the output of createVM for Create/Run to consume.
+type createResult struct {
+	*types.VMInfo
+	hyper hypervisor.Hypervisor
+}
+
+// createVM is the shared logic for Create and Run: resolve image, create VM.
+func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *createResult, error) {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
 	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	image := args[0]
 
 	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, image)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	storageConfigs, bootCfg, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	cmdcore.EnsureFirmwarePath(conf, bootCfg)
 
 	info, err := hyper.Create(ctx, vmCfg, storageConfigs, bootCfg)
 	if err != nil {
-		return fmt.Errorf("create VM: %w", err)
+		return nil, nil, fmt.Errorf("create VM: %w", err)
 	}
+	return ctx, &createResult{VMInfo: info, hyper: hyper}, nil
+}
 
+func (h Handler) Create(cmd *cobra.Command, args []string) error {
+	ctx, info, err := h.createVM(cmd, args[0])
+	if err != nil {
+		return err
+	}
 	logger := log.WithFunc("cmd.create")
 	logger.Infof(ctx, "VM created: %s (name: %s, state: %s)", info.ID, info.Config.Name, info.State)
-	logger.Infof(ctx, "start with: cocoon start %s", info.ID)
+	logger.Infof(ctx, "start with: cocoon vm start %s", info.ID)
 	return nil
 }
 
 func (h Handler) Run(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
+	ctx, info, err := h.createVM(cmd, args[0])
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
 	logger := log.WithFunc("cmd.run")
-	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
-	if err != nil {
-		return err
-	}
-	image := args[0]
-
-	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, image)
-	if err != nil {
-		return err
-	}
-
-	storageConfigs, bootCfg, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
-	if err != nil {
-		return err
-	}
-	cmdcore.EnsureFirmwarePath(conf, bootCfg)
-
-	info, err := hyper.Create(ctx, vmCfg, storageConfigs, bootCfg)
-	if err != nil {
-		return fmt.Errorf("create VM: %w", err)
-	}
 	logger.Infof(ctx, "VM created: %s (name: %s)", info.ID, info.Config.Name)
 
-	started, err := hyper.Start(ctx, []string{info.ID})
+	started, err := info.hyper.Start(ctx, []string{info.ID})
 	if err != nil {
 		return fmt.Errorf("start VM %s: %w", info.ID, err)
 	}
@@ -113,12 +105,7 @@ func (h Handler) Run(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) Start(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
-	if err != nil {
-		return err
-	}
-	ctx := cmdcore.CommandContext(cmd)
-	hyper, err := cmdcore.InitHypervisor(conf)
+	ctx, hyper, err := h.initHyper(cmd)
 	if err != nil {
 		return err
 	}
@@ -126,32 +113,22 @@ func (h Handler) Start(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) Stop(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
-	if err != nil {
-		return err
-	}
-	ctx := cmdcore.CommandContext(cmd)
-	hyper, err := cmdcore.InitHypervisor(conf)
+	ctx, hyper, err := h.initHyper(cmd)
 	if err != nil {
 		return err
 	}
 	return batchVMCmd(ctx, "stop", "stopped", hyper.Stop, args)
 }
 
-func (h Handler) PS(cmd *cobra.Command, _ []string) error {
-	conf, err := h.conf()
-	if err != nil {
-		return err
-	}
-	ctx := cmdcore.CommandContext(cmd)
-	hyper, err := cmdcore.InitHypervisor(conf)
+func (h Handler) List(cmd *cobra.Command, _ []string) error {
+	ctx, hyper, err := h.initHyper(cmd)
 	if err != nil {
 		return err
 	}
 
 	vms, err := hyper.List(ctx)
 	if err != nil {
-		return fmt.Errorf("ps: %w", err)
+		return fmt.Errorf("list: %w", err)
 	}
 	if len(vms) == 0 {
 		fmt.Println("No VMs found.")
@@ -179,12 +156,7 @@ func (h Handler) PS(cmd *cobra.Command, _ []string) error {
 }
 
 func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
-	if err != nil {
-		return err
-	}
-	ctx := cmdcore.CommandContext(cmd)
-	hyper, err := cmdcore.InitHypervisor(conf)
+	ctx, hyper, err := h.initHyper(cmd)
 	if err != nil {
 		return err
 	}
@@ -195,17 +167,11 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(info)
-	return nil
+	return enc.Encode(info)
 }
 
 func (h Handler) Console(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
-	if err != nil {
-		return err
-	}
-	ctx := cmdcore.CommandContext(cmd)
-	hyper, err := cmdcore.InitHypervisor(conf)
+	ctx, hyper, err := h.initHyper(cmd)
 	if err != nil {
 		return err
 	}
@@ -251,17 +217,15 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// RM deletes VMs. hyper.Delete uses best-effort semantics: it logs successfully
+// deleted VMs in the returned slice even when later deletions fail, so we always
+// report the partial results before checking the error.
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
+	ctx, hyper, err := h.initHyper(cmd)
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
 	logger := log.WithFunc("cmd.rm")
-	hyper, err := cmdcore.InitHypervisor(conf)
-	if err != nil {
-		return err
-	}
 
 	force, _ := cmd.Flags().GetBool("force")
 
@@ -278,47 +242,41 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (h Handler) DryRun(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
+func (h Handler) Debug(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
 	backends, _, _, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err
 	}
-	image := args[0]
 
-	vmName, _ := cmd.Flags().GetString("name")
-	cpu, _ := cmd.Flags().GetInt("cpu")
+	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, args[0])
+	if err != nil {
+		return err
+	}
+
 	maxCPU, _ := cmd.Flags().GetInt("max-cpu")
-	memory, _ := cmd.Flags().GetInt("memory")
 	balloon, _ := cmd.Flags().GetInt("balloon")
-	cowSize, _ := cmd.Flags().GetInt("storage")
 	cowPath, _ := cmd.Flags().GetString("cow")
 	chBin, _ := cmd.Flags().GetString("ch")
-
-	vmCfg := &types.VMConfig{
-		Name:   vmName,
-		CPU:    cpu,
-		Memory: int64(memory) << 20, //nolint:mnd
-		Image:  image,
-	}
 
 	storageConfigs, boot, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
 	if err != nil {
 		return err
 	}
 
+	memoryMB := int(vmCfg.Memory >> 20)   //nolint:mnd
+	cowSizeGB := int(vmCfg.Storage >> 30) //nolint:mnd
 	if balloon == 0 {
-		balloon = memory / 2
+		balloon = memoryMB / 2 //nolint:mnd
 	}
 
 	if boot.KernelPath != "" {
-		printRunOCI(storageConfigs, boot, vmName, image, cowPath, chBin, cpu, maxCPU, memory, balloon, cowSize)
+		printRunOCI(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB)
 	} else {
-		printRunCloudimg(storageConfigs, boot, vmName, image, cowPath, chBin, cpu, maxCPU, memory, balloon, cowSize)
+		printRunCloudimg(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB)
 	}
 	return nil
 }

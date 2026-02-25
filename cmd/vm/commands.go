@@ -2,31 +2,40 @@ package vm
 
 import "github.com/spf13/cobra"
 
-// Handler organizes VM lifecycle subcommands by hypervisor interface semantics.
+// Actions defines VM lifecycle operations.
 type Actions interface {
 	Create(cmd *cobra.Command, args []string) error
 	Run(cmd *cobra.Command, args []string) error
 	Start(cmd *cobra.Command, args []string) error
 	Stop(cmd *cobra.Command, args []string) error
-	PS(cmd *cobra.Command, args []string) error
+	List(cmd *cobra.Command, args []string) error
 	Inspect(cmd *cobra.Command, args []string) error
 	Console(cmd *cobra.Command, args []string) error
 	RM(cmd *cobra.Command, args []string) error
-	DryRun(cmd *cobra.Command, args []string) error
+	Debug(cmd *cobra.Command, args []string) error
 }
 
-// Commands builds VM/hypervisor command set.
-func Commands(h Actions) []*cobra.Command {
+func addVMFlags(cmd *cobra.Command) {
+	cmd.Flags().String("name", "", "VM name")
+	cmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
+	cmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd
+	cmd.Flags().String("storage", "10G", "COW disk size") //nolint:mnd
+}
+
+// Command builds the "vm" parent command with all subcommands.
+func Command(h Actions) *cobra.Command {
+	vmCmd := &cobra.Command{
+		Use:   "vm",
+		Short: "Manage virtual machines",
+	}
+
 	createCmd := &cobra.Command{
 		Use:   "create [flags] IMAGE",
 		Short: "Create a VM from an image",
 		Args:  cobra.ExactArgs(1),
 		RunE:  h.Create,
 	}
-	createCmd.Flags().String("name", "", "VM name")
-	createCmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
-	createCmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd
-	createCmd.Flags().String("storage", "10G", "COW disk size") //nolint:mnd
+	addVMFlags(createCmd)
 
 	runCmd := &cobra.Command{
 		Use:   "run [flags] IMAGE",
@@ -34,10 +43,7 @@ func Commands(h Actions) []*cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  h.Run,
 	}
-	runCmd.Flags().String("name", "", "VM name")
-	runCmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
-	runCmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd
-	runCmd.Flags().String("storage", "10G", "COW disk size") //nolint:mnd
+	addVMFlags(runCmd)
 
 	startCmd := &cobra.Command{
 		Use:   "start VM [VM...]",
@@ -53,10 +59,11 @@ func Commands(h Actions) []*cobra.Command {
 		RunE:  h.Stop,
 	}
 
-	psCmd := &cobra.Command{
-		Use:   "ps",
-		Short: "List VMs with status",
-		RunE:  h.PS,
+	listCmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List VMs with status",
+		RunE:    h.List,
 	}
 
 	inspectCmd := &cobra.Command{
@@ -82,30 +89,28 @@ func Commands(h Actions) []*cobra.Command {
 	}
 	rmCmd.Flags().Bool("force", false, "force delete running VMs")
 
-	dryrunCmd := &cobra.Command{
-		Use:   "dryrun [flags] IMAGE",
+	debugCmd := &cobra.Command{
+		Use:   "debug [flags] IMAGE",
 		Short: "Generate cloud-hypervisor launch command (dry run)",
-		Args:  cobra.ExactArgs(1),
-		RunE:  h.DryRun,
+		Args:    cobra.ExactArgs(1),
+		RunE:    h.Debug,
 	}
-	dryrunCmd.Flags().String("name", "cocoon-vm", "VM name")
-	dryrunCmd.Flags().Int("cpu", 2, "boot CPUs")              //nolint:mnd
-	dryrunCmd.Flags().Int("max-cpu", 8, "max CPUs")           //nolint:mnd
-	dryrunCmd.Flags().Int("memory", 1024, "memory in MB")     //nolint:mnd
-	dryrunCmd.Flags().Int("balloon", 0, "balloon size in MB") //nolint:mnd
-	dryrunCmd.Flags().Int("storage", 10, "COW disk size in GB")
-	dryrunCmd.Flags().String("cow", "", "COW disk path")
-	dryrunCmd.Flags().String("ch", "cloud-hypervisor", "cloud-hypervisor binary path")
+	addVMFlags(debugCmd)
+	debugCmd.Flags().Int("max-cpu", 8, "max CPUs")           //nolint:mnd
+	debugCmd.Flags().Int("balloon", 0, "balloon size in MB") //nolint:mnd
+	debugCmd.Flags().String("cow", "", "COW disk path")
+	debugCmd.Flags().String("ch", "cloud-hypervisor", "cloud-hypervisor binary path")
 
-	return []*cobra.Command{
-		dryrunCmd,
-		runCmd,
+	vmCmd.AddCommand(
 		createCmd,
+		runCmd,
 		startCmd,
 		stopCmd,
-		psCmd,
+		listCmd,
 		inspectCmd,
 		consoleCmd,
 		rmCmd,
-	}
+		debugCmd,
+	)
+	return vmCmd
 }

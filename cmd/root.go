@@ -3,12 +3,15 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	cmdcore "github.com/projecteru2/cocoon/cmd/core"
 	cmdimages "github.com/projecteru2/cocoon/cmd/images"
 	cmdothers "github.com/projecteru2/cocoon/cmd/others"
 	cmdvm "github.com/projecteru2/cocoon/cmd/vm"
@@ -22,10 +25,11 @@ var (
 
 var rootCmd = func() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "cocoon",
-		Short: "Cocoon - MicroVM Engine",
+		Use:          "cocoon",
+		Short:        "Cocoon - MicroVM Engine",
+		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			return initConfig(commandContext(cmd))
+			return initConfig(cmdcore.CommandContext(cmd))
 		},
 	}
 
@@ -42,14 +46,11 @@ var rootCmd = func() *cobra.Command {
 	viper.AutomaticEnv()
 
 	confProvider := func() *config.Config { return conf }
+	base := cmdcore.BaseHandler{ConfProvider: confProvider}
 
-	for _, c := range cmdimages.Commands(cmdimages.Handler{ConfProvider: confProvider}) {
-		cmd.AddCommand(c)
-	}
-	for _, c := range cmdvm.Commands(cmdvm.Handler{ConfProvider: confProvider}) {
-		cmd.AddCommand(c)
-	}
-	for _, c := range cmdothers.Commands(cmdothers.Handler{ConfProvider: confProvider}) {
+	cmd.AddCommand(cmdimages.Command(cmdimages.Handler{BaseHandler: base}))
+	cmd.AddCommand(cmdvm.Command(cmdvm.Handler{BaseHandler: base}))
+	for _, c := range cmdothers.Commands(cmdothers.Handler{BaseHandler: base}) {
 		cmd.AddCommand(c)
 	}
 
@@ -68,7 +69,11 @@ func initConfig(ctx context.Context) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	conf, _ = config.EnsureDirs(conf)
+	var err error
+	conf, err = config.EnsureDirs(conf)
+	if err != nil {
+		return fmt.Errorf("ensure dirs: %w", err)
+	}
 	if conf.PoolSize <= 0 {
 		conf.PoolSize = runtime.NumCPU()
 	}
@@ -81,7 +86,7 @@ func initConfig(ctx context.Context) error {
 
 // Execute is the main entry point called from main.go.
 func Execute() error {
-	ctx, cancel := newCommandContext()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	return rootCmd.ExecuteContext(ctx)
 }

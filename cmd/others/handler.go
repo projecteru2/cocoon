@@ -7,32 +7,19 @@ import (
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/version"
 )
 
 type Handler struct {
-	ConfProvider func() *config.Config
-}
-
-func (h Handler) conf() (*config.Config, error) {
-	if h.ConfProvider == nil {
-		return nil, fmt.Errorf("config provider is nil")
-	}
-	conf := h.ConfProvider()
-	if conf == nil {
-		return nil, fmt.Errorf("config not initialized")
-	}
-	return conf, nil
+	cmdcore.BaseHandler
 }
 
 func (h Handler) GC(cmd *cobra.Command, _ []string) error {
-	conf, err := h.conf()
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
 	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
 	if err != nil {
 		return err

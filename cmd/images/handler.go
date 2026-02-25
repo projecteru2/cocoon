@@ -2,6 +2,7 @@ package images
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -11,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images/cloudimg"
 	"github.com/projecteru2/cocoon/images/oci"
 	"github.com/projecteru2/cocoon/progress"
@@ -21,26 +21,14 @@ import (
 )
 
 type Handler struct {
-	ConfProvider func() *config.Config
-}
-
-func (h Handler) conf() (*config.Config, error) {
-	if h.ConfProvider == nil {
-		return nil, fmt.Errorf("config provider is nil")
-	}
-	conf := h.ConfProvider()
-	if conf == nil {
-		return nil, fmt.Errorf("config not initialized")
-	}
-	return conf, nil
+	cmdcore.BaseHandler
 }
 
 func (h Handler) Pull(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
 	_, ociStore, cloudimgStore, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err
@@ -61,11 +49,10 @@ func (h Handler) Pull(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) List(cmd *cobra.Command, _ []string) error {
-	conf, err := h.conf()
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
 	backends, _, _, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err
@@ -102,13 +89,12 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func (h Handler) Delete(cmd *cobra.Command, args []string) error {
-	conf, err := h.conf()
+func (h Handler) RM(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
-	ctx := cmdcore.CommandContext(cmd)
-	logger := log.WithFunc("cmd.delete")
+	logger := log.WithFunc("cmd.image.rm")
 	backends, _, _, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err
@@ -129,6 +115,29 @@ func (h Handler) Delete(cmd *cobra.Command, args []string) error {
 		logger.Infof(ctx, "no matching images found")
 	}
 	return nil
+}
+
+func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	backends, _, _, err := cmdcore.InitImageBackends(ctx, conf)
+	if err != nil {
+		return err
+	}
+
+	ref := args[0]
+	for _, b := range backends {
+		img, err := b.Inspect(ctx, ref)
+		if err != nil {
+			continue
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(img)
+	}
+	return fmt.Errorf("image %q not found", ref)
 }
 
 func (h Handler) pullOCI(ctx context.Context, store *oci.OCI, image string) error {

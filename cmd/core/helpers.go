@@ -18,6 +18,32 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
+// BaseHandler provides shared config access for all command handlers.
+type BaseHandler struct {
+	ConfProvider func() *config.Config
+}
+
+// Init returns the command context and validated config in one call.
+func (h BaseHandler) Init(cmd *cobra.Command) (context.Context, *config.Config, error) {
+	conf, err := h.Conf()
+	if err != nil {
+		return nil, nil, err
+	}
+	return CommandContext(cmd), conf, nil
+}
+
+// Conf validates and returns the config. All handlers call this first.
+func (h BaseHandler) Conf() (*config.Config, error) {
+	if h.ConfProvider == nil {
+		return nil, fmt.Errorf("config provider is nil")
+	}
+	conf := h.ConfProvider()
+	if conf == nil {
+		return nil, fmt.Errorf("config not initialized")
+	}
+	return conf, nil
+}
+
 // CommandContext returns command context, falling back to Background.
 func CommandContext(cmd *cobra.Command) context.Context {
 	if cmd != nil && cmd.Context() != nil {
