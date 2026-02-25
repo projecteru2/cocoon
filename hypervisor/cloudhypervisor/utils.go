@@ -23,9 +23,13 @@ func (ch *CloudHypervisor) loadRecord(ctx context.Context, id string) (hyperviso
 	})
 }
 
+func (ch *CloudHypervisor) chBinaryName() string {
+	return filepath.Base(ch.conf.CHBinary)
+}
+
 func (ch *CloudHypervisor) withRunningVM(id string, fn func(pid int) error) error {
 	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-	if !utils.VerifyProcessCmdline(pid, filepath.Base(ch.conf.CHBinary), ch.conf.CHVMSocketPath(id)) {
+	if !utils.VerifyProcessCmdline(pid, ch.chBinaryName(), ch.conf.CHVMSocketPath(id)) {
 		return hypervisor.ErrNotRunning
 	}
 	return fn(pid)

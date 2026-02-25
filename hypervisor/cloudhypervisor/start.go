@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -87,7 +86,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		r.ConsolePath = consolePath
 		return nil
 	}); err != nil {
-		_ = utils.TerminateProcess(ctx, pid, filepath.Base(ch.conf.CHBinary), socketPath, terminateGracePeriod)
+		_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, terminateGracePeriod)
 		ch.cleanupRuntimeFiles(id)
 		return fmt.Errorf("update state: %w", err)
 	}

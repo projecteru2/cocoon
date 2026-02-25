@@ -1,9 +1,6 @@
 package config
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
 	"runtime"
 
 	coretypes "github.com/projecteru2/core/types"
@@ -51,34 +48,6 @@ func DefaultConfig() *Config {
 			MaxBackups: 3,
 		},
 	}
-}
-
-// LoadConfig loads configuration from file, falling back to defaults.
-func LoadConfig(path string) (*Config, error) {
-	conf := DefaultConfig()
-	if path == "" {
-		return conf, nil
-	}
-
-	data, err := os.ReadFile(path) //nolint:gosec // config path from CLI flag
-	if err != nil {
-		if os.IsNotExist(err) {
-			return conf, nil
-		}
-		return nil, fmt.Errorf("read config: %w", err)
-	}
-
-	if err := json.Unmarshal(data, conf); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-
-	if conf.PoolSize <= 0 {
-		conf.PoolSize = runtime.NumCPU()
-	}
-	if conf.StopTimeoutSeconds <= 0 {
-		conf.StopTimeoutSeconds = 30 //nolint:mnd
-	}
-	return EnsureDirs(conf)
 }
 
 func EnsureDirs(conf *Config) (*Config, error) {

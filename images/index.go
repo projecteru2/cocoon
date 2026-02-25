@@ -2,6 +2,7 @@ package images
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -92,10 +93,10 @@ func LookupRefs[E Entry](images map[string]*E, id string, normalizers ...func(st
 	return refs
 }
 
-// DeleteByID removes entries from the map by looking up each ID.
+// deleteByID removes entries from the map by looking up each ID.
 // lookup returns all matching ref keys (supporting digest prefix and multi-ref
 // matches), so "delete <digest>" removes every ref pointing to that digest.
-func DeleteByID[E any](ctx context.Context, logPrefix string, images map[string]*E, lookup func(string) []string, ids []string) []string {
+func deleteByID[E any](ctx context.Context, logPrefix string, images map[string]*E, lookup func(string) []string, ids []string) []string {
 	logger := log.WithFunc(logPrefix)
 	var deleted []string
 	for _, id := range ids {
@@ -113,9 +114,8 @@ func DeleteByID[E any](ctx context.Context, logPrefix string, images map[string]
 	return deleted
 }
 
-// EntryToImage converts a single index entry to *types.Image.
-// Cheaper than ListImages for single-entry lookups — no map or slice allocation.
-func EntryToImage[E Entry](entry *E, typ string, sizer func(*E) int64) *types.Image {
+// entryToImage converts a single index entry to *types.Image.
+func entryToImage[E Entry](entry *E, typ string, sizer func(*E) int64) *types.Image {
 	if entry == nil {
 		return nil
 	}
@@ -129,9 +129,8 @@ func EntryToImage[E Entry](entry *E, typ string, sizer func(*E) int64) *types.Im
 	}
 }
 
-// ListImages iterates the index and builds a list of types.Image.
-// sizer is provided by each backend to compute per-entry disk usage.
-func ListImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64) []*types.Image {
+// listImages iterates the index and builds a list of types.Image.
+func listImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64) []*types.Image {
 	var result []*types.Image
 	for _, ep := range images {
 		if ep == nil {
@@ -160,4 +159,19 @@ func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
 		info, err := e.Info()
 		return err == nil && info.ModTime().Before(cutoff)
 	})
+}
+
+// GCCollectBlobs removes temp files and blob artifacts by hex ID.
+// removers are called for each hex; os.IsNotExist errors are ignored.
+func GCCollectBlobs(ctx context.Context, tempDir string, dirOnly bool, ids []string, removers ...func(string) error) error {
+	var errs []error
+	errs = append(errs, GCStaleTemp(ctx, tempDir, dirOnly)...)
+	for _, hex := range ids {
+		for _, rm := range removers {
+			if err := rm(hex); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }

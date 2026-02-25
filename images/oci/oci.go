@@ -30,6 +30,7 @@ type OCI struct {
 	store     storage.Store[imageIndex]
 	locker    lock.Locker
 	pullGroup singleflight.Group
+	ops       images.Ops[imageIndex, imageEntry]
 }
 
 // New creates a new OCI image backend.
@@ -41,11 +42,19 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 	log.WithFunc("oci.New").Infof(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
 
 	store, locker := images.NewStore[imageIndex](conf.OCIIndexFile(), conf.OCIIndexLock())
-	return &OCI{
+	o := &OCI{
 		conf:   conf,
 		store:  store,
 		locker: locker,
-	}, nil
+		ops: images.Ops[imageIndex, imageEntry]{
+			Store:      store,
+			Type:       typ,
+			LookupRefs: func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
+			Entries:    func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
+			Sizer:      imageSizer(conf),
+		},
+	}
+	return o, nil
 }
 
 func (o *OCI) Type() string { return typ }
@@ -61,28 +70,18 @@ func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) 
 
 // Inspect returns the record for a single image. Returns (nil, nil) if not found.
 func (o *OCI) Inspect(ctx context.Context, id string) (*types.Image, error) {
-	return images.InspectEntry(ctx, o.store, id, typ,
-		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
-		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-		o.imageSizer,
-	)
+	return o.ops.Inspect(ctx, id)
 }
 
 // List returns all locally stored images.
 func (o *OCI) List(ctx context.Context) ([]*types.Image, error) {
-	return images.ListEntries(ctx, o.store, typ,
-		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-		o.imageSizer,
-	)
+	return o.ops.List(ctx)
 }
 
 // Delete removes images from the index.
 // Returns the list of actually deleted refs. Images not found are logged and skipped.
 func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
-	return images.DeleteEntries(ctx, o.store, "oci.Delete", ids,
-		func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-		func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
-	)
+	return o.ops.Delete(ctx, ids)
 }
 
 // Config generates StorageConfig and BootConfig entries for the given VMs.
@@ -131,22 +130,28 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 	return result, boot, err
 }
 
-func (o *OCI) imageSizer(e *imageEntry) int64 {
-	var total int64
-	for _, layer := range e.Layers {
-		if info, err := os.Stat(o.conf.BlobPath(layer.Digest.Hex())); err == nil {
-			total += info.Size()
+func imageSizer(conf *config.Config) func(*imageEntry) int64 {
+	return func(e *imageEntry) int64 {
+		if e.Size > 0 {
+			return e.Size
 		}
-	}
-	if e.KernelLayer != "" {
-		if info, err := os.Stat(o.conf.KernelPath(e.KernelLayer.Hex())); err == nil {
-			total += info.Size()
+		// Fallback for index entries created before Size was cached.
+		var total int64
+		for _, layer := range e.Layers {
+			if info, err := os.Stat(conf.BlobPath(layer.Digest.Hex())); err == nil {
+				total += info.Size()
+			}
 		}
-	}
-	if e.InitrdLayer != "" {
-		if info, err := os.Stat(o.conf.InitrdPath(e.InitrdLayer.Hex())); err == nil {
-			total += info.Size()
+		if e.KernelLayer != "" {
+			if info, err := os.Stat(conf.KernelPath(e.KernelLayer.Hex())); err == nil {
+				total += info.Size()
+			}
 		}
+		if e.InitrdLayer != "" {
+			if info, err := os.Stat(conf.InitrdPath(e.InitrdLayer.Hex())); err == nil {
+				total += info.Size()
+			}
+		}
+		return total
 	}
-	return total
 }

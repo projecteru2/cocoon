@@ -3,7 +3,6 @@ package cloudhypervisor
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -73,7 +72,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 //  3. Fallback: forceTerminate (vm.shutdown → SIGTERM → SIGKILL).
 func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, vmID, socketPath string, pid int, timeout time.Duration) error {
 	if err := powerButton(ctx, socketPath); err != nil {
-		log.WithFunc("cloudhypervisor.shutdownUEFI").Warnf(ctx, "power-button %s: %v — falling back", vmID, err)
+		log.WithFunc("cloudhypervisor.shutdownUEFI").Errorf(ctx, err, "power-button %s — falling back", vmID)
 		return ch.forceTerminate(ctx, vmID, socketPath, pid)
 	}
 
@@ -85,7 +84,7 @@ func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, vmID, socketPath st
 	}
 
 	// Guest did not power off in time — escalate.
-	log.WithFunc("cloudhypervisor.shutdownUEFI").Warnf(ctx, "VM %s did not respond to power-button within %s — falling back", vmID, timeout)
+	log.WithFunc("cloudhypervisor.shutdownUEFI").Warnf(ctx, "VM %s did not respond to power-button within %s, escalating", vmID, timeout)
 	return ch.forceTerminate(ctx, vmID, socketPath, pid)
 }
 
@@ -94,9 +93,9 @@ func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, vmID, socketPath st
 // cloud-hypervisor before sending signals to avoid killing a reused PID.
 func (ch *CloudHypervisor) forceTerminate(ctx context.Context, vmID, socketPath string, pid int) error {
 	if err := shutdownVM(ctx, socketPath); err != nil {
-		log.WithFunc("cloudhypervisor.forceTerminate").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)
+		log.WithFunc("cloudhypervisor.forceTerminate").Errorf(ctx, err, "vm.shutdown %s", vmID)
 	}
-	return utils.TerminateProcess(ctx, pid, filepath.Base(ch.conf.CHBinary), socketPath, terminateGracePeriod)
+	return utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, terminateGracePeriod)
 }
 
 // isDirectBoot returns true when the VM was started with a direct kernel boot

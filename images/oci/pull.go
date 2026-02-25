@@ -260,12 +260,27 @@ func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestD
 		return fmt.Errorf("initrd missing for %s (concurrent GC?)", initrdLayer)
 	}
 
+	// Compute total on-disk size of all artifacts.
+	var totalSize int64
+	for _, le := range layerEntries {
+		if info, err := os.Stat(conf.BlobPath(le.Digest.Hex())); err == nil {
+			totalSize += info.Size()
+		}
+	}
+	if info, err := os.Stat(conf.KernelPath(kernelLayer.Hex())); err == nil {
+		totalSize += info.Size()
+	}
+	if info, err := os.Stat(conf.InitrdPath(initrdLayer.Hex())); err == nil {
+		totalSize += info.Size()
+	}
+
 	idx.Images[ref] = &imageEntry{
 		Ref:            ref,
 		ManifestDigest: manifestDigest,
 		Layers:         layerEntries,
 		KernelLayer:    kernelLayer,
 		InitrdLayer:    initrdLayer,
+		Size:           totalSize,
 		CreatedAt:      time.Now().UTC(),
 	}
 	return nil
@@ -304,22 +319,7 @@ func healCachedBootFiles(ctx context.Context, conf *config.Config, layers []v1.L
 		if results[i].erofsPath != conf.BlobPath(digestHex) {
 			continue
 		}
-		healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", i))
-		if mkErr := os.MkdirAll(healDir, 0o750); mkErr != nil {
-			logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", i, mkErr)
-			continue
-		}
-		rc, rcErr := layer.Uncompressed()
-		if rcErr != nil {
-			logger.Warnf(ctx, "Layer %d: cannot open for boot scan: %v", i, rcErr)
-			continue
-		}
-		kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
-		_ = rc.Close()
-		if scanErr != nil {
-			logger.Warnf(ctx, "Layer %d: boot scan failed: %v", i, scanErr)
-			continue
-		}
+		kp, ip := recoverBootFiles(ctx, layer, workDir, i, digestHex)
 		if results[i].kernelPath == "" && kp != "" {
 			results[i].kernelPath = kp
 		}
@@ -429,8 +429,6 @@ func selfHealBootFiles(ctx context.Context, conf *config.Config, layer v1.Layer,
 		return
 	}
 
-	logger := log.WithFunc("oci.processLayer")
-
 	hasEvidence := result.kernelPath != "" || result.initrdPath != ""
 	if !hasEvidence {
 		_, statErr := os.Stat(conf.BootDir(digestHex))
@@ -443,29 +441,37 @@ func selfHealBootFiles(ctx context.Context, conf *config.Config, layer v1.Layer,
 		return
 	}
 
-	logger.Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
-	healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
-	if err := os.MkdirAll(healDir, 0o750); err != nil {
-		logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", idx, err)
-		return
-	}
-	rc, err := layer.Uncompressed()
-	if err != nil {
-		logger.Warnf(ctx, "Layer %d: cannot recover boot files: %v", idx, err)
-		return
-	}
-	kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
-	_ = rc.Close()
-	if scanErr != nil {
-		logger.Warnf(ctx, "Layer %d: boot file recovery failed: %v", idx, scanErr)
-		return
-	}
+	log.WithFunc("oci.processLayer").Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
+	kp, ip := recoverBootFiles(ctx, layer, workDir, idx, digestHex)
 	if result.kernelPath == "" {
 		result.kernelPath = kp
 	}
 	if result.initrdPath == "" {
 		result.initrdPath = ip
 	}
+}
+
+// recoverBootFiles re-extracts boot files from a layer into a heal subdirectory.
+// Returns extracted kernel and initrd paths (empty if not found or on error).
+func recoverBootFiles(ctx context.Context, layer v1.Layer, workDir string, idx int, digestHex string) (kernelPath, initrdPath string) {
+	logger := log.WithFunc("oci.recoverBootFiles")
+	healDir := filepath.Join(workDir, fmt.Sprintf("heal-%d", idx))
+	if err := os.MkdirAll(healDir, 0o750); err != nil {
+		logger.Warnf(ctx, "Layer %d: cannot create heal dir: %v", idx, err)
+		return "", ""
+	}
+	rc, err := layer.Uncompressed()
+	if err != nil {
+		logger.Warnf(ctx, "Layer %d: cannot open for boot scan: %v", idx, err)
+		return "", ""
+	}
+	kp, ip, scanErr := scanBootFiles(ctx, rc, healDir, digestHex)
+	_ = rc.Close()
+	if scanErr != nil {
+		logger.Warnf(ctx, "Layer %d: boot scan failed: %v", idx, scanErr)
+		return "", ""
+	}
+	return kp, ip
 }
 
 // scanBootFiles reads a tar stream and extracts kernel/initrd files.

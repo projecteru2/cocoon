@@ -2,7 +2,6 @@ package cloudimg
 
 import (
 	"context"
-	"errors"
 	"os"
 
 	"github.com/projecteru2/cocoon/gc"
@@ -29,7 +28,10 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			}); err != nil {
 				return snap, err
 			}
-			snap.blobs = utils.ScanFileStems(c.conf.CloudimgBlobsDir(), ".qcow2")
+			var err error
+			if snap.blobs, err = utils.ScanFileStems(c.conf.CloudimgBlobsDir(), ".qcow2"); err != nil {
+				return snap, err
+			}
 			return snap, nil
 		},
 		Resolve: func(snap cloudimgSnapshot, others map[string]any) []string {
@@ -38,14 +40,9 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			return utils.FilterUnreferenced(snap.blobs, allRefs)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
-			var errs []error
-			errs = append(errs, images.GCStaleTemp(ctx, c.conf.CloudimgTempDir(), false)...)
-			for _, hex := range ids {
-				if err := os.Remove(c.conf.CloudimgBlobPath(hex)); err != nil && !os.IsNotExist(err) {
-					errs = append(errs, err)
-				}
-			}
-			return errors.Join(errs...)
+			return images.GCCollectBlobs(ctx, c.conf.CloudimgTempDir(), false, ids,
+				func(hex string) error { return os.Remove(c.conf.CloudimgBlobPath(hex)) },
+			)
 		},
 	}
 }

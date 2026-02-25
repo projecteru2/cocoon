@@ -54,6 +54,7 @@ type imageEntry struct {
 	Layers         []layerEntry  `json:"layers"`
 	KernelLayer    images.Digest `json:"kernel_layer"` // digest of layer containing vmlinuz
 	InitrdLayer    images.Digest `json:"initrd_layer"` // digest of layer containing initrd.img
+	Size           int64         `json:"size"`         // total on-disk size of all artifacts
 	CreatedAt      time.Time     `json:"created_at"`
 }
 
