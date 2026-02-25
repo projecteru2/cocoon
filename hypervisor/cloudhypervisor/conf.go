@@ -44,8 +44,8 @@ func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig
 		}
 	}
 
-	for _, sc := range rec.StorageConfigs {
-		cfg.Disks = append(cfg.Disks, storageConfigToDisk(sc, cpu))
+	for _, storageConfig := range rec.StorageConfigs {
+		cfg.Disks = append(cfg.Disks, storageConfigToDisk(storageConfig, cpu))
 	}
 
 	for _, nc := range rec.NetworkConfigs {
@@ -70,28 +70,31 @@ func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig
 
 func networkConfigToNet(nc *types.NetworkConfig) chNet {
 	return chNet{
-		Tap:       nc.Tap,
-		Mac:       nc.Mac,
-		NumQueues: nc.Queue,
-		QueueSize: nc.QueueSize,
+		Tap:         nc.Tap,
+		Mac:         nc.Mac,
+		NumQueues:   nc.Queue,
+		QueueSize:   nc.QueueSize,
+		OffloadTSO:  true,
+		OffloadUFO:  true,
+		OffloadCsum: true,
 	}
 }
 
-func storageConfigToDisk(sc *types.StorageConfig, cpuCount int) chDisk {
+func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDisk {
 	d := chDisk{
-		Path:      sc.Path,
-		ReadOnly:  sc.RO,
-		Serial:    sc.Serial,
+		Path:      storageConfig.Path,
+		ReadOnly:  storageConfig.RO,
+		Serial:    storageConfig.Serial,
 		NumQueues: cpuCount,
 		QueueSize: 256, //nolint:mnd
 	}
 
 	switch {
-	case filepath.Ext(sc.Path) == ".qcow2":
+	case filepath.Ext(storageConfig.Path) == ".qcow2":
 		// cloudimg qcow2 overlay
 		d.ImageType = "Qcow2"
-		d.BackingFiles = !sc.RO
-	case sc.RO:
+		d.BackingFiles = !storageConfig.RO
+	case storageConfig.RO:
 		// OCI EROFS layer: readonly, direct I/O
 		d.ImageType = "Raw"
 		d.Direct = true
@@ -202,6 +205,15 @@ func netToCLIArg(n chNet) string {
 	}
 	if n.QueueSize > 0 {
 		parts = append(parts, fmt.Sprintf("queue_size=%d", n.QueueSize))
+	}
+	if n.OffloadTSO {
+		parts = append(parts, "offload_tso=on")
+	}
+	if n.OffloadUFO {
+		parts = append(parts, "offload_ufo=on")
+	}
+	if n.OffloadCsum {
+		parts = append(parts, "offload_csum=on")
 	}
 	return strings.Join(parts, ",")
 }
