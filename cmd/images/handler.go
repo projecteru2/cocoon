@@ -112,7 +112,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 		logger.Infof(ctx, "deleted: %s", ref)
 	}
 	if len(allDeleted) == 0 {
-		logger.Infof(ctx, "no matching images found")
+		logger.Info(ctx, "no matching images found")
 	}
 	return nil
 }

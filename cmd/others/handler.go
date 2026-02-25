@@ -33,7 +33,7 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 	if err := o.Run(ctx); err != nil {
 		return err
 	}
-	log.WithFunc("cmd.gc").Infof(ctx, "GC completed")
+	log.WithFunc("cmd.gc").Info(ctx, "GC completed")
 	return nil
 }
 

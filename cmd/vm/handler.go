@@ -237,7 +237,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("rm: %w", err)
 	}
 	if len(deleted) == 0 {
-		logger.Infof(ctx, "no VMs deleted")
+		logger.Info(ctx, "no VMs deleted")
 	}
 	return nil
 }
