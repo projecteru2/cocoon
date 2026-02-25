@@ -13,7 +13,7 @@ import (
 // For UEFI-boot VMs (cloudimg): connects to the serial socket (console.sock).
 // For direct-boot VMs (OCI):    opens the virtio-console PTY allocated by CH.
 //
-// The endpoint is stored in VMInfo.ConsolePath at start time.
+// The endpoint is stored in VM.ConsolePath at start time.
 // The caller is responsible for closing the returned ReadCloser.
 func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadCloser, error) {
 	info, err := ch.Inspect(ctx, ref)

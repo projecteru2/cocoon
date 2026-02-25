@@ -11,7 +11,7 @@ import (
 
 // VMRecord is the persisted record for a single VM.
 type VMRecord struct {
-	types.VMInfo
+	types.VM
 
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`    // nil for UEFI boot (cloudimg)

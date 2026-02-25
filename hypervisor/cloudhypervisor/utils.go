@@ -35,7 +35,7 @@ func (ch *CloudHypervisor) withRunningVM(id string, fn func(pid int) error) erro
 	return fn(pid)
 }
 
-func (ch *CloudHypervisor) enrichRuntime(info *types.VMInfo) {
+func (ch *CloudHypervisor) enrichRuntime(info *types.VM) {
 	info.SocketPath = ch.conf.CHVMSocketPath(info.ID)
 	info.PID, _ = utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
 }

@@ -35,30 +35,30 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 
 func (ch *CloudHypervisor) Type() string { return typ }
 
-// Inspect returns VMInfo for a single VM by ref (ID, name, or prefix).
-func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VMInfo, error) {
-	var result *types.VMInfo
+// Inspect returns VM for a single VM by ref (ID, name, or prefix).
+func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VM, error) {
+	var result *types.VM
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		id, err := hypervisor.ResolveVMRef(idx, ref)
 		if err != nil {
 			return err
 		}
-		info := idx.VMs[id].VMInfo // value copy — detached from the DB record
+		info := idx.VMs[id].VM // value copy — detached from the DB record
 		ch.enrichRuntime(&info)
 		result = &info
 		return nil
 	})
 }
 
-// List returns VMInfo for all known VMs.
-func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VMInfo, error) {
-	var result []*types.VMInfo
+// List returns VM for all known VMs.
+func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VM, error) {
+	var result []*types.VM
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		for _, rec := range idx.VMs {
 			if rec == nil {
 				continue
 			}
-			info := rec.VMInfo
+			info := rec.VM
 			ch.enrichRuntime(&info)
 			result = append(result, &info)
 		}
