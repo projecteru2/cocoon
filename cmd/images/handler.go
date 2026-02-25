@@ -169,7 +169,7 @@ func (h Handler) pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url
 			}
 		case cloudimgProgress.PhaseConvert:
 			fmt.Println()
-			logger.Infof(ctx, "converting to qcow2...")
+			logger.Info(ctx, "converting to qcow2...")
 		case cloudimgProgress.PhaseCommit:
 			logger.Info(ctx, "committing...")
 		case cloudimgProgress.PhaseDone:
