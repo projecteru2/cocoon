@@ -3,7 +3,6 @@ package cni
 import (
 	"context"
 	"fmt"
-	"net"
 
 	"github.com/containernetworking/cni/libcni"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -14,6 +13,8 @@ import (
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
+
+const defaultQueueSize = 256
 
 // Config creates the network namespace, runs CNI ADD for each NIC, sets up
 // bridge + tap inside the netns, and returns NetworkConfigs ready for CH --net.
@@ -93,7 +94,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			Tap:       tapName,
 			Mac:       mac.String(),
 			Queue:     int64(vmCfg.CPU),
-			QueueSize: 256, //nolint:mnd
+			QueueSize: defaultQueueSize,
 			Network:   netInfo,
 		})
 
@@ -131,14 +132,14 @@ func extractNetworkInfo(result cnitypes.Result, vmID string, nicIdx int) (*types
 	}
 
 	ip := newResult.IPs[0]
-	ones, bits := ip.Address.Mask.Size()
+	ones, _ := ip.Address.Mask.Size()
 
 	info := &types.Network{
-		IP:      ip.Address.IP,
-		Netmask: net.CIDRMask(ones, bits),
+		IP:     ip.Address.IP.String(),
+		Prefix: ones,
 	}
 	if ip.Gateway != nil {
-		info.Gateway = ip.Gateway
+		info.Gateway = ip.Gateway.String()
 	}
 	return info, nil
 }

@@ -39,8 +39,7 @@ func NewSocketHTTPClient(socketPath string) *http.Client {
 }
 
 // DoPUT sends a PUT request over a Unix socket. Expects 204 No Content.
-func DoPUT(ctx context.Context, socketPath, path string, body []byte) error {
-	hc := NewSocketHTTPClient(socketPath)
+func DoPUT(ctx context.Context, hc *http.Client, path string, body []byte) error {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
@@ -58,7 +57,10 @@ func DoPUT(ctx context.Context, socketPath, path string, body []byte) error {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusNoContent {
-		rb, _ := io.ReadAll(resp.Body)
+		rb, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("PUT %s → %d (read body: %w)", path, resp.StatusCode, err)
+		}
 		return &APIError{
 			Code:    resp.StatusCode,
 			Message: fmt.Sprintf("PUT %s → %d: %s", path, resp.StatusCode, rb),
@@ -68,8 +70,7 @@ func DoPUT(ctx context.Context, socketPath, path string, body []byte) error {
 }
 
 // DoGET sends a GET request over a Unix socket, returns the response body.
-func DoGET(ctx context.Context, socketPath, path string) ([]byte, error) {
-	hc := NewSocketHTTPClient(socketPath)
+func DoGET(ctx context.Context, hc *http.Client, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost"+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request %s: %w", path, err)
@@ -79,7 +80,10 @@ func DoGET(ctx context.Context, socketPath, path string) ([]byte, error) {
 		return nil, fmt.Errorf("GET %s: %w", path, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s read body: %w", path, err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, &APIError{
 			Code:    resp.StatusCode,
@@ -113,7 +117,7 @@ func DoWithRetry(ctx context.Context, fn func() error) error {
 			backoff := BaseBackoff * time.Duration(1<<i)
 			select {
 			case <-ctx.Done():
-				return lastErr
+				return ctx.Err()
 			case <-time.After(backoff):
 			}
 		}

@@ -22,10 +22,10 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	defer func() {
 		// On any error the temp file is cleaned up.
 		if err != nil {
+			_ = tmp.Close()
 			_ = os.Remove(tmpPath)
 		}
 	}()
-	defer tmp.Close() //nolint:errcheck
 
 	if _, err = tmp.Write(data); err != nil {
 		return fmt.Errorf("write temp file: %w", err)

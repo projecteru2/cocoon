@@ -84,7 +84,7 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 
 	platform := v1.Platform{
 		Architecture: runtime.GOARCH,
-		OS:           runtime.GOOS,
+		OS:           "linux",
 	}
 
 	logger.Infof(ctx, "Pulling image: %s", ref)
@@ -175,10 +175,8 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 
 	totalLayers := len(layers)
 	for i, layer := range layers {
-		layerIdx := i
-		layerRef := layer
 		g.Go(func() error {
-			return processLayer(gctx, conf, layerIdx, totalLayers, layerRef, workDir, knownBootHexes, tracker, &results[layerIdx])
+			return processLayer(gctx, conf, i, totalLayers, layer, workDir, knownBootHexes, tracker, &results[i])
 		})
 	}
 
@@ -190,6 +188,21 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 	healCachedBootFiles(ctx, conf, layers, results, workDir)
 
 	return ref, digestHex, workDir, results, nil
+}
+
+// moveBootFile renames a boot artifact (kernel or initrd) to its shared path,
+// creating the boot directory if needed. No-op if src is empty or already in place.
+func moveBootFile(src, dst, bootDir string, layerIdx int, name string) error {
+	if src == "" || src == dst {
+		return nil
+	}
+	if err := os.MkdirAll(bootDir, 0o750); err != nil {
+		return fmt.Errorf("create boot dir for layer %d: %w", layerIdx, err)
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("move layer %d %s: %w", layerIdx, name, err)
+	}
+	return nil
 }
 
 // commitAndRecord moves artifacts to shared image paths and records the image entry.
@@ -213,21 +226,11 @@ func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestD
 		}
 
 		// Move boot files to shared boot dir if not already there.
-		if r.kernelPath != "" && r.kernelPath != conf.KernelPath(layerDigestHex) {
-			if err := os.MkdirAll(conf.BootDir(layerDigestHex), 0o750); err != nil {
-				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
-			}
-			if err := os.Rename(r.kernelPath, conf.KernelPath(layerDigestHex)); err != nil {
-				return fmt.Errorf("move layer %d kernel: %w", r.index, err)
-			}
+		if err := moveBootFile(r.kernelPath, conf.KernelPath(layerDigestHex), conf.BootDir(layerDigestHex), r.index, "kernel"); err != nil {
+			return err
 		}
-		if r.initrdPath != "" && r.initrdPath != conf.InitrdPath(layerDigestHex) {
-			if err := os.MkdirAll(conf.BootDir(layerDigestHex), 0o750); err != nil {
-				return fmt.Errorf("create boot dir for layer %d: %w", r.index, err)
-			}
-			if err := os.Rename(r.initrdPath, conf.InitrdPath(layerDigestHex)); err != nil {
-				return fmt.Errorf("move layer %d initrd: %w", r.index, err)
-			}
+		if err := moveBootFile(r.initrdPath, conf.InitrdPath(layerDigestHex), conf.BootDir(layerDigestHex), r.index, "initrd"); err != nil {
+			return err
 		}
 
 		// Track which layer provides boot files (later layers win per OCI ordering).
@@ -281,7 +284,7 @@ func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestD
 		KernelLayer:    kernelLayer,
 		InitrdLayer:    initrdLayer,
 		Size:           totalSize,
-		CreatedAt:      time.Now().UTC(),
+		CreatedAt:      time.Now(),
 	}
 	return nil
 }

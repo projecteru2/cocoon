@@ -149,16 +149,12 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 		cmdline.WriteString(" net.ifnames=0")
 		dns0, dns1 := dnsFromConfig(ch.conf.DNSServers())
 		for i, n := range networkConfigs {
-			if n.Network == nil || n.Network.IP == nil {
+			if n.Network == nil || n.Network.IP == "" {
 				continue
 			}
-			gw := ""
-			if n.Network.Gateway != nil {
-				gw = n.Network.Gateway.String()
-			}
 			fmt.Fprintf(&cmdline, " ip=%s::%s:%s:%s:eth%d:off:%s:%s",
-				n.Network.IP, gw,
-				net.IP(n.Network.Netmask), vmCfg.Name, i, dns0, dns1)
+				n.Network.IP, n.Network.Gateway,
+				prefixToNetmask(n.Network.Prefix), vmCfg.Name, i, dns0, dns1)
 		}
 	}
 	boot.Cmdline = cmdline.String()
@@ -202,16 +198,15 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	}
 	// Index i matches CH --net order → guest eth{i}. See prepareOCI comment.
 	for i, n := range networkConfigs {
-		if n.Network != nil && n.Network.IP != nil {
-			ones, _ := n.Network.Netmask.Size()
+		if n.Network != nil && n.Network.IP != "" {
 			ni := metadata.NetworkInfo{
-				IP:     n.Network.IP.String(),
-				Prefix: ones,
+				IP:     n.Network.IP,
+				Prefix: n.Network.Prefix,
 				Device: fmt.Sprintf("eth%d", i),
 				Mac:    n.Mac,
 			}
-			if n.Network.Gateway != nil {
-				ni.Gateway = n.Network.Gateway.String()
+			if n.Network.Gateway != "" {
+				ni.Gateway = n.Network.Gateway
 			}
 			metaCfg.Networks = append(metaCfg.Networks, ni)
 		}
@@ -258,6 +253,12 @@ func extractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfi
 		ids[blobHexFromPath(storageConfigs[0].Path)] = struct{}{}
 	}
 	return ids
+}
+
+// prefixToNetmask converts a CIDR prefix length to a dotted-decimal netmask string.
+func prefixToNetmask(prefix int) string {
+	mask := net.CIDRMask(prefix, 32)
+	return net.IP(mask).String()
 }
 
 // dnsFromConfig returns the first two DNS servers for kernel ip= param.
