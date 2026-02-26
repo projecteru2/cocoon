@@ -17,6 +17,8 @@ case "$1" in prereqs) prereqs; exit 0 ;; esac
 # $rootmnt is set by initramfs — points to the mounted root filesystem.
 [ -z "$rootmnt" ] && exit 0
 
+_cocoon_dns_servers=""
+
 for conf_file in /run/net-*.conf; do
     [ -f "$conf_file" ] || continue
 
@@ -52,6 +54,10 @@ EOF
         [ -z "$IPV4DNS0" ] || [ "$IPV4DNS0" = "0.0.0.0" ] && printf "DNS=8.8.8.8\nDNS=8.8.4.4\n"
     } > "${rootmnt}/etc/systemd/network/10-${DEVICE}.network"
 
+    # Collect DNS servers (deduplicated later by resolv.conf write).
+    [ -n "$IPV4DNS0" ] && [ "$IPV4DNS0" != "0.0.0.0" ] && _cocoon_dns_servers="${_cocoon_dns_servers} ${IPV4DNS0}"
+    [ -n "$IPV4DNS1" ] && [ "$IPV4DNS1" != "0.0.0.0" ] && _cocoon_dns_servers="${_cocoon_dns_servers} ${IPV4DNS1}"
+
     # Set hostname from the first interface that has one.
     if [ -n "$HOSTNAME" ] && [ ! -f "${rootmnt}/etc/cocoon-hostname-set" ]; then
         echo "$HOSTNAME" > "${rootmnt}/etc/hostname"
@@ -59,7 +65,12 @@ EOF
     fi
 done
 
-# Point resolv.conf at /proc/net/pnp — the kernel writes DNS servers
-# from the ip= cmdline parameter there in resolv.conf format.
-# No ip= means /proc/net/pnp won't exist, which is fine (same as empty).
-ln -sf /proc/net/pnp "${rootmnt}/etc/resolv.conf"
+# Fallback DNS if none were provided via ip= parameters.
+[ -z "$_cocoon_dns_servers" ] && _cocoon_dns_servers="8.8.8.8 8.8.4.4"
+
+# Write /etc/resolv.conf directly.
+{
+    for dns in $_cocoon_dns_servers; do
+        printf "nameserver %s\n" "$dns"
+    done
+} > "${rootmnt}/etc/resolv.conf"
