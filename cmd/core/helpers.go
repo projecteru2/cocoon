@@ -133,7 +133,7 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 	storStr, _ := cmd.Flags().GetString("storage")
 
 	if vmName == "" {
-		vmName = fmt.Sprintf("cocoon-%s", image)
+		vmName = sanitizeVMName(image)
 	}
 
 	memBytes, err := units.RAMInBytes(memStr)
@@ -175,4 +175,17 @@ func FormatSize(bytes int64) string {
 
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// sanitizeVMName derives a safe VM name from an image reference.
+// Strips registry prefix (everything before the last '/'), replaces ':' with '-',
+// and prepends "cocoon-".
+// e.g. "ghcr.io/foo/ubuntu:24.04" → "cocoon-ubuntu-24.04"
+func sanitizeVMName(image string) string {
+	name := image
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.ReplaceAll(name, ":", "-")
+	return "cocoon-" + name
 }

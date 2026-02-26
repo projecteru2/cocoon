@@ -100,14 +100,20 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 }
 
 // resolveRefs batch-resolves refs to exact VM IDs under a single lock.
+// Duplicate refs that resolve to the same ID are silently deduplicated.
 func (ch *CloudHypervisor) resolveRefs(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	return ids, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+		seen := make(map[string]struct{}, len(refs))
 		for _, ref := range refs {
 			id, err := hypervisor.ResolveVMRef(idx, ref)
 			if err != nil {
 				return fmt.Errorf("resolve %q: %w", ref, err)
 			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
 			ids = append(ids, id)
 		}
 		return nil
