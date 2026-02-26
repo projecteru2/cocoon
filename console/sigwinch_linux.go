@@ -24,6 +24,7 @@ func HandleSIGWINCH(local *os.File, remote *os.File) func() {
 
 	return func() {
 		signal.Stop(sigCh)
+		close(sigCh)
 	}
 }
 

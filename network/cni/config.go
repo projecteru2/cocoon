@@ -36,10 +36,25 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	if err := createNetns(nsName); err != nil {
 		return nil, fmt.Errorf("create netns %s: %w", nsName, err)
 	}
+
+	// Track successfully added CNI interfaces for rollback.
+	var addedIFs []string
 	defer func() {
-		if retErr != nil {
-			_ = deleteNetns(nsName)
+		if retErr == nil {
+			return
 		}
+		// Rollback: CNI DEL for each successfully added NIC to release IPAM.
+		for _, ifn := range addedIFs {
+			rt := &libcni.RuntimeConf{
+				ContainerID: vmID,
+				NetNS:       nsPath,
+				IfName:      ifn,
+			}
+			if delErr := c.cniConf.DelNetworkList(ctx, c.networkConfList, rt); delErr != nil {
+				logger.Warnf(ctx, "rollback CNI DEL %s/%s: %v", vmID, ifn, delErr)
+			}
+		}
+		_ = deleteNetns(nsName)
 	}()
 
 	for i := range numNICs {
@@ -57,6 +72,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		if err != nil {
 			return nil, fmt.Errorf("CNI ADD %s/%s: %w", vmID, ifName, err)
 		}
+		addedIFs = append(addedIFs, ifName)
 
 		netInfo, err := extractNetworkInfo(cniResult, vmID, i)
 		if err != nil {

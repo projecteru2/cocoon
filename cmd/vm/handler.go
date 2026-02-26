@@ -193,24 +193,26 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	deleted, err := hyper.Delete(ctx, args, force)
+	deleted, deleteErr := hyper.Delete(ctx, args, force)
 	for _, id := range deleted {
 		logger.Infof(ctx, "deleted VM: %s", id)
 	}
-	if err != nil {
-		return fmt.Errorf("rm: %w", err)
-	}
-	if len(deleted) == 0 {
-		logger.Info(ctx, "no VMs deleted")
-	}
 
-	// Clean up network resources (netns, CNI) for deleted VMs.
+	// Clean up network resources for successfully deleted VMs first,
+	// even if hyper.Delete returned a partial error.
 	if len(deleted) > 0 {
 		if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
 			if _, delErr := netProvider.Delete(ctx, deleted); delErr != nil {
 				logger.Warnf(ctx, "network cleanup: %v", delErr)
 			}
 		}
+	}
+
+	if deleteErr != nil {
+		return fmt.Errorf("rm: %w", deleteErr)
+	}
+	if len(deleted) == 0 {
+		logger.Info(ctx, "no VMs deleted")
 	}
 	return nil
 }

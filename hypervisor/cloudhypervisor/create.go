@@ -147,9 +147,13 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
 		for i, n := range networkConfigs {
-			if n.Network != nil {
+			if n.Network != nil && n.Network.IP != nil {
+				gw := ""
+				if n.Network.Gateway != nil {
+					gw = n.Network.Gateway.String()
+				}
 				fmt.Fprintf(&cmdline, " ip=%s::%s:%s:%s:eth%d:off",
-					n.Network.IP, n.Network.Gateway,
+					n.Network.IP, gw,
 					net.IP(n.Network.Netmask), vmCfg.Name, i)
 			}
 		}
@@ -194,20 +198,23 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	}
 	// Index i matches CH --net order → guest eth{i}. See prepareOCI comment.
 	for i, n := range networkConfigs {
-		if n.Network != nil {
+		if n.Network != nil && n.Network.IP != nil {
 			ones, _ := n.Network.Netmask.Size()
-			metaCfg.Networks = append(metaCfg.Networks, metadata.NetworkInfo{
-				IP:      n.Network.IP.String(),
-				Prefix:  ones,
-				Gateway: n.Network.Gateway.String(),
-				Device:  fmt.Sprintf("eth%d", i),
-				Mac:     n.Mac,
-			})
+			ni := metadata.NetworkInfo{
+				IP:     n.Network.IP.String(),
+				Prefix: ones,
+				Device: fmt.Sprintf("eth%d", i),
+				Mac:    n.Mac,
+			}
+			if n.Network.Gateway != nil {
+				ni.Gateway = n.Network.Gateway.String()
+			}
+			metaCfg.Networks = append(metaCfg.Networks, ni)
 		}
 	}
 
 	cidataPath := ch.conf.CHVMCidataPath(vmID)
-	f, err := os.Create(cidataPath) //nolint:gosec
+	f, err := os.OpenFile(cidataPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("create cidata: %w", err)
 	}

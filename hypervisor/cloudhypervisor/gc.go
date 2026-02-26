@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vishvananda/netns"
+
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/hypervisor"
@@ -96,11 +98,11 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error
 			for _, id := range ids {
-				// Remove orphan netns (bind-mount file). Kernel cleans up
-				// bridge/tap/veth devices automatically when netns is destroyed.
-				nsPath := ch.conf.CNINetnsPath(id)
-				if err := os.Remove(nsPath); err != nil && !os.IsNotExist(err) {
-					errs = append(errs, fmt.Errorf("remove netns %s: %w", id, err))
+				// Remove orphan netns (unmount bind-mount + remove file).
+				// Kernel cleans up bridge/tap/veth devices when netns is destroyed.
+				nsName := ch.conf.CNINetnsName(id)
+				if err := netns.DeleteNamed(nsName); err != nil && !os.IsNotExist(err) {
+					errs = append(errs, fmt.Errorf("remove netns %s: %w", nsName, err))
 				}
 				// Remove orphan run/log directories.
 				if err := ch.removeVMDirs(ctx, id); err != nil {
