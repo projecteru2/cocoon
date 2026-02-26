@@ -20,8 +20,6 @@ import (
 
 const socketWaitTimeout = 5 * time.Second
 
-var savedNetns netns.NsHandle //nolint:gochecknoglobals
-
 // Start launches the Cloud Hypervisor process for each VM ref.
 // Returns the IDs that were successfully started.
 func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, error) {
@@ -133,11 +131,11 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 	// If the VM has network, CH must be launched inside the VM's netns
 	// so it can access the tap device. We setns before fork and restore after.
 	if withNetwork {
-		if enterErr := enterNetns(ch.conf.CNINetnsPath(vmID)); enterErr != nil {
+		restore, enterErr := enterNetns(ch.conf.CNINetnsPath(vmID))
+		if enterErr != nil {
 			return 0, fmt.Errorf("enter netns: %w", enterErr)
 		}
-		// Deferred restore happens after cmd.Start() forks the child.
-		defer exitNetns()
+		defer restore()
 	}
 
 	if startErr := cmd.Start(); startErr != nil {
@@ -179,37 +177,34 @@ func waitForSocket(ctx context.Context, socketPath string, pid int) error {
 
 // enterNetns locks the OS thread, saves the current netns, and switches
 // to the target netns. The forked child process inherits the new netns.
-// Call exitNetns (via defer) after cmd.Start() to restore.
-func enterNetns(nsPath string) error {
+// Returns a restore function that must be deferred by the caller.
+// No global state — safe for concurrent use.
+func enterNetns(nsPath string) (restore func(), err error) {
 	runtime.LockOSThread()
 
 	orig, err := netns.Get()
 	if err != nil {
 		runtime.UnlockOSThread()
-		return fmt.Errorf("get current netns: %w", err)
+		return nil, fmt.Errorf("get current netns: %w", err)
 	}
-	savedNetns = orig
 
 	target, err := netns.GetFromPath(nsPath)
 	if err != nil {
 		_ = orig.Close()
 		runtime.UnlockOSThread()
-		return fmt.Errorf("open netns %s: %w", nsPath, err)
+		return nil, fmt.Errorf("open netns %s: %w", nsPath, err)
 	}
 	defer target.Close() //nolint:errcheck
 
 	if err := netns.Set(target); err != nil {
 		_ = orig.Close()
 		runtime.UnlockOSThread()
-		return fmt.Errorf("setns %s: %w", nsPath, err)
+		return nil, fmt.Errorf("setns %s: %w", nsPath, err)
 	}
-	return nil
-}
 
-// exitNetns restores the original netns and unlocks the OS thread.
-func exitNetns() {
-	_ = netns.Set(savedNetns)
-	_ = savedNetns.Close()
-	savedNetns = -1
-	runtime.UnlockOSThread()
+	return func() {
+		_ = netns.Set(orig)
+		_ = orig.Close()
+		runtime.UnlockOSThread()
+	}, nil
 }
