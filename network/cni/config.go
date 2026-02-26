@@ -90,12 +90,11 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		}
 
 		configs = append(configs, &types.NetworkConfig{
-			Tap: tapName,
-			Mac: mac.String(),
-			// Queue/QueueSize left as 0: let CH use its defaults.
-			// Pre-created tap is single-queue; setting num_queues on CH
-			// would cause TUNSETIFF to fail (queue count mismatch).
-			Network: netInfo,
+			Tap:       tapName,
+			Mac:       mac.String(),
+			Queue:     int64(vmCfg.CPU),
+			QueueSize: 256, //nolint:mnd
+			Network:   netInfo,
 		})
 
 		logger.Infof(ctx, "NIC %d: %s ip=%s gw=%s tap=%s mac=%s",
