@@ -6,7 +6,7 @@
 #   ./doctor/check.sh --fix        # Check and fix issues
 #   ./doctor/check.sh --upgrade    # Check, fix, and upgrade dependencies
 
-set -euo pipefail
+set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Configuration (override via environment)
