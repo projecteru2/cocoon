@@ -38,16 +38,19 @@ var rootCmd = func() *cobra.Command {
 	cmd.PersistentFlags().String("root-dir", "", "root data directory")
 	cmd.PersistentFlags().String("run-dir", "", "runtime directory")
 	cmd.PersistentFlags().String("log-dir", "", "log directory")
+	cmd.PersistentFlags().String("cni-conf-dir", "", "CNI plugin config directory (default: /etc/cni/net.d)")
+	cmd.PersistentFlags().String("cni-bin-dir", "", "CNI plugin binary directory (default: /opt/cni/bin)")
+	cmd.PersistentFlags().String("root-password", "", "default root password for cloudimg VMs")
 
 	_ = viper.BindPFlag("root_dir", cmd.PersistentFlags().Lookup("root-dir"))
 	_ = viper.BindPFlag("run_dir", cmd.PersistentFlags().Lookup("run-dir"))
 	_ = viper.BindPFlag("log_dir", cmd.PersistentFlags().Lookup("log-dir"))
+	_ = viper.BindPFlag("cni_conf_dir", cmd.PersistentFlags().Lookup("cni-conf-dir"))
+	_ = viper.BindPFlag("cni_bin_dir", cmd.PersistentFlags().Lookup("cni-bin-dir"))
+	_ = viper.BindPFlag("default_root_password", cmd.PersistentFlags().Lookup("root-password"))
 
 	viper.SetEnvPrefix("COCOON")
 	viper.AutomaticEnv()
-	// Explicitly bind keys that have no flag so AutomaticEnv picks up
-	// their COCOON_* environment variables during Unmarshal.
-	_ = viper.BindEnv("default_root_password")
 
 	confProvider := func() *config.Config { return conf }
 	base := cmdcore.BaseHandler{ConfProvider: confProvider}

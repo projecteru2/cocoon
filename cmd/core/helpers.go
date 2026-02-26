@@ -14,6 +14,8 @@ import (
 	imagebackend "github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/images/cloudimg"
 	"github.com/projecteru2/cocoon/images/oci"
+	"github.com/projecteru2/cocoon/network"
+	"github.com/projecteru2/cocoon/network/cni"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
@@ -90,6 +92,15 @@ func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
 		return nil, fmt.Errorf("init hypervisor: %w", err)
 	}
 	return ch, nil
+}
+
+// InitNetwork creates the CNI network provider.
+func InitNetwork(conf *config.Config) (network.Network, error) {
+	p, err := cni.New(conf)
+	if err != nil {
+		return nil, fmt.Errorf("init network: %w", err)
+	}
+	return p, nil
 }
 
 // ResolveImage resolves an image reference to StorageConfigs + BootConfig.

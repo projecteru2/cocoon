@@ -86,7 +86,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	}
 
 	// Step 4: persist network records to DB.
-	if err := c.store.Update(ctx, func(idx *networkIndex) error {
+	return configs, c.store.Update(ctx, func(idx *networkIndex) error {
 		for i, cfg := range configs {
 			netID, genErr := utils.GenerateID()
 			if genErr != nil {
@@ -101,11 +101,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			}
 		}
 		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("persist network records: %w", err)
-	}
-
-	return configs, nil
+	})
 }
 
 // extractNetworkInfo parses the CNI ADD result into types.Network.

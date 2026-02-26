@@ -21,6 +21,7 @@ import (
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 type Handler struct {
@@ -280,16 +281,33 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *c
 	}
 	cmdcore.EnsureFirmwarePath(conf, bootCfg)
 
-	var networkConfigs []*types.NetworkConfig
-	noNetwork, _ := cmd.Flags().GetBool("no-network")
-	if !noNetwork {
-		// TODO: call network.Config(ctx, []*types.VMConfig{vmCfg}) when a network provider is available.
-		_ = noNetwork
+	vmID, err := utils.GenerateID()
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate VM ID: %w", err)
 	}
 
-	info, err := hyper.Create(ctx, vmCfg, storageConfigs, networkConfigs, bootCfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create VM: %w", err)
+	var networkConfigs []*types.NetworkConfig
+	nics, _ := cmd.Flags().GetInt("nics")
+	if nics > 0 {
+		netProvider, initErr := cmdcore.InitNetwork(conf)
+		if initErr != nil {
+			return nil, nil, fmt.Errorf("init network: %w", initErr)
+		}
+		networkConfigs, err = netProvider.Config(ctx, vmID, nics, vmCfg)
+		if err != nil {
+			return nil, nil, fmt.Errorf("configure network: %w", err)
+		}
+	}
+
+	info, createErr := hyper.Create(ctx, vmID, vmCfg, storageConfigs, networkConfigs, bootCfg)
+	if createErr != nil {
+		// Rollback network if Create fails.
+		if nics > 0 {
+			if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
+				_, _ = netProvider.Delete(ctx, []string{vmID})
+			}
+		}
+		return nil, nil, fmt.Errorf("create VM: %w", createErr)
 	}
 	return ctx, &createResult{VM: info, hyper: hyper}, nil
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/metadata"
 	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
 )
 
 // CowSerial is the well-known virtio serial for the COW disk attached to OCI VMs.
@@ -25,11 +24,8 @@ const CowSerial = "cocoon-cow"
 // To avoid a race with GC (which scans directories and removes those not in
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
-func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
-	id, err := utils.GenerateID()
-	if err != nil {
-		return nil, fmt.Errorf("generate VM ID: %w", err)
-	}
+func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) { //nolint:cyclop
+	var err error
 	now := time.Now()
 
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
