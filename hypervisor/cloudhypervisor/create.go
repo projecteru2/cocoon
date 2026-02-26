@@ -25,7 +25,10 @@ const CowSerial = "cocoon-cow"
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
 func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
-	id := hypervisor.GenerateID()
+	id, err := hypervisor.GenerateID()
+	if err != nil {
+		return nil, fmt.Errorf("generate VM ID: %w", err)
+	}
 	now := time.Now()
 
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
@@ -60,7 +63,6 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	var (
 		preparedStorage []*types.StorageConfig
 		bootCopy        *types.BootConfig
-		err             error
 	)
 	if bootCfg != nil {
 		b := *bootCfg
@@ -136,6 +138,8 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 
 	// Append static IP configuration for each network interface.
 	// Format: ip=<client-IP>:<server>:<gw-IP>:<netmask>:<hostname>:<device>:<autoconf>
+	// The index i matches the CH --net ordering, which maps 1:1 to guest eth{i}.
+	// NICs with Network==nil (DHCP) still occupy their slot but get no ip= param.
 	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
 		for i, n := range networkConfigs {
@@ -184,6 +188,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		Hostname:     vmCfg.Name,
 		RootPassword: ch.conf.DefaultRootPassword,
 	}
+	// Index i matches CH --net order → guest eth{i}. See prepareOCI comment.
 	for i, n := range networkConfigs {
 		if n.Network != nil {
 			ones, _ := n.Network.Netmask.Size()

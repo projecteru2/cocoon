@@ -36,12 +36,12 @@ func (idx *VMIndex) Init() {
 }
 
 // GenerateID returns a random 16-character hex string (8 bytes of entropy).
-func GenerateID() string {
+func GenerateID() (string, error) {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		return "", err
 	}
-	return hex.EncodeToString(b[:])
+	return hex.EncodeToString(b[:]), nil
 }
 
 // ResolveVMRef resolves a ref (exact ID, name, or ID prefix ≥3 chars) to a full VM ID.

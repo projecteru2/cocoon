@@ -2,8 +2,14 @@ package network
 
 import (
 	"context"
+	"errors"
 
 	"github.com/projecteru2/cocoon/types"
+)
+
+var (
+	ErrNotFound      = errors.New("network not found")
+	ErrNotConfigured = errors.New("network provider not configured")
 )
 
 type Network interface {
