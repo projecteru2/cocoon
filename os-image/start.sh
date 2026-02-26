@@ -109,7 +109,7 @@ DISK_CONFIGS+=("path=cow.raw,readonly=off,direct=on,sparse=on,image_type=raw,num
 echo "[7/7] Igniting Cloud Hypervisor..."
 "$CH_BIN" --kernel "$KERNEL" --initramfs "$INITRD" \
     --disk "${DISK_CONFIGS[@]}" \
-    --cmdline "console=ttyS0 loglevel=3 boot=cocoon cocoon.layers=${COCOON_LAYERS} cocoon.cow=cocoon-cow clocksource=kvm-clock rw" \
+    --cmdline "console=ttyS0 loglevel=3 boot=cocoon-overlay cocoon.layers=${COCOON_LAYERS} cocoon.cow=cocoon-cow clocksource=kvm-clock rw" \
     --cpus "boot=2,max=8" \
     --memory "size=1024M$([ "$(cat /proc/sys/vm/nr_hugepages 2>/dev/null)" -gt 0 ] && echo ',hugepages=on')" \
     --rng "src=/dev/urandom" \

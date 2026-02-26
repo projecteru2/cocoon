@@ -151,7 +151,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secret-files: |
-            cocoon_script=os-image/${{ matrix.name }}/hack.sh
+            cocoon_overlay=os-image/${{ matrix.name }}/overlay.sh
+            cocoon_network=os-image/${{ matrix.name }}/network.sh
           no-cache: ${{ matrix.no_cache == 'true' }}
           cache-from: ${{ matrix.no_cache == 'true' && '' || format('type=gha,scope={0}-{1}', matrix.name, matrix.tag) }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}

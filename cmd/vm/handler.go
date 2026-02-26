@@ -358,7 +358,7 @@ func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName,
 	cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
 
 	cmdline := fmt.Sprintf(
-		"console=hvc0 loglevel=3 boot=cocoon cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
+		"console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		cocoonLayers, cloudhypervisor.CowSerial)
 
 	fmt.Println("# Prepare COW disk")
