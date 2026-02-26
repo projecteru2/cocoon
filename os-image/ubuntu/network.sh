@@ -5,7 +5,8 @@
 # Runs in init-bottom phase — AFTER configure_networking has parsed kernel ip=
 # parameters into /run/net-*.conf, and AFTER mountroot has assembled the overlay.
 # Converts initramfs network config into systemd-networkd .network files so
-# the IP configuration persists after switch_root.
+# the IP configuration persists after switch_root, and writes /etc/resolv.conf
+# for immediate DNS availability regardless of init system.
 
 PREREQ=""
 prereqs() { echo "$PREREQ"; }
@@ -57,3 +58,8 @@ EOF
         : > "${rootmnt}/etc/cocoon-hostname-set"
     fi
 done
+
+# Point resolv.conf at /proc/net/pnp — the kernel writes DNS servers
+# from the ip= cmdline parameter there in resolv.conf format.
+# No ip= means /proc/net/pnp won't exist, which is fine (same as empty).
+ln -sf /proc/net/pnp "${rootmnt}/etc/resolv.conf"
