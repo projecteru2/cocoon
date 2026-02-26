@@ -3,6 +3,7 @@ package cni
 import (
 	"fmt"
 	"runtime"
+	"syscall"
 	"time"
 
 	cns "github.com/containernetworking/plugins/pkg/ns"
@@ -50,20 +51,22 @@ func deleteNetns(name string) error {
 	return netns.DeleteNamed(name)
 }
 
-// setupBridgeTap enters the target netns via the CNI plugins/pkg/ns closure
-// and configures bridge + tap using netlink.
-func setupBridgeTap(nsPath, ifName, brName, tapName string) error {
+// setupTCRedirect enters the target netns and wires ifName ↔ tapName
+// using TC ingress + mirred redirect (no bridge needed).
+func setupTCRedirect(nsPath, ifName, tapName string) error {
 	return cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
-		return bridgeTapInNS(ifName, brName, tapName)
+		return tcRedirectInNS(ifName, tapName)
 	})
 }
 
-// bridgeTapInNS runs inside the target netns.
+// tcRedirectInNS runs inside the target netns.
 //  1. Flush IP from ifName (guest owns it, not the netns).
-//  2. Create bridge + tap.
-//  3. Enslave ifName and tap to bridge.
-//  4. Bring everything up.
-func bridgeTapInNS(ifName, brName, tapName string) error {
+//  2. Create tap device.
+//  3. Bring both interfaces up.
+//  4. Attach ingress qdisc to both.
+//  5. Add U32+mirred filters for bidirectional redirect.
+func tcRedirectInNS(ifName, tapName string) error {
+	// 1. Find CNI veth and flush its IP addresses.
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
 		return fmt.Errorf("find %s: %w", ifName, err)
@@ -78,15 +81,7 @@ func bridgeTapInNS(ifName, brName, tapName string) error {
 		}
 	}
 
-	br := &netlink.Bridge{LinkAttrs: netlink.LinkAttrs{Name: brName}}
-	if addErr := netlink.LinkAdd(br); addErr != nil {
-		return fmt.Errorf("add bridge %s: %w", brName, addErr)
-	}
-	brLink, err := netlink.LinkByName(brName)
-	if err != nil {
-		return fmt.Errorf("find bridge %s: %w", brName, err)
-	}
-
+	// 2. Create tap device.
 	tap := &netlink.Tuntap{
 		LinkAttrs: netlink.LinkAttrs{Name: tapName},
 		Mode:      netlink.TUNTAP_MODE_TAP,
@@ -99,24 +94,60 @@ func bridgeTapInNS(ifName, brName, tapName string) error {
 		return fmt.Errorf("find tap %s: %w", tapName, err)
 	}
 
-	if masterErr := netlink.LinkSetMaster(link, brLink); masterErr != nil {
-		return fmt.Errorf("set %s master %s: %w", ifName, brName, masterErr)
-	}
-	// Disable MAC learning on the uplink (eth0) port. Without this, frames
-	// from tap0 traverse br0 → eth0 → cni0 and bounce back via eth0, causing
-	// br0 to learn the guest MAC on the eth0 port instead of tap0. ARP replies
-	// then get forwarded to eth0 (back to cni0) instead of tap0 (to the guest).
-	if learnErr := netlink.LinkSetLearning(link, false); learnErr != nil {
-		return fmt.Errorf("set %s learning off: %w", ifName, learnErr)
-	}
-	if masterErr := netlink.LinkSetMaster(tapLink, brLink); masterErr != nil {
-		return fmt.Errorf("set %s master %s: %w", tapName, brName, masterErr)
-	}
-
-	for _, l := range []netlink.Link{link, tapLink, brLink} {
+	// 3. Bring both interfaces up.
+	for _, l := range []netlink.Link{link, tapLink} {
 		if upErr := netlink.LinkSetUp(l); upErr != nil {
 			return fmt.Errorf("set %s up: %w", l.Attrs().Name, upErr)
 		}
 	}
+
+	// 4. Attach ingress qdisc to both interfaces.
+	for _, l := range []netlink.Link{link, tapLink} {
+		qdisc := &netlink.Ingress{
+			QdiscAttrs: netlink.QdiscAttrs{
+				LinkIndex: l.Attrs().Index,
+				Parent:    netlink.HANDLE_INGRESS,
+			},
+		}
+		if qdiscErr := netlink.QdiscAdd(qdisc); qdiscErr != nil {
+			return fmt.Errorf("add ingress qdisc on %s: %w", l.Attrs().Name, qdiscErr)
+		}
+	}
+
+	// 5. Bidirectional redirect: eth0 ingress → tap0, tap0 ingress → eth0.
+	if err := addTCRedirect(link, tapLink); err != nil {
+		return fmt.Errorf("redirect %s -> %s: %w", ifName, tapName, err)
+	}
+	if err := addTCRedirect(tapLink, link); err != nil {
+		return fmt.Errorf("redirect %s -> %s: %w", tapName, ifName, err)
+	}
 	return nil
+}
+
+// addTCRedirect adds a U32 catch-all filter on from's ingress that redirects
+// all packets to to's egress via mirred. TC_ACT_STOLEN ensures the packet is
+// consumed and never reaches the netns host stack.
+func addTCRedirect(from, to netlink.Link) error {
+	filter := &netlink.U32{
+		FilterAttrs: netlink.FilterAttrs{
+			LinkIndex: from.Attrs().Index,
+			Parent:    netlink.HANDLE_INGRESS,
+			Priority:  1,
+			Protocol:  syscall.ETH_P_ALL,
+		},
+		Sel: &netlink.TcU32Sel{
+			Flags: netlink.TC_U32_TERMINAL,
+			Keys: []netlink.TcU32Key{
+				{Mask: 0x0, Val: 0x0, Off: 0, OffMask: 0x0},
+			},
+		},
+		Actions: []netlink.Action{
+			&netlink.MirredAction{
+				ActionAttrs:  netlink.ActionAttrs{Action: netlink.TC_ACT_STOLEN},
+				MirredAction: netlink.TCA_EGRESS_REDIR,
+				Ifindex:      to.Attrs().Index,
+			},
+		},
+	}
+	return netlink.FilterAdd(filter)
 }

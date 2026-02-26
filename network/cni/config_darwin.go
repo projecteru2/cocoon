@@ -12,6 +12,6 @@ func deleteNetns(_ string) error {
 	return errNotSupported
 }
 
-func setupBridgeTap(_, _, _, _ string) error {
+func setupTCRedirect(_, _, _ string) error {
 	return errNotSupported
 }

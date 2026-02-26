@@ -17,12 +17,12 @@ import (
 const defaultQueueSize = 256
 
 // Config creates the network namespace, runs CNI ADD for each NIC, sets up
-// bridge + tap inside the netns, and returns NetworkConfigs ready for CH --net.
+// TC redirect (eth↔tap) inside the netns, and returns NetworkConfigs ready for CH --net.
 //
-// Flow per NIC (from issue #1):
+// Flow per NIC:
 //  1. Create named netns cocoon-{vmID}
 //  2. CNI ADD (containerID=vmID, netns path, ifName=eth{i})
-//  3. Inside netns: flush eth{i} IP, create br{i}+tap{i}, bridge them
+//  3. Inside netns: flush eth{i} IP, create tap{i}, wire via TC ingress mirred
 //  4. Return NetworkConfig{Tap: "tap{i}", Mac: generated, Network: CNI result}
 func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig) (configs []*types.NetworkConfig, retErr error) {
 	if c.networkConfList == nil || c.cniConf == nil {
@@ -61,7 +61,6 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	for i := range numNICs {
 		ifName := fmt.Sprintf("eth%d", i)
 		tapName := fmt.Sprintf("tap%d", i)
-		brName := fmt.Sprintf("br%d", i)
 
 		// Step 2: CNI ADD — creates veth pair, assigns IP via IPAM.
 		rt := &libcni.RuntimeConf{
@@ -80,9 +79,9 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			return nil, fmt.Errorf("parse CNI result: %w", err)
 		}
 
-		// Step 3: inside netns — flush IP, create bridge + tap (platform-specific).
-		if setupErr := setupBridgeTap(nsPath, ifName, brName, tapName); setupErr != nil {
-			return nil, fmt.Errorf("setup bridge/tap %s: %w", vmID, setupErr)
+		// Step 3: inside netns — flush IP, create tap, wire via TC redirect (platform-specific).
+		if setupErr := setupTCRedirect(nsPath, ifName, tapName); setupErr != nil {
+			return nil, fmt.Errorf("setup tc-redirect %s: %w", vmID, setupErr)
 		}
 
 		mac, err := utils.GenerateMAC()
