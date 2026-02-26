@@ -20,6 +20,7 @@ import (
 	"github.com/projecteru2/cocoon/console"
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
+	"github.com/projecteru2/cocoon/network"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
@@ -286,10 +287,14 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *c
 		return nil, nil, fmt.Errorf("generate VM ID: %w", err)
 	}
 
-	var networkConfigs []*types.NetworkConfig
+	var (
+		networkConfigs []*types.NetworkConfig
+		netProvider    network.Network
+	)
 	nics, _ := cmd.Flags().GetInt("nics")
 	if nics > 0 {
-		netProvider, initErr := cmdcore.InitNetwork(conf)
+		var initErr error
+		netProvider, initErr = cmdcore.InitNetwork(conf)
 		if initErr != nil {
 			return nil, nil, fmt.Errorf("init network: %w", initErr)
 		}
@@ -301,11 +306,8 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *c
 
 	info, createErr := hyper.Create(ctx, vmID, vmCfg, storageConfigs, networkConfigs, bootCfg)
 	if createErr != nil {
-		// Rollback network if Create fails.
-		if nics > 0 {
-			if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
-				_, _ = netProvider.Delete(ctx, []string{vmID})
-			}
+		if netProvider != nil {
+			_, _ = netProvider.Delete(ctx, []string{vmID})
 		}
 		return nil, nil, fmt.Errorf("create VM: %w", createErr)
 	}
