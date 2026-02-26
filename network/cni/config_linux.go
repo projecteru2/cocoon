@@ -102,6 +102,13 @@ func bridgeTapInNS(ifName, brName, tapName string) error {
 	if masterErr := netlink.LinkSetMaster(link, brLink); masterErr != nil {
 		return fmt.Errorf("set %s master %s: %w", ifName, brName, masterErr)
 	}
+	// Disable MAC learning on the uplink (eth0) port. Without this, frames
+	// from tap0 traverse br0 → eth0 → cni0 and bounce back via eth0, causing
+	// br0 to learn the guest MAC on the eth0 port instead of tap0. ARP replies
+	// then get forwarded to eth0 (back to cni0) instead of tap0 (to the guest).
+	if learnErr := netlink.LinkSetLearning(link, false); learnErr != nil {
+		return fmt.Errorf("set %s learning off: %w", ifName, learnErr)
+	}
 	if masterErr := netlink.LinkSetMaster(tapLink, brLink); masterErr != nil {
 		return fmt.Errorf("set %s master %s: %w", tapName, brName, masterErr)
 	}
