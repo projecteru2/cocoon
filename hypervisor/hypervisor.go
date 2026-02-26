@@ -26,7 +26,7 @@ type Hypervisor interface {
 	Inspect(ctx context.Context, ref string) (*types.VM, error)
 	List(context.Context) ([]*types.VM, error)
 	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
-	Console(ctx context.Context, ref string) (io.ReadCloser, error)
+	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
 
 	// TODO SNAPSHOT
 	// TODO RESTORE

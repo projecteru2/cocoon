@@ -14,14 +14,14 @@ import (
 // For direct-boot VMs (OCI):    opens the virtio-console PTY allocated by CH.
 //
 // The endpoint is stored in VM.ConsolePath at start time.
-// The caller is responsible for closing the returned ReadCloser.
-func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadCloser, error) {
+// The caller is responsible for closing the returned ReadWriteCloser.
+func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWriteCloser, error) {
 	info, err := ch.Inspect(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
-	var conn io.ReadCloser
+	var conn io.ReadWriteCloser
 	if err := ch.withRunningVM(info.ID, func(_ int) error {
 		path := info.ConsolePath
 		if path == "" {

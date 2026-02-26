@@ -51,12 +51,18 @@ func deleteNetns(name string) error {
 	return netns.DeleteNamed(name)
 }
 
-// setupTCRedirect enters the target netns and wires ifName ↔ tapName
-// using TC ingress + mirred redirect (no bridge needed).
-func setupTCRedirect(nsPath, ifName, tapName string) error {
-	return cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
-		return tcRedirectInNS(ifName, tapName)
+// setupTCRedirect enters the target netns, wires ifName ↔ tapName using
+// TC ingress + mirred redirect, and returns ifName's MAC address.
+// The caller should pass this MAC to CH so the guest's virtio-net MAC
+// matches the CNI veth — required for anti-spoofing CNI plugins.
+func setupTCRedirect(nsPath, ifName, tapName string) (string, error) {
+	var mac string
+	err := cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
+		var nsErr error
+		mac, nsErr = tcRedirectInNS(ifName, tapName)
+		return nsErr
 	})
+	return mac, err
 }
 
 // tcRedirectInNS runs inside the target netns.
@@ -65,39 +71,53 @@ func setupTCRedirect(nsPath, ifName, tapName string) error {
 //  3. Bring both interfaces up.
 //  4. Attach ingress qdisc to both.
 //  5. Add U32+mirred filters for bidirectional redirect.
-func tcRedirectInNS(ifName, tapName string) error {
-	// 1. Find CNI veth and flush its IP addresses.
+func tcRedirectInNS(ifName, tapName string) (string, error) {
+	// 1. Find CNI veth, capture its MAC, and flush IP addresses.
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
-		return fmt.Errorf("find %s: %w", ifName, err)
+		return "", fmt.Errorf("find %s: %w", ifName, err)
 	}
+	mac := link.Attrs().HardwareAddr.String()
+
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
 	if err != nil {
-		return fmt.Errorf("list addrs on %s: %w", ifName, err)
+		return "", fmt.Errorf("list addrs on %s: %w", ifName, err)
 	}
 	for _, addr := range addrs {
 		if delErr := netlink.AddrDel(link, &addr); delErr != nil {
-			return fmt.Errorf("flush addr %s on %s: %w", addr.IPNet, ifName, delErr)
+			return "", fmt.Errorf("flush addr %s on %s: %w", addr.IPNet, ifName, delErr)
 		}
 	}
 
 	// 2. Create tap device.
+	// VNET_HDR: allows kernel to parse virtio_net headers for checksum/GSO offload.
+	// ONE_QUEUE: prevents packet drops on older kernels when send buffer is full.
 	tap := &netlink.Tuntap{
 		LinkAttrs: netlink.LinkAttrs{Name: tapName},
 		Mode:      netlink.TUNTAP_MODE_TAP,
+		Queues:    1,
+		Flags:     netlink.TUNTAP_ONE_QUEUE | netlink.TUNTAP_VNET_HDR,
 	}
 	if addErr := netlink.LinkAdd(tap); addErr != nil {
-		return fmt.Errorf("add tap %s: %w", tapName, addErr)
+		return "", fmt.Errorf("add tap %s: %w", tapName, addErr)
 	}
 	tapLink, err := netlink.LinkByName(tapName)
 	if err != nil {
-		return fmt.Errorf("find tap %s: %w", tapName, err)
+		return "", fmt.Errorf("find tap %s: %w", tapName, err)
+	}
+
+	// Sync MTU: tap must match veth to avoid silent large-packet drops
+	// when CNI uses non-default MTU (e.g. 1450 for overlay, 9000 for jumbo).
+	if mtu := link.Attrs().MTU; mtu > 0 {
+		if mtuErr := netlink.LinkSetMTU(tapLink, mtu); mtuErr != nil {
+			return "", fmt.Errorf("set tap %s mtu %d: %w", tapName, mtu, mtuErr)
+		}
 	}
 
 	// 3. Bring both interfaces up.
 	for _, l := range []netlink.Link{link, tapLink} {
 		if upErr := netlink.LinkSetUp(l); upErr != nil {
-			return fmt.Errorf("set %s up: %w", l.Attrs().Name, upErr)
+			return "", fmt.Errorf("set %s up: %w", l.Attrs().Name, upErr)
 		}
 	}
 
@@ -110,18 +130,18 @@ func tcRedirectInNS(ifName, tapName string) error {
 			},
 		}
 		if qdiscErr := netlink.QdiscAdd(qdisc); qdiscErr != nil {
-			return fmt.Errorf("add ingress qdisc on %s: %w", l.Attrs().Name, qdiscErr)
+			return "", fmt.Errorf("add ingress qdisc on %s: %w", l.Attrs().Name, qdiscErr)
 		}
 	}
 
 	// 5. Bidirectional redirect: eth0 ingress → tap0, tap0 ingress → eth0.
 	if err := addTCRedirect(link, tapLink); err != nil {
-		return fmt.Errorf("redirect %s -> %s: %w", ifName, tapName, err)
+		return "", fmt.Errorf("redirect %s -> %s: %w", ifName, tapName, err)
 	}
 	if err := addTCRedirect(tapLink, link); err != nil {
-		return fmt.Errorf("redirect %s -> %s: %w", tapName, ifName, err)
+		return "", fmt.Errorf("redirect %s -> %s: %w", tapName, ifName, err)
 	}
-	return nil
+	return mac, nil
 }
 
 // addTCRedirect adds a U32 catch-all filter on from's ingress that redirects

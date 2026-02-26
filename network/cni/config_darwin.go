@@ -12,6 +12,6 @@ func deleteNetns(_ string) error {
 	return errNotSupported
 }
 
-func setupTCRedirect(_, _, _ string) error {
-	return errNotSupported
+func setupTCRedirect(_, _, _ string) (string, error) {
+	return "", errNotSupported
 }
