@@ -46,23 +46,22 @@ chpasswd:
 ssh_pwauth: true
 disable_root: false
 {{- end}}
-{{- if .Networks}}
-network:
-  version: 2
-  ethernets:
+`))
+
+var networkConfigTmpl = template.Must(template.New("network-config").Parse(`version: 2
+ethernets:
 {{- range .Networks}}
-    {{.Device}}:
+  {{.Device}}:
 {{- if .Mac}}
-      match:
-        macaddress: '{{.Mac}}'
+    match:
+      macaddress: '{{.Mac}}'
 {{- end}}
-      addresses:
-        - {{.IP}}/{{.Prefix}}
+    addresses:
+      - {{.IP}}/{{.Prefix}}
 {{- if .Gateway}}
-      routes:
-        - to: default
-          via: {{.Gateway}}
-{{- end}}
+    routes:
+      - to: default
+        via: {{.Gateway}}
 {{- end}}
 {{- end}}
 `))
@@ -81,7 +80,15 @@ func Generate(w io.Writer, cfg *Config) error {
 	if err := userDataTmpl.Execute(&buf, cfg); err != nil {
 		return fmt.Errorf("render user-data: %w", err)
 	}
-	files["user-data"] = buf.Bytes()
+	files["user-data"] = bytes.Clone(buf.Bytes())
+
+	if len(cfg.Networks) > 0 {
+		buf.Reset()
+		if err := networkConfigTmpl.Execute(&buf, cfg); err != nil {
+			return fmt.Errorf("render network-config: %w", err)
+		}
+		files["network-config"] = buf.Bytes()
+	}
 
 	return CreateFAT12(w, cidataLabel, files)
 }
