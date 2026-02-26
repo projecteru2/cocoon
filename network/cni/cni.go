@@ -146,9 +146,10 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 		}
 	}
 
-	// Remove the named netns bind-mount. Kernel destroys the netns and all
-	// its devices (bridge, tap, veth-vm) when the last reference drops.
-	if err := os.Remove(nsPath); err != nil && !os.IsNotExist(err) {
+	// Remove the named netns (unmount bind-mount + remove file).
+	// deleteNetns retries briefly to handle async fd cleanup after process kill.
+	nsName := c.conf.CNINetnsName(vmID)
+	if err := deleteNetns(nsName); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove netns %s: %w", nsPath, err)
 	}
 
