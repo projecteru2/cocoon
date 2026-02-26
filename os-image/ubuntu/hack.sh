@@ -105,52 +105,50 @@ mountroot() {
     rm -f "${rootmnt}/etc/machine-id" 2>/dev/null || true
     : > "${rootmnt}/etc/machine-id"
 
-    # Parse kernel ip= parameters and write systemd-networkd configs.
-    # Format: ip=<client-ip>:<server>:<gw-ip>:<netmask>:<hostname>:<device>:<autoconf>
-    for x in $(cat /proc/cmdline); do
-        case $x in
-            ip=*)
-                IFS=: read -r cip _ gw mask hname dev _ <<EOF
-${x#ip=}
+    # Convert initramfs network config (/run/net-*.conf) to systemd-networkd.
+    # The kernel ip= parameter is already parsed by initramfs configure_networking
+    # into /run/net-{device}.conf files. We source them and generate .network files
+    # so systemd-networkd picks up the config after switch_root.
+    for conf_file in /run/net-*.conf; do
+        [ -f "$conf_file" ] || continue
+        # Each file defines: DEVICE, IPV4ADDR, IPV4NETMASK, IPV4GATEWAY, HOSTNAME, etc.
+        unset DEVICE IPV4ADDR IPV4NETMASK IPV4GATEWAY IPV4DNS0 IPV4DNS1 HOSTNAME
+        . "$conf_file"
+        [ -z "$DEVICE" ] || [ -z "$IPV4ADDR" ] && continue
+
+        # Convert dotted netmask to prefix length.
+        prefix=0
+        IFS=. read -r a b c d <<EOF
+${IPV4NETMASK}
 EOF
-                if [ -n "$cip" ] && [ -n "$dev" ]; then
-                    # Set hostname if provided (only from the first ip= parameter).
-                    if [ -n "$hname" ] && [ ! -s "${rootmnt}/etc/cocoon-hostname-set" ]; then
-                        echo "$hname" > "${rootmnt}/etc/hostname"
-                        : > "${rootmnt}/etc/cocoon-hostname-set"
-                    fi
-                    # Convert dotted netmask to prefix length.
-                    prefix=0
-                    IFS=. read -r a b c d <<EOF2
-$mask
-EOF2
-                    for octet in $a $b $c $d; do
-                        case $octet in
-                            255) prefix=$((prefix + 8)) ;;
-                            254) prefix=$((prefix + 7)) ;;
-                            252) prefix=$((prefix + 6)) ;;
-                            248) prefix=$((prefix + 5)) ;;
-                            240) prefix=$((prefix + 4)) ;;
-                            224) prefix=$((prefix + 3)) ;;
-                            192) prefix=$((prefix + 2)) ;;
-                            128) prefix=$((prefix + 1)) ;;
-                        esac
-                    done
+        for octet in $a $b $c $d; do
+            case $octet in
+                255) prefix=$((prefix + 8)) ;;
+                254) prefix=$((prefix + 7)) ;;
+                252) prefix=$((prefix + 6)) ;;
+                248) prefix=$((prefix + 5)) ;;
+                240) prefix=$((prefix + 4)) ;;
+                224) prefix=$((prefix + 3)) ;;
+                192) prefix=$((prefix + 2)) ;;
+                128) prefix=$((prefix + 1)) ;;
+            esac
+        done
 
-                    mkdir -p "${rootmnt}/etc/systemd/network"
-                    cat > "${rootmnt}/etc/systemd/network/10-${dev}.network" <<NETEOF
-[Match]
-Name=${dev}
+        mkdir -p "${rootmnt}/etc/systemd/network"
+        {
+            printf "[Match]\nName=%s\n\n[Network]\nAddress=%s/%d\n" "$DEVICE" "$IPV4ADDR" "$prefix"
+            [ -n "$IPV4GATEWAY" ] && printf "Gateway=%s\n" "$IPV4GATEWAY"
+            [ -n "$IPV4DNS0" ] && printf "DNS=%s\n" "$IPV4DNS0"
+            [ -n "$IPV4DNS1" ] && printf "DNS=%s\n" "$IPV4DNS1"
+            # Fallback DNS if none provided by kernel ip= parameter.
+            [ -z "$IPV4DNS0" ] && printf "DNS=8.8.8.8\nDNS=8.8.4.4\n"
+        } > "${rootmnt}/etc/systemd/network/10-${DEVICE}.network"
 
-[Network]
-Address=${cip}/${prefix}
-Gateway=${gw}
-DNS=8.8.8.8
-DNS=8.8.4.4
-NETEOF
-                fi
-                ;;
-        esac
+        # Set hostname from the first interface that provides one.
+        if [ -n "$HOSTNAME" ] && [ ! -f "${rootmnt}/etc/cocoon-hostname-set" ]; then
+            echo "$HOSTNAME" > "${rootmnt}/etc/hostname"
+            : > "${rootmnt}/etc/cocoon-hostname-set"
+        fi
     done
 
     log_success_msg "Cocoon: stealth overlay rootfs ready"
