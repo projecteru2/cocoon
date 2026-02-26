@@ -61,7 +61,9 @@ func DefaultConfig() *Config {
 	}
 }
 
-func EnsureDirs(conf *Config) (*Config, error) {
+// ApplyDefaults fills in zero-value fields with sensible defaults.
+// Called after viper.Unmarshal to handle empty strings from unset flags/env.
+func ApplyDefaults(conf *Config) (*Config, error) {
 	defaults := DefaultConfig()
 	if conf.RootDir == "" {
 		conf.RootDir = defaults.RootDir

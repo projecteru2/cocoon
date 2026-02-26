@@ -87,10 +87,13 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 	}
 
-	// Phase 3: collect.
+	// Phase 3: collect (skip modules with no targets).
 	var errs []string
 	for _, m := range locked {
 		ids := targets[m.getName()]
+		if len(ids) == 0 {
+			continue
+		}
 		if err := m.collect(ctx, ids); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", m.getName(), err))
 		}

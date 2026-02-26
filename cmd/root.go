@@ -90,7 +90,7 @@ func initConfig(ctx context.Context) error {
 	}
 
 	var err error
-	conf, err = config.EnsureDirs(conf)
+	conf, err = config.ApplyDefaults(conf)
 	if err != nil {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}

@@ -46,12 +46,8 @@ func New(conf *config.Config) (*CNI, error) {
 		locker: locker,
 	}
 
-	// Best-effort: load the highest-priority CNI conflist.
-	// "" means "take the first conflist found, sorted by filename".
-	// If no conflist is found, networkConfList/cni stay nil — Delete still works
-	// (skips CNI DEL, relies on netns deletion), but Config() will fail.
-	if networkConfList, err := libcni.LoadConfList(conf.CNIConfDir, ""); err == nil {
-		c.networkConfList = networkConfList
+	if confList, loadErr := loadFirstConfList(conf.CNIConfDir); loadErr == nil {
+		c.networkConfList = confList
 		c.cniConf = libcni.NewCNIConfigWithCacheDir(
 			[]string{conf.CNIBinDir},
 			conf.CNICacheDir(),
@@ -165,4 +161,16 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 		}
 		return nil
 	})
+}
+
+func loadFirstConfList(dir string) (*libcni.NetworkConfigList, error) {
+	files, err := libcni.ConfFiles(dir, []string{".conflist"})
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no .conflist files in %s", dir)
+	}
+	// files are already sorted by ConfFiles.
+	return libcni.ConfListFromFile(files[0])
 }
