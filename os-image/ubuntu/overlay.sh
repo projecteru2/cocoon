@@ -32,6 +32,14 @@ resolve_disk() {
 mountroot() {
     log_begin_msg "Cocoon: mounting stealth overlay rootfs"
 
+    # Process kernel ip= parameters if present (creates /run/net-*.conf).
+    # Ubuntu 22.04 only calls configure_networking for BOOT=local (in local-top),
+    # not for custom boot scripts. Call it explicitly so ipconfig always runs.
+    # The function is idempotent — skips if networking is already configured.
+    if ! ls /run/net-*.conf >/dev/null 2>&1; then
+        configure_networking
+    fi
+
     # Native environment: modprobe automatically resolves all underlying dependencies.
     modprobe erofs 2>/dev/null || true
     modprobe overlay 2>/dev/null || true
