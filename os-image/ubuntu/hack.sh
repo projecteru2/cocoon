@@ -105,5 +105,48 @@ mountroot() {
     rm -f "${rootmnt}/etc/machine-id" 2>/dev/null || true
     : > "${rootmnt}/etc/machine-id"
 
+    # Parse kernel ip= parameters and write systemd-networkd configs.
+    # Format: ip=<client-ip>:<server>:<gw-ip>:<netmask>:<hostname>:<device>:<autoconf>
+    for x in $(cat /proc/cmdline); do
+        case $x in
+            ip=*)
+                IFS=: read -r cip _ gw mask _ dev _ <<EOF
+${x#ip=}
+EOF
+                if [ -n "$cip" ] && [ -n "$dev" ]; then
+                    # Convert dotted netmask to prefix length.
+                    prefix=0
+                    IFS=. read -r a b c d <<EOF2
+$mask
+EOF2
+                    for octet in $a $b $c $d; do
+                        case $octet in
+                            255) prefix=$((prefix + 8)) ;;
+                            254) prefix=$((prefix + 7)) ;;
+                            252) prefix=$((prefix + 6)) ;;
+                            248) prefix=$((prefix + 5)) ;;
+                            240) prefix=$((prefix + 4)) ;;
+                            224) prefix=$((prefix + 3)) ;;
+                            192) prefix=$((prefix + 2)) ;;
+                            128) prefix=$((prefix + 1)) ;;
+                        esac
+                    done
+
+                    mkdir -p "${rootmnt}/etc/systemd/network"
+                    cat > "${rootmnt}/etc/systemd/network/10-${dev}.network" <<NETEOF
+[Match]
+Name=${dev}
+
+[Network]
+Address=${cip}/${prefix}
+Gateway=${gw}
+DNS=8.8.8.8
+DNS=8.8.4.4
+NETEOF
+                fi
+                ;;
+        esac
+    done
+
     log_success_msg "Cocoon: stealth overlay rootfs ready"
 }
