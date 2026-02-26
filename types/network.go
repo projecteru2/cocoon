@@ -18,8 +18,8 @@ type Network struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
 
-	IP      string `json:"ip"`                // dotted decimal, e.g. "10.0.0.2"
-	Gateway string `json:"gateway,omitempty"`  // dotted decimal, e.g. "10.0.0.1"
-	Prefix  int    `json:"prefix"`            // CIDR prefix length, e.g. 24
+	IP       string `json:"ip"`                // dotted decimal, e.g. "10.0.0.2"
+	Gateway  string `json:"gateway,omitempty"` // dotted decimal, e.g. "10.0.0.1"
+	Prefix   int    `json:"prefix"`            // CIDR prefix length, e.g. 24
 	Hostname string `json:"hostname,omitempty"`
 }
