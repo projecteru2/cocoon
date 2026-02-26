@@ -110,10 +110,15 @@ mountroot() {
     for x in $(cat /proc/cmdline); do
         case $x in
             ip=*)
-                IFS=: read -r cip _ gw mask _ dev _ <<EOF
+                IFS=: read -r cip _ gw mask hname dev _ <<EOF
 ${x#ip=}
 EOF
                 if [ -n "$cip" ] && [ -n "$dev" ]; then
+                    # Set hostname if provided (only from the first ip= parameter).
+                    if [ -n "$hname" ] && [ ! -s "${rootmnt}/etc/cocoon-hostname-set" ]; then
+                        echo "$hname" > "${rootmnt}/etc/hostname"
+                        : > "${rootmnt}/etc/cocoon-hostname-set"
+                    fi
                     # Convert dotted netmask to prefix length.
                     prefix=0
                     IFS=. read -r a b c d <<EOF2
