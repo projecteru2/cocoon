@@ -82,20 +82,37 @@ header() { printf "\n\033[1m==> %s\033[0m\n" "$1"; }
 # ---------------------------------------------------------------------------
 header "Binary dependencies"
 
+# Map binary name → apt package name for auto-install.
+bin_to_pkg() {
+    case "$1" in
+        qemu-img)   echo "qemu-utils" ;;
+        mkfs.erofs) echo "erofs-utils" ;;
+        mkfs.ext4)  echo "e2fsprogs" ;;
+        *)          echo "" ;;
+    esac
+}
+
 check_binary() {
     local name="$1"
     if command -v "$name" &>/dev/null; then
         local ver=""
         case "$name" in
-            cloud-hypervisor) ver=$("$name" --version 2>/dev/null | head -1) ;;
-            ch-remote)        ver=$("$name" --version 2>/dev/null | head -1) ;;
-            qemu-img)         ver=$("$name" --version 2>/dev/null | head -1) ;;
-            mkfs.ext4)        ver=$("$name" -V 2>&1 | head -1) ;;
-            mkfs.erofs)       ver=$("$name" --version 2>&1 | head -1) ;;
+            cloud-hypervisor) ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            ch-remote)        ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            qemu-img)         ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            mkfs.ext4)        ver=$("$name" -V 2>&1 | head -1) || true ;;
+            mkfs.erofs)       ver=$("$name" --version 2>&1 | head -1) || true ;;
         esac
         pass "${name}${ver:+ ($ver)}"
     else
         fail "$name not found in PATH"
+        if $FIX; then
+            local pkg
+            pkg=$(bin_to_pkg "$name")
+            if [ -n "$pkg" ] && command -v apt-get &>/dev/null; then
+                apt-get install -y "$pkg" &>/dev/null && fixed "apt-get install $pkg" || warn "failed to install $pkg"
+            fi
+        fi
     fi
 }
 
@@ -187,6 +204,13 @@ check_sysctl() {
 }
 
 check_sysctl net.ipv4.ip_forward 1
+
+# br_netfilter must be loaded for bridge sysctl keys to exist.
+if ! sysctl -n net.bridge.bridge-nf-call-iptables &>/dev/null; then
+    if $FIX; then
+        modprobe br_netfilter 2>/dev/null && fixed "modprobe br_netfilter" || warn "failed to load br_netfilter"
+    fi
+fi
 check_sysctl net.bridge.bridge-nf-call-iptables 1
 
 # ---------------------------------------------------------------------------
