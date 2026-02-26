@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os/exec"
 
 	"github.com/containernetworking/cni/libcni"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -20,8 +19,8 @@ import (
 // bridge + tap inside the netns, and returns NetworkConfigs ready for CH --net.
 //
 // Flow per NIC (from issue #1):
-//  1. ip netns add cocoon-{vmID}
-//  2. CNI ADD (containerID=vmID, netns=cocoon-{vmID}, ifName=eth{i})
+//  1. Create named netns cocoon-{vmID}
+//  2. CNI ADD (containerID=vmID, netns path, ifName=eth{i})
 //  3. Inside netns: flush eth{i} IP, create br{i}+tap{i}, bridge them
 //  4. Return NetworkConfig{Tap: "tap{i}", Mac: generated, Network: CNI result}
 func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig) (configs []*types.NetworkConfig, retErr error) {
@@ -33,14 +32,13 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	nsName := c.conf.CNINetnsName(vmID)
 	nsPath := c.conf.CNINetnsPath(vmID)
 
-	// Step 1: create named network namespace.
-	if out, err := exec.CommandContext(ctx, "ip", "netns", "add", nsName).CombinedOutput(); err != nil { //nolint:gosec
-		return nil, fmt.Errorf("ip netns add %s: %s: %w", nsName, out, err)
+	// Step 1: create named network namespace (platform-specific).
+	if err := createNetns(nsName); err != nil {
+		return nil, fmt.Errorf("create netns %s: %w", nsName, err)
 	}
-	// If anything fails after netns creation, tear it down.
 	defer func() {
 		if retErr != nil {
-			_ = exec.CommandContext(ctx, "ip", "netns", "del", nsName).Run() //nolint:gosec
+			_ = deleteNetns(nsName)
 		}
 	}()
 
@@ -60,18 +58,16 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			return nil, fmt.Errorf("CNI ADD %s/%s: %w", vmID, ifName, err)
 		}
 
-		// Parse the CNI result to extract IP/Gateway/Mask.
 		netInfo, err := extractNetworkInfo(cniResult, vmID, i)
 		if err != nil {
 			return nil, fmt.Errorf("parse CNI result: %w", err)
 		}
 
-		// Step 3: inside netns — flush IP, create bridge + tap.
-		if setupErr := setupBridgeTap(ctx, nsName, ifName, brName, tapName); setupErr != nil {
+		// Step 3: inside netns — flush IP, create bridge + tap (platform-specific).
+		if setupErr := setupBridgeTap(nsPath, ifName, brName, tapName); setupErr != nil {
 			return nil, fmt.Errorf("setup bridge/tap %s: %w", vmID, setupErr)
 		}
 
-		// Generate MAC for CH --net.
 		mac, err := utils.GenerateMAC()
 		if err != nil {
 			return nil, err
@@ -110,39 +106,6 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	}
 
 	return configs, nil
-}
-
-// setupBridgeTap runs commands inside the netns to:
-//  1. Flush the IP from eth{i} (guest owns it, not the netns)
-//  2. Create a bridge and tap device
-//  3. Enslave eth{i} and tap to the bridge
-//  4. Bring everything up
-func setupBridgeTap(ctx context.Context, nsName, ifName, brName, tapName string) error {
-	nsexec := func(args ...string) error {
-		cmd := append([]string{"netns", "exec", nsName}, args...)
-		out, err := exec.CommandContext(ctx, "ip", cmd...).CombinedOutput() //nolint:gosec
-		if err != nil {
-			return fmt.Errorf("ip %v: %s: %w", args, out, err)
-		}
-		return nil
-	}
-
-	steps := [][]string{
-		{"addr", "flush", "dev", ifName},
-		{"link", "add", brName, "type", "bridge"},
-		{"link", "set", ifName, "master", brName},
-		{"tuntap", "add", tapName, "mode", "tap"},
-		{"link", "set", tapName, "master", brName},
-		{"link", "set", ifName, "up"},
-		{"link", "set", tapName, "up"},
-		{"link", "set", brName, "up"},
-	}
-	for _, args := range steps {
-		if err := nsexec(args...); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // extractNetworkInfo parses the CNI ADD result into types.Network.
