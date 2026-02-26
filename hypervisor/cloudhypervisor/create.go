@@ -141,21 +141,24 @@ func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *t
 	)
 
 	// Append static IP configuration for each network interface.
-	// Format: ip=<client-IP>:<server>:<gw-IP>:<netmask>:<hostname>:<device>:<autoconf>
+	// Format: ip=<client-IP>::<gw-IP>:<netmask>:<hostname>:<device>:<autoconf>:<dns0>:<dns1>
 	// The index i matches the CH --net ordering, which maps 1:1 to guest eth{i}.
 	// NICs with Network==nil (DHCP) still occupy their slot but get no ip= param.
+	// NOTE: kernel ip= only supports 2 DNS servers; extras from config are ignored here.
 	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
+		dns0, dns1 := dnsFromConfig(ch.conf.DNSServers())
 		for i, n := range networkConfigs {
-			if n.Network != nil && n.Network.IP != nil {
-				gw := ""
-				if n.Network.Gateway != nil {
-					gw = n.Network.Gateway.String()
-				}
-				fmt.Fprintf(&cmdline, " ip=%s::%s:%s:%s:eth%d:off",
-					n.Network.IP, gw,
-					net.IP(n.Network.Netmask), vmCfg.Name, i)
+			if n.Network == nil || n.Network.IP == nil {
+				continue
 			}
+			gw := ""
+			if n.Network.Gateway != nil {
+				gw = n.Network.Gateway.String()
+			}
+			fmt.Fprintf(&cmdline, " ip=%s::%s:%s:%s:eth%d:off:%s:%s",
+				n.Network.IP, gw,
+				net.IP(n.Network.Netmask), vmCfg.Name, i, dns0, dns1)
 		}
 	}
 	boot.Cmdline = cmdline.String()
@@ -195,6 +198,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		InstanceID:   vmID,
 		Hostname:     vmCfg.Name,
 		RootPassword: ch.conf.DefaultRootPassword,
+		DNS:          ch.conf.DNSServers(),
 	}
 	// Index i matches CH --net order → guest eth{i}. See prepareOCI comment.
 	for i, n := range networkConfigs {
@@ -214,7 +218,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	}
 
 	cidataPath := ch.conf.CHVMCidataPath(vmID)
-	f, err := os.OpenFile(cidataPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec
+	f, err := os.OpenFile(cidataPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("create cidata: %w", err)
 	}
@@ -254,4 +258,16 @@ func extractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfi
 		ids[blobHexFromPath(storageConfigs[0].Path)] = struct{}{}
 	}
 	return ids
+}
+
+// dnsFromConfig returns the first two DNS servers for kernel ip= param.
+func dnsFromConfig(servers []string) (string, string) {
+	dns0, dns1 := "", ""
+	if len(servers) > 0 {
+		dns0 = servers[0]
+	}
+	if len(servers) > 1 {
+		dns1 = servers[1]
+	}
+	return dns0, dns1
 }

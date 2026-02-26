@@ -41,6 +41,7 @@ var rootCmd = func() *cobra.Command {
 	cmd.PersistentFlags().String("cni-conf-dir", "", "CNI plugin config directory (default: /etc/cni/net.d)")
 	cmd.PersistentFlags().String("cni-bin-dir", "", "CNI plugin binary directory (default: /opt/cni/bin)")
 	cmd.PersistentFlags().String("root-password", "", "default root password for cloudimg VMs")
+	cmd.PersistentFlags().String("dns", "", `DNS servers for VMs, comma or semicolon separated (default: "8.8.8.8,8.8.4.4")`)
 
 	_ = viper.BindPFlag("root_dir", cmd.PersistentFlags().Lookup("root-dir"))
 	_ = viper.BindPFlag("run_dir", cmd.PersistentFlags().Lookup("run-dir"))
@@ -48,6 +49,7 @@ var rootCmd = func() *cobra.Command {
 	_ = viper.BindPFlag("cni_conf_dir", cmd.PersistentFlags().Lookup("cni-conf-dir"))
 	_ = viper.BindPFlag("cni_bin_dir", cmd.PersistentFlags().Lookup("cni-bin-dir"))
 	_ = viper.BindPFlag("default_root_password", cmd.PersistentFlags().Lookup("root-password"))
+	_ = viper.BindPFlag("dns", cmd.PersistentFlags().Lookup("dns"))
 
 	viper.SetEnvPrefix("COCOON")
 	viper.AutomaticEnv()

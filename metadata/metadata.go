@@ -16,6 +16,7 @@ type Config struct {
 	Hostname     string
 	RootPassword string
 	Networks     []NetworkInfo
+	DNS          []string // e.g. ["8.8.8.8", "8.8.4.4"]
 }
 
 // NetworkInfo describes a single guest network interface for cloud-init netplan.
@@ -62,6 +63,13 @@ ethernets:
     routes:
       - to: default
         via: {{.Gateway}}
+{{- end}}
+{{- if $.DNS}}
+    nameservers:
+      addresses:
+{{- range $.DNS}}
+        - {{.}}
+{{- end}}
 {{- end}}
 {{- end}}
 `))

@@ -2,6 +2,7 @@ package config
 
 import (
 	"runtime"
+	"strings"
 
 	coretypes "github.com/projecteru2/core/types"
 )
@@ -37,6 +38,10 @@ type Config struct {
 	// DefaultRootPassword is the root password injected into cloudimg VMs
 	// via cloud-init metadata. Empty means no password is set.
 	DefaultRootPassword string `json:"default_root_password" mapstructure:"default_root_password"`
+	// DNS is a comma or semicolon separated list of DNS server addresses
+	// injected into VM network configuration.
+	// Env: COCOON_DNS. Default: "8.8.8.8,8.8.4.4".
+	DNS string `json:"dns" mapstructure:"dns"`
 	// Log configuration, uses eru core's ServerLogConfig.
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
 }
@@ -50,6 +55,7 @@ func DefaultConfig() *Config {
 		CHBinary:           "cloud-hypervisor",
 		CNIConfDir:         "/etc/cni/net.d",
 		CNIBinDir:          "/opt/cni/bin",
+		DNS:                "8.8.8.8,1.1.1.1",
 		StopTimeoutSeconds: 30,
 		PoolSize:           runtime.NumCPU(),
 		Log: &coretypes.ServerLogConfig{
@@ -83,5 +89,24 @@ func ApplyDefaults(conf *Config) (*Config, error) {
 	if conf.CNIBinDir == "" {
 		conf.CNIBinDir = defaults.CNIBinDir
 	}
+	if conf.DNS == "" {
+		conf.DNS = defaults.DNS
+	}
 	return conf, nil
+}
+
+// DNSServers parses the DNS string into a slice of server addresses.
+func (c *Config) DNSServers() []string {
+	if c.DNS == "" {
+		return nil
+	}
+	raw := strings.ReplaceAll(c.DNS, ";", ",")
+	var servers []string
+	for s := range strings.SplitSeq(raw, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			servers = append(servers, s)
+		}
+	}
+	return servers
 }
