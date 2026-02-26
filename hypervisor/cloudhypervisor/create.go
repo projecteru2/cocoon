@@ -13,6 +13,7 @@ import (
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/metadata"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // CowSerial is the well-known virtio serial for the COW disk attached to OCI VMs.
@@ -25,7 +26,7 @@ const CowSerial = "cocoon-cow"
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
 func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
-	id, err := hypervisor.GenerateID()
+	id, err := utils.GenerateID()
 	if err != nil {
 		return nil, fmt.Errorf("generate VM ID: %w", err)
 	}
@@ -34,7 +35,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
 
 	// Step 1: write a placeholder record so GC won't treat our dirs as orphans.
-	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if updateErr := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		if idx.VMs[id] != nil {
 			return fmt.Errorf("ID collision %q (retry)", id)
 		}
@@ -50,14 +51,14 @@ func (ch *CloudHypervisor) Create(ctx context.Context, vmCfg *types.VMConfig, st
 		}
 		idx.Names[vmCfg.Name] = id
 		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("reserve VM record: %w", err)
+	}); updateErr != nil {
+		return nil, fmt.Errorf("reserve VM record: %w", updateErr)
 	}
 
 	// Step 2: create directories and prepare disks.
-	if err := ch.conf.EnsureCHVMDirs(id); err != nil {
+	if dirErr := ch.conf.EnsureCHVMDirs(id); dirErr != nil {
 		ch.rollbackCreate(ctx, id, vmCfg.Name)
-		return nil, fmt.Errorf("ensure dirs: %w", err)
+		return nil, fmt.Errorf("ensure dirs: %w", dirErr)
 	}
 
 	var (

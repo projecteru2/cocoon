@@ -15,7 +15,8 @@ var (
 type Network interface {
 	Type() string
 
-	Config(context.Context, []*types.VMConfig) ([][]*types.NetworkConfig, error)
+	// Config creates network namespace, bridge, and tap for a VM.
+	Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig) ([]*types.NetworkConfig, error)
 	Delete(context.Context, []string) ([]string, error)
 	Inspect(context.Context, string) (*types.Network, error)
 	List(context.Context) ([]*types.Network, error)
