@@ -11,6 +11,8 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
+const defaultDiskQueueSize = 256
+
 func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {
 	cpu := rec.Config.CPU
 	mem := rec.Config.Memory
@@ -86,7 +88,7 @@ func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDis
 		ReadOnly:  storageConfig.RO,
 		Serial:    storageConfig.Serial,
 		NumQueues: cpuCount,
-		QueueSize: 256, //nolint:mnd
+		QueueSize: defaultDiskQueueSize,
 	}
 
 	switch {

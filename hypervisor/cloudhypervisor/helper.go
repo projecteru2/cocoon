@@ -31,22 +31,25 @@ func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 // shutdownVM asks Cloud Hypervisor to shut down the guest (flush disk backends).
 // Used by the stop flow — the start flow uses CLI args instead of REST API.
 func shutdownVM(ctx context.Context, socketPath string) error {
+	hc := hypervisor.NewSocketHTTPClient(socketPath)
 	return hypervisor.DoWithRetry(ctx, func() error {
-		return hypervisor.DoPUT(ctx, socketPath, "/api/v1/vm.shutdown", nil)
+		return hypervisor.DoPUT(ctx, hc, "/api/v1/vm.shutdown", nil)
 	})
 }
 
 // powerButton sends an ACPI power-button event to the guest.
 func powerButton(ctx context.Context, socketPath string) error {
+	hc := hypervisor.NewSocketHTTPClient(socketPath)
 	return hypervisor.DoWithRetry(ctx, func() error {
-		return hypervisor.DoPUT(ctx, socketPath, "/api/v1/vm.power-button", nil)
+		return hypervisor.DoPUT(ctx, hc, "/api/v1/vm.power-button", nil)
 	})
 }
 
 // queryConsolePTY retrieves the virtio-console PTY path from a running CH instance
 // via GET /api/v1/vm.info. Returns empty string if the console is not in Pty mode.
 func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
-	body, err := hypervisor.DoGET(ctx, apiSocketPath, "/api/v1/vm.info")
+	hc := hypervisor.NewSocketHTTPClient(apiSocketPath)
+	body, err := hypervisor.DoGET(ctx, hc, "/api/v1/vm.info")
 	if err != nil {
 		return "", fmt.Errorf("query vm.info: %w", err)
 	}

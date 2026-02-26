@@ -136,6 +136,10 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 		vmName = sanitizeVMName(image)
 	}
 
+	if cpu <= 0 {
+		return nil, fmt.Errorf("--cpu must be at least 1")
+	}
+
 	memBytes, err := units.RAMInBytes(memStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid --memory %q: %w", memStr, err)

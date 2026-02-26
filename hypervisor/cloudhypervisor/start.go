@@ -79,9 +79,11 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	var consolePath string
 	if isDirectBoot(rec.BootConfig) {
-		var ptyErr error
-		consolePath, ptyErr = queryConsolePTY(ctx, socketPath)
-		if ptyErr != nil {
+		if ptyErr := hypervisor.DoWithRetry(ctx, func() error {
+			var err error
+			consolePath, err = queryConsolePTY(ctx, socketPath)
+			return err
+		}); ptyErr != nil {
 			log.WithFunc("cloudhypervisor.startOne").Warnf(ctx, "query console PTY for %s: %v", id, ptyErr)
 		}
 	} else {
