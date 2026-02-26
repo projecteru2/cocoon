@@ -3,6 +3,7 @@ package cni
 import (
 	"fmt"
 	"runtime"
+	"time"
 
 	cns "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
@@ -37,7 +38,15 @@ func createNetns(name string) error {
 }
 
 // deleteNetns removes a named network namespace.
+// Retries briefly because the kernel may still hold a reference to the netns
+// right after the CH process is killed (fd cleanup is asynchronous).
 func deleteNetns(name string) error {
+	for range 10 {
+		if err := netns.DeleteNamed(name); err == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	return netns.DeleteNamed(name)
 }
 
