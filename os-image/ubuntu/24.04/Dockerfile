@@ -16,7 +16,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     systemd-resolved \
     udev \
     kmod \
-    iproute2 iputils-ping curl wget arping\
+    iproute2 iputils-ping curl wget arping tcpdump \
     && \
     cp /run/secrets/cocoon_overlay /etc/initramfs-tools/scripts/cocoon-overlay && \
     chmod 0755 /etc/initramfs-tools/scripts/cocoon-overlay && \
