@@ -181,7 +181,11 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 // deleted VMs in the returned slice even when later deletions fail, so we always
 // report the partial results before checking the error.
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
-	ctx, hyper, err := h.initHyper(cmd)
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	hyper, err := cmdcore.InitHypervisor(conf)
 	if err != nil {
 		return err
 	}
@@ -198,6 +202,15 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	}
 	if len(deleted) == 0 {
 		logger.Info(ctx, "no VMs deleted")
+	}
+
+	// Clean up network resources (netns, CNI) for deleted VMs.
+	if len(deleted) > 0 {
+		if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
+			if _, delErr := netProvider.Delete(ctx, deleted); delErr != nil {
+				logger.Warnf(ctx, "network cleanup: %v", delErr)
+			}
+		}
 	}
 	return nil
 }
