@@ -15,6 +15,7 @@ type VMRecord struct {
 	NetworkConfigs []*types.NetworkConfig `json:"network_configs,omitempty"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`    // nil for UEFI boot (cloudimg)
 	ImageBlobIDs   map[string]struct{}    `json:"image_blob_ids,omitempty"` // blob hex set for GC pinning
+	FirstBooted    bool                   `json:"first_booted,omitempty"`   // true after the VM has been started at least once
 }
 
 // VMIndex is the top-level DB structure for a hypervisor backend.

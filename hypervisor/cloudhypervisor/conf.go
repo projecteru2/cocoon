@@ -47,6 +47,9 @@ func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig
 	}
 
 	for _, storageConfig := range rec.StorageConfigs {
+		if rec.FirstBooted && !isDirectBoot(rec.BootConfig) && isCidataDisk(storageConfig) {
+			continue
+		}
 		cfg.Disks = append(cfg.Disks, storageConfigToDisk(storageConfig, cpu))
 	}
 
@@ -80,6 +83,11 @@ func networkConfigToNet(nc *types.NetworkConfig) chNet {
 		OffloadUFO:  true,
 		OffloadCsum: true,
 	}
+}
+
+// isCidataDisk reports whether a storage config is the cloud-init cidata disk.
+func isCidataDisk(sc *types.StorageConfig) bool {
+	return filepath.Base(sc.Path) == "cidata.img"
 }
 
 func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDisk {

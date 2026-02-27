@@ -101,6 +101,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		r.StartedAt = &now
 		r.UpdatedAt = now
 		r.ConsolePath = consolePath
+		r.FirstBooted = true
 		return nil
 	}); err != nil {
 		_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, terminateGracePeriod)
