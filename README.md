@@ -42,8 +42,8 @@ Download pre-built binaries from [GitHub Releases](https://github.com/projecteru
 
 ```bash
 # Linux amd64
-curl -fsSL -o cocoon https://github.com/projecteru2/cocoon/releases/latest/download/cocoon_Linux_x86_64.tar.gz
-tar -xzf cocoon_Linux_x86_64.tar.gz
+curl -fsSL -o cocoon https://github.com/projecteru2/cocoon/releases/download/v0.1.1/cocoon_0.1.1_Linux_x86_64.tar.gz
+tar -xzf cocoon_0.1.1_Linux_x86_64.tar.gz
 install -m 0755 cocoon /usr/local/bin/
 
 # Or use go install
@@ -65,14 +65,18 @@ This produces a `cocoon` binary in the project root. Use `make install` to insta
 Cocoon ships a diagnostic script that checks your environment and can auto-install all dependencies:
 
 ```bash
+# Get script
+curl -fsSL -o cocoon-check https://raw.githubusercontent.com/projecteru2/cocoon/refs/heads/master/doctor/check.sh
+install -m 0755 cocoon-check /usr/local/bin/
+
 # Check only — reports PASS/FAIL for each requirement
-./doctor/check.sh
+cocoon-check
 
 # Check and fix — creates directories, sets sysctl, adds iptables rules
-./doctor/check.sh --fix
+cocoon-check --fix
 
 # Full setup — install cloud-hypervisor, firmware, and CNI plugins
-./doctor/check.sh --upgrade
+cocoon-check --upgrade
 ```
 
 The `--upgrade` flag downloads and installs:
@@ -84,7 +88,7 @@ The `--upgrade` flag downloads and installs:
 
 ```bash
 # Set up the environment (first time)
-sudo ./doctor/check.sh --upgrade
+sudo cocoon-check --upgrade
 
 # Pull an OCI VM image
 cocoon image pull ghcr.io/projecteru2/cocoon/ubuntu:24.04
