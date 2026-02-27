@@ -39,6 +39,8 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	}
 
 	// Track successfully added CNI interfaces for rollback.
+	// If store.Update at the end fails, retErr != nil triggers this defer.
+	// CNI DEL can run without persisted records (it uses RuntimeConf, not our DB).
 	var addedIFs []string
 	defer func() {
 		if retErr == nil {
@@ -128,15 +130,19 @@ func extractNetworkInfo(result cnitypes.Result, vmID string, nicIdx int) (*types
 		return nil, fmt.Errorf("CNI returned no IPs for %s NIC %d", vmID, nicIdx)
 	}
 
-	ip := newResult.IPs[0]
-	ones, _ := ip.Address.Mask.Size()
-
-	info := &types.Network{
-		IP:     ip.Address.IP.String(),
-		Prefix: ones,
+	// Find the first IPv4 address. Dual-stack CNI plugins may return IPv6 first.
+	for _, ipCfg := range newResult.IPs {
+		if ipCfg.Address.IP.To4() != nil {
+			ones, _ := ipCfg.Address.Mask.Size()
+			info := &types.Network{
+				IP:     ipCfg.Address.IP.String(),
+				Prefix: ones,
+			}
+			if ipCfg.Gateway != nil {
+				info.Gateway = ipCfg.Gateway.String()
+			}
+			return info, nil
+		}
 	}
-	if ip.Gateway != nil {
-		info.Gateway = ip.Gateway.String()
-	}
-	return info, nil
+	return nil, fmt.Errorf("CNI returned no IPv4 address for %s NIC %d", vmID, nicIdx)
 }

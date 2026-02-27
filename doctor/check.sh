@@ -38,20 +38,23 @@ FIRMWARE_PATH="${FIRMWARE_DIR}/CLOUDHV.fd"
 # ---------------------------------------------------------------------------
 FIX=false
 UPGRADE=false
+SUBNET=""
 for arg in "$@"; do
     case "$arg" in
         --fix)     FIX=true ;;
         --upgrade) FIX=true; UPGRADE=true ;;
+        --subnet=*) SUBNET="${arg#--subnet=}" ;;
         -h|--help)
             cat <<EOF
-Usage: $0 [--fix] [--upgrade]
+Usage: $0 [--fix] [--upgrade] [--subnet=CIDR]
 
 Options:
-  --fix      Attempt to fix detected issues (dirs, sysctl, iptables)
-  --upgrade  Fix issues and install/upgrade dependencies:
-               cloud-hypervisor ${CH_VERSION}
-               hypervisor-fw    ${FW_VERSION}
-               CNI plugins      ${CNI_VERSION}
+  --fix            Attempt to fix detected issues (dirs, sysctl, iptables, CNI config)
+  --upgrade        Fix issues and install/upgrade dependencies:
+                     cloud-hypervisor ${CH_VERSION}
+                     hypervisor-fw    ${FW_VERSION}
+                     CNI plugins      ${CNI_VERSION}
+  --subnet=CIDR    Subnet for generated CNI bridge config (default: 10.88.0.0/16)
 
 Environment variables:
   CH_VERSION    Cloud Hypervisor version    (default: ${CH_VERSION})
@@ -76,6 +79,50 @@ fail()   { FAIL=$((FAIL + 1)); printf "  \033[31m[FAIL]\033[0m %s\n" "$1"; }
 info()   { printf "  \033[36m[INFO]\033[0m %s\n" "$1"; }
 fixed()  { printf "  \033[32m[FIXED]\033[0m %s\n" "$1"; }
 header() { printf "\n\033[1m==> %s\033[0m\n" "$1"; }
+
+# ---------------------------------------------------------------------------
+# CNI conflist generator
+# ---------------------------------------------------------------------------
+generate_cni_conflist() {
+    local subnet="${SUBNET:-10.88.0.0/16}"
+
+    # Extract gateway: replace last octet of network address with .1
+    local network_part
+    network_part=$(echo "$subnet" | cut -d/ -f1)
+    local prefix_len
+    prefix_len=$(echo "$subnet" | cut -d/ -f2)
+    # Simple gateway: network address with last octet = 1
+    local gateway
+    gateway=$(echo "$network_part" | awk -F. '{printf "%s.%s.%s.1", $1, $2, $3}')
+
+    info "generating CNI conflist: subnet=${subnet} gateway=${gateway}"
+    mkdir -p "$COCOON_CNI_CONF_DIR"
+    cat > "$CNI_CONFLIST" <<CNIEOF
+{
+  "cniVersion": "1.0.0",
+  "name": "cocoon",
+  "plugins": [
+    {
+      "type": "bridge",
+      "bridge": "cni0",
+      "isGateway": true,
+      "ipMasq": true,
+      "hairpinMode": true,
+      "ipam": {
+        "type": "host-local",
+        "ranges": [
+          [{"subnet": "${subnet}", "gateway": "${gateway}"}]
+        ],
+        "routes": [
+          {"dst": "0.0.0.0/0"}
+        ]
+      }
+    }
+  ]
+}
+CNIEOF
+    fixed "generated $CNI_CONFLIST (subnet: ${subnet})"
+}
 
 # ---------------------------------------------------------------------------
 # 1. Binary dependencies
@@ -241,6 +288,8 @@ check_iptables_rule "FORWARD -o cni0 -m conntrack --ctstate RELATED,ESTABLISHED 
 # ---------------------------------------------------------------------------
 header "CNI configuration"
 
+CNI_CONFLIST="${COCOON_CNI_CONF_DIR}/10-cocoon.conflist"
+
 if [ -d "$COCOON_CNI_CONF_DIR" ]; then
     conflist_count=$(find "$COCOON_CNI_CONF_DIR" -maxdepth 1 -name '*.conflist' 2>/dev/null | wc -l)
     if [ "$conflist_count" -gt 0 ]; then
@@ -248,11 +297,15 @@ if [ -d "$COCOON_CNI_CONF_DIR" ]; then
         pass "conflist: $(basename "$first")"
     else
         fail "no .conflist files in $COCOON_CNI_CONF_DIR"
+        if $FIX; then
+            generate_cni_conflist
+        fi
     fi
 else
     fail "$COCOON_CNI_CONF_DIR does not exist"
     if $FIX; then
         mkdir -p "$COCOON_CNI_CONF_DIR" && fixed "created $COCOON_CNI_CONF_DIR" || warn "failed"
+        generate_cni_conflist
     fi
 fi
 

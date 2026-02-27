@@ -80,13 +80,13 @@ The `--upgrade` flag downloads and installs:
 sudo ./doctor/check.sh --upgrade
 
 # Pull an OCI VM image
-cocoon image pull ubuntu:24.04
+cocoon image pull ghcr.io/projecteru2/cocoon/ubuntu:24.04
 
 # Or pull a cloud image from URL
 cocoon image pull https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img
 
 # Create and start a VM
-cocoon vm run --name my-vm --cpu 2 --memory 1G ubuntu:24.04
+cocoon vm run --name my-vm --cpu 2 --memory 1G ghcr.io/projecteru2/cocoon/ubuntu:24.04
 
 # Attach interactive console
 cocoon vm console my-vm
@@ -125,28 +125,28 @@ cocoon
 
 ## Global Flags
 
-| Flag | Env Variable | Default | Description |
-|------|-------------|---------|-------------|
-| `--config` | | | Config file path |
-| `--root-dir` | `COCOON_ROOT_DIR` | `/var/lib/cocoon` | Root directory for persistent data |
-| `--run-dir` | `COCOON_RUN_DIR` | `/var/run/cocoon` | Runtime directory for sockets and PIDs |
-| `--log-dir` | `COCOON_LOG_DIR` | `/var/log/cocoon` | Log directory for VM serial logs |
-| `--cni-conf-dir` | `COCOON_CNI_CONF_DIR` | `/etc/cni/net.d` | CNI plugin config directory |
-| `--cni-bin-dir` | `COCOON_CNI_BIN_DIR` | `/opt/cni/bin` | CNI plugin binary directory |
-| `--root-password` | `COCOON_DEFAULT_ROOT_PASSWORD` | | Default root password for cloudimg VMs |
-| `--dns` | `COCOON_DNS` | `8.8.8.8,1.1.1.1` | DNS servers for VMs (comma separated) |
+| Flag              | Env Variable                   | Default           | Description                            |
+| ----------------- | ------------------------------ | ----------------- | -------------------------------------- |
+| `--config`        |                                |                   | Config file path                       |
+| `--root-dir`      | `COCOON_ROOT_DIR`              | `/var/lib/cocoon` | Root directory for persistent data     |
+| `--run-dir`       | `COCOON_RUN_DIR`               | `/var/run/cocoon` | Runtime directory for sockets and PIDs |
+| `--log-dir`       | `COCOON_LOG_DIR`               | `/var/log/cocoon` | Log directory for VM serial logs       |
+| `--cni-conf-dir`  | `COCOON_CNI_CONF_DIR`          | `/etc/cni/net.d`  | CNI plugin config directory            |
+| `--cni-bin-dir`   | `COCOON_CNI_BIN_DIR`           | `/opt/cni/bin`    | CNI plugin binary directory            |
+| `--root-password` | `COCOON_DEFAULT_ROOT_PASSWORD` |                   | Default root password for cloudimg VMs |
+| `--dns`           | `COCOON_DNS`                   | `8.8.8.8,1.1.1.1` | DNS servers for VMs (comma separated)  |
 
 ## VM Flags
 
 Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--name` | `cocoon-<image>` | VM name |
-| `--cpu` | `2` | Boot CPUs |
-| `--memory` | `1G` | Memory size (e.g., 512M, 2G) |
-| `--storage` | `10G` | COW disk size (e.g., 10G, 20G) |
-| `--nics` | `1` | Number of network interfaces (0 = no network) |
+| Flag        | Default          | Description                                   |
+| ----------- | ---------------- | --------------------------------------------- |
+| `--name`    | `cocoon-<image>` | VM name                                       |
+| `--cpu`     | `2`              | Boot CPUs                                     |
+| `--memory`  | `1G`             | Memory size (e.g., 512M, 2G)                  |
+| `--storage` | `10G`            | COW disk size (e.g., 10G, 20G)                |
+| `--nics`    | `1`              | Number of network interfaces (0 = no network) |
 
 ## Networking
 

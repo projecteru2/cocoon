@@ -51,7 +51,9 @@ EOF
         [ -n "$IPV4DNS0" ] && [ "$IPV4DNS0" != "0.0.0.0" ] && printf "DNS=%s\n" "$IPV4DNS0"
         [ -n "$IPV4DNS1" ] && [ "$IPV4DNS1" != "0.0.0.0" ] && printf "DNS=%s\n" "$IPV4DNS1"
         # Fallback DNS if none provided.
-        [ -z "$IPV4DNS0" ] || [ "$IPV4DNS0" = "0.0.0.0" ] && printf "DNS=8.8.8.8\nDNS=8.8.4.4\n"
+        if [ -z "$IPV4DNS0" ] || [ "$IPV4DNS0" = "0.0.0.0" ]; then
+            printf "DNS=8.8.8.8\nDNS=8.8.4.4\n"
+        fi
     } > "${rootmnt}/etc/systemd/network/10-${DEVICE}.network"
 
     # Collect DNS servers for resolv.conf.
