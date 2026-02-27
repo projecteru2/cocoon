@@ -11,10 +11,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	csconsole "github.com/containerd/console"
 	units "github.com/docker/go-units"
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
 	"github.com/projecteru2/cocoon/console"
@@ -147,17 +147,16 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fd := int(os.Stdin.Fd())
-	if !term.IsTerminal(fd) {
-		return fmt.Errorf("stdin is not a terminal")
+	current, err := csconsole.ConsoleFromFile(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("stdin is not a terminal: %w", err)
 	}
 
-	oldState, err := term.MakeRaw(fd)
-	if err != nil {
+	if err := current.SetRaw(); err != nil {
 		return fmt.Errorf("set raw mode: %w", err)
 	}
 	defer func() {
-		_ = term.Restore(fd, oldState)
+		_ = current.Reset()
 		fmt.Fprintf(os.Stderr, "\r\nDisconnected from %s.\r\n", ref)
 	}()
 
@@ -171,11 +170,14 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 
 	// Propagate terminal resize to PTY-backed consoles (direct boot / OCI).
 	if f, ok := conn.(*os.File); ok {
-		cleanup := console.HandleSIGWINCH(os.Stdin, f)
-		defer cleanup()
+		if remote, cErr := csconsole.ConsoleFromFile(f); cErr == nil {
+			cleanup := console.HandleResize(current, remote)
+			defer cleanup()
+		}
 	}
 
-	if err := console.Relay(ctx, rw, escapeChar); err != nil {
+	escapeKeys := []byte{escapeChar, '.'}
+	if err := console.Relay(ctx, rw, escapeKeys); err != nil {
 		return fmt.Errorf("relay: %w", err)
 	}
 	return nil

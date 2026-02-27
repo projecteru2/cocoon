@@ -9,23 +9,13 @@ import (
 	"syscall"
 )
 
-const (
-	stateNormal    escapeState = iota
-	stateLineStart             // After CR/LF or at session start — escape char recognized here.
-	stateEscaped               // Escape char received at line start.
-
-	DefaultEscapeChar byte = 0x1D
-)
-
-// escapeState tracks the three-state escape detection machine.
-// Escape sequences are only recognized at the start of a line (after CR/LF
-// or at session start), matching SSH client behavior.
-type escapeState int
+const DefaultEscapeChar byte = 0x1D // Ctrl+]
 
 // Relay runs bidirectional I/O between the user terminal and the remote.
 // rw can be a PTY (*os.File) or a Unix socket (net.Conn) — any io.ReadWriter.
+// escapeKeys is the byte sequence that triggers a detach (e.g. {0x1D, '.'}).
 // Returns nil on clean disconnect (escape sequence, EOF, or EIO).
-func Relay(ctx context.Context, rw io.ReadWriter, escapeChar byte) error {
+func Relay(ctx context.Context, rw io.ReadWriter, escapeKeys []byte) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -40,7 +30,8 @@ func Relay(ctx context.Context, rw io.ReadWriter, escapeChar byte) error {
 
 	// stdin → remote (user input to guest), with escape detection.
 	go func() {
-		err := relayStdinToPTY(ctx, os.Stdin, rw, escapeChar)
+		proxy := NewEscapeProxy(ctxReader(ctx, os.Stdin), escapeKeys)
+		_, err := io.Copy(rw, proxy)
 		errCh <- err
 		cancel()
 	}()
@@ -60,10 +51,16 @@ func Relay(ctx context.Context, rw io.ReadWriter, escapeChar byte) error {
 	}
 
 	if firstErr == nil || isCleanExit(firstErr) {
-		// cancel() already fired — the other goroutine will exit promptly
-		// (relayStdinToPTY checks ctx.Done(); io.Copy returns on close).
-		if secondErr := <-errCh; secondErr != nil && !isCleanExit(secondErr) {
-			return secondErr
+		// Non-blocking: io.Copy on the remote side does NOT check ctx — it
+		// only returns when rw is closed.  The caller's defer conn.Close()
+		// handles that after Relay returns.  errCh has cap 2 so the
+		// goroutine won't leak.
+		select {
+		case secondErr := <-errCh:
+			if secondErr != nil && !isCleanExit(secondErr) {
+				return secondErr
+			}
+		default:
 		}
 		return nil
 	}
@@ -103,92 +100,47 @@ func validateEscapeByte(b byte, original string) (byte, error) {
 	case b == 0:
 		return 0, fmt.Errorf("NUL cannot be used as escape character")
 	case b == '\r' || b == '\n':
-		return 0, fmt.Errorf("CR/LF cannot be used as escape character (conflicts with line-start detection)")
-	case b == '.' || b == '?':
-		return 0, fmt.Errorf("%q cannot be used as escape character (conflicts with escape sequence commands)", original)
+		return 0, fmt.Errorf("CR/LF cannot be used as escape character")
 	case b == 0x7F: //nolint:mnd
 		return 0, fmt.Errorf("DEL (0x7F) cannot be used as escape character")
 	case b >= 0x80: //nolint:mnd
 		return 0, fmt.Errorf("non-ASCII byte 0x%02X cannot be used as escape character", b)
 	}
+	_ = original // used in older validation messages, kept for signature compat
 	return b, nil
 }
 
-// isCleanExit returns true for errors that indicate a normal PTY disconnect.
+// isCleanExit returns true for errors that indicate a normal disconnect.
 func isCleanExit(err error) bool {
-	return errors.Is(err, io.EOF) || errors.Is(err, syscall.EIO)
+	var escErr EscapeError
+	return errors.Is(err, io.EOF) || errors.Is(err, syscall.EIO) || errors.As(err, &escErr)
 }
 
-// relayStdinToPTY reads from stdin and writes to the PTY, with escape
-// sequence detection. Returns nil on disconnect (escape-char + '.').
-func relayStdinToPTY(ctx context.Context, stdin io.Reader, pty io.Writer, escapeChar byte) error {
-	state := stateLineStart // Start of session acts as start of line.
-	buf := make([]byte, 1)
+// ctxReader wraps an io.Reader so that reads are abandoned when ctx is canceled.
+// This is needed because os.Stdin.Read blocks and cannot be interrupted.
+type ctxReaderWrapper struct {
+	ctx context.Context
+	r   io.Reader
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
+func ctxReader(ctx context.Context, r io.Reader) io.Reader {
+	return &ctxReaderWrapper{ctx: ctx, r: r}
+}
 
-		n, err := stdin.Read(buf)
-		if n == 0 || err != nil {
-			return err
-		}
-		b := buf[0]
-
-		switch state {
-		case stateNormal:
-			if b == '\r' || b == '\n' {
-				state = stateLineStart
-			}
-			if _, werr := pty.Write(buf[:1]); werr != nil {
-				return werr
-			}
-
-		case stateLineStart:
-			if b == escapeChar {
-				state = stateEscaped
-				continue // Do not forward escape char yet.
-			}
-			if b == '\r' || b == '\n' {
-				state = stateLineStart
-			} else {
-				state = stateNormal
-			}
-			if _, werr := pty.Write(buf[:1]); werr != nil {
-				return werr
-			}
-
-		case stateEscaped:
-			switch b {
-			case '.':
-				return nil // Disconnect.
-			case '?':
-				esc := FormatEscapeChar(escapeChar)
-				helpMsg := "\r\nSupported escape sequences:\r\n" +
-					"  " + esc + ".  Disconnect\r\n" +
-					"  " + esc + "?  This help\r\n" +
-					"  " + esc + esc + "  Send escape character\r\n"
-				_, _ = os.Stdout.Write([]byte(helpMsg))
-				state = stateLineStart
-				continue
-			case escapeChar:
-				state = stateNormal
-				if _, werr := pty.Write([]byte{escapeChar}); werr != nil {
-					return werr
-				}
-			default:
-				if b == '\r' || b == '\n' {
-					state = stateLineStart
-				} else {
-					state = stateNormal
-				}
-				if _, werr := pty.Write([]byte{escapeChar, b}); werr != nil {
-					return werr
-				}
-			}
-		}
+func (cr *ctxReaderWrapper) Read(p []byte) (int, error) {
+	type result struct {
+		n   int
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		n, err := cr.r.Read(p)
+		ch <- result{n, err}
+	}()
+	select {
+	case <-cr.ctx.Done():
+		return 0, cr.ctx.Err()
+	case r := <-ch:
+		return r.n, r.err
 	}
 }

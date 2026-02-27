@@ -3,6 +3,7 @@ module github.com/projecteru2/cocoon
 go 1.25.6
 
 require (
+	github.com/containerd/console v1.0.5
 	github.com/containernetworking/cni v1.3.0
 	github.com/containernetworking/plugins v1.9.0
 	github.com/docker/go-units v0.5.0
@@ -15,7 +16,6 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vishvananda/netns v0.0.5
 	golang.org/x/sync v0.19.0
-	golang.org/x/term v0.40.0
 )
 
 require (
