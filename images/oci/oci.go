@@ -39,7 +39,7 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	log.WithFunc("oci.New").Infof(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
+	log.WithFunc("oci.New").Debugf(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
 
 	store, locker := images.NewStore[imageIndex](conf.OCIIndexFile(), conf.OCIIndexLock())
 	o := &OCI{

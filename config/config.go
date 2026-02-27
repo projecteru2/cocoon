@@ -92,6 +92,11 @@ func ApplyDefaults(conf *Config) (*Config, error) {
 	if conf.DNS == "" {
 		conf.DNS = defaults.DNS
 	}
+	if conf.Log == nil {
+		conf.Log = defaults.Log
+	} else if conf.Log.Level == "" {
+		conf.Log.Level = defaults.Log.Level
+	}
 	return conf, nil
 }
 

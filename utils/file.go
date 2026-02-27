@@ -111,7 +111,7 @@ func RemoveMatching(ctx context.Context, dir string, match func(os.DirEntry) boo
 		if err := os.RemoveAll(path); err != nil {
 			errs = append(errs, fmt.Errorf("remove %s: %w", path, err))
 		} else {
-			log.WithFunc("gc").Infof(ctx, "GC removed: %s", path)
+			log.WithFunc("gc").Debugf(ctx, "GC removed: %s", path)
 		}
 	}
 	return errs

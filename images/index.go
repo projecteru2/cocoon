@@ -100,13 +100,13 @@ func deleteByID[E any](ctx context.Context, logPrefix string, images map[string]
 	for _, id := range ids {
 		refs := lookup(id)
 		if len(refs) == 0 {
-			logger.Infof(ctx, "image %q not found, skipping", id)
+			logger.Debugf(ctx, "image %q not found, skipping", id)
 			continue
 		}
 		for _, ref := range refs {
 			delete(images, ref)
 			deleted = append(deleted, ref)
-			logger.Infof(ctx, "deleted from index: %s", ref)
+			logger.Debugf(ctx, "deleted from index: %s", ref)
 		}
 	}
 	return deleted

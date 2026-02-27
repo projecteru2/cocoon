@@ -66,7 +66,7 @@ func pull(ctx context.Context, conf *config.Config, store storage.Store[imageInd
 		if _, entry, ok := idx.Lookup(url); ok {
 			blobPath := conf.CloudimgBlobPath(entry.ContentSum.Hex())
 			if utils.ValidFile(blobPath) {
-				logger.Infof(ctx, "image %s already cached, skipping", url)
+				logger.Debugf(ctx, "image %s already cached, skipping", url)
 				skip = true
 			}
 		}
@@ -147,12 +147,12 @@ func downloadAndConvert(ctx context.Context, conf *config.Config, url string, tr
 	if err != nil {
 		return "", "", err
 	}
-	logger.Infof(ctx, "downloaded %s -> %s (sha256:%s)", url, tmpPath, digestHex)
+	logger.Debugf(ctx, "downloaded %s -> %s (sha256:%s)", url, tmpPath, digestHex)
 
 	// Check if blob already exists (another URL might have same content).
 	blobPath := conf.CloudimgBlobPath(digestHex)
 	if utils.ValidFile(blobPath) {
-		logger.Infof(ctx, "blob %s already exists, skipping conversion", digestHex)
+		logger.Debugf(ctx, "blob %s already exists, skipping conversion", digestHex)
 		return digestHex, "", nil
 	}
 
@@ -163,7 +163,7 @@ func downloadAndConvert(ctx context.Context, conf *config.Config, url string, tr
 	if err != nil {
 		return "", "", fmt.Errorf("detect format: %w", err)
 	}
-	logger.Infof(ctx, "detected source format: %s", format)
+	logger.Debugf(ctx, "detected source format: %s", format)
 
 	// Convert to qcow2 v3 (compat=1.1).
 	// Create temp in the temp dir (not blobs dir) so GC won't delete it
@@ -183,7 +183,7 @@ func downloadAndConvert(ctx context.Context, conf *config.Config, url string, tr
 		return "", "", fmt.Errorf("qemu-img convert: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
-	logger.Infof(ctx, "converted temp blob: %s", tmpBlobPath)
+	logger.Debugf(ctx, "converted temp blob: %s", tmpBlobPath)
 	return digestHex, tmpBlobPath, nil
 }
 

@@ -97,7 +97,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			Network:   netInfo,
 		})
 
-		logger.Infof(ctx, "NIC %d: %s ip=%s gw=%s tap=%s mac=%s",
+		logger.Debugf(ctx, "NIC %d: %s ip=%s gw=%s tap=%s mac=%s",
 			i, ifName, netInfo.IP, netInfo.Gateway, tapName, mac)
 	}
 

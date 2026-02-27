@@ -35,7 +35,7 @@ func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	log.WithFunc("cloudimg.New").Info(ctx, "cloud image backend initialized")
+	log.WithFunc("cloudimg.New").Debug(ctx, "cloud image backend initialized")
 
 	store, locker := images.NewStore[imageIndex](conf.CloudimgIndexFile(), conf.CloudimgIndexLock())
 	c := &CloudImg{

@@ -46,7 +46,7 @@ func pull(ctx context.Context, conf *config.Config, store storage.Store[imageInd
 		return err
 	}
 	if results == nil {
-		logger.Infof(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
+		logger.Debugf(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
 		return nil
 	}
 	// Clean up workDir after commit (not before).
@@ -87,7 +87,7 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 		OS:           "linux",
 	}
 
-	logger.Infof(ctx, "Pulling image: %s", ref)
+	logger.Debugf(ctx, "Pulling image: %s", ref)
 
 	img, fetchErr := remote.Image(parsedRef,
 		remote.WithAuthFromKeychain(authn.DefaultKeychain),
@@ -355,7 +355,7 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 		return nil
 	}
 
-	logger.Infof(ctx, "Layer %d: sha256:%s -> erofs (single-pass)", idx, digestHex[:12])
+	logger.Debugf(ctx, "Layer %d: sha256:%s -> erofs (single-pass)", idx, digestHex[:12])
 
 	// Per-layer work subdirectory avoids temp file conflicts when
 	// a manifest references the same digest more than once.
@@ -409,7 +409,7 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 // handleCachedLayer handles already-cached layers: checks boot files and self-heals if needed.
 func handleCachedLayer(ctx context.Context, conf *config.Config, layer v1.Layer, workDir string, idx, total int, digestHex string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) {
 	logger := log.WithFunc("oci.processLayer")
-	logger.Infof(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
+	logger.Debugf(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
 	result.erofsPath = conf.BlobPath(digestHex)
 
 	if utils.ValidFile(conf.KernelPath(digestHex)) {
@@ -540,7 +540,7 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 		} else {
 			initrdPath = dstPath
 		}
-		logger.Infof(ctx, "Layer %s: extracted %s", digestHex[:12], base)
+		logger.Debugf(ctx, "Layer %s: extracted %s", digestHex[:12], base)
 	}
 	return kernelPath, initrdPath, nil
 }
