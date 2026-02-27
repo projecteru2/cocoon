@@ -43,9 +43,7 @@ func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VM, 
 		if err != nil {
 			return err
 		}
-		info := idx.VMs[id].VM // value copy — detached from the DB record
-		ch.enrichRuntime(&info)
-		result = &info
+		result = ch.toVM(idx.VMs[id])
 		return nil
 	})
 }
@@ -58,9 +56,7 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VM, error) {
 			if rec == nil {
 				continue
 			}
-			info := rec.VM
-			ch.enrichRuntime(&info)
-			result = append(result, &info)
+			result = append(result, ch.toVM(rec))
 		}
 		return nil
 	})

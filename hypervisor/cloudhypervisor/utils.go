@@ -35,9 +35,14 @@ func (ch *CloudHypervisor) withRunningVM(id string, fn func(pid int) error) erro
 	return fn(pid)
 }
 
-func (ch *CloudHypervisor) enrichRuntime(info *types.VM) {
+// toVM converts a VMRecord to an external types.VM with runtime info.
+func (ch *CloudHypervisor) toVM(rec *hypervisor.VMRecord) *types.VM {
+	info := rec.VM // value copy — detached from the DB record
 	info.SocketPath = ch.conf.CHVMSocketPath(info.ID)
 	info.PID, _ = utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
+	info.NetworkConfigs = rec.NetworkConfigs
+	info.StorageConfigs = rec.StorageConfigs
+	return &info
 }
 
 func (ch *CloudHypervisor) updateState(ctx context.Context, id string, state types.VMState) error {

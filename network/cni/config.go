@@ -84,7 +84,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		// Step 3: inside netns — flush IP, create tap, wire via TC redirect (platform-specific).
 		// Returns eth0's MAC so the guest virtio-net uses the same address,
 		// required for anti-spoofing CNI plugins (Cilium, Calico eBPF, VPC ENI).
-		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName)
+		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, vmCfg.CPU)
 		if setupErr != nil {
 			return nil, fmt.Errorf("setup tc-redirect %s: %w", vmID, setupErr)
 		}

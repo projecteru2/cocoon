@@ -92,15 +92,19 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	slices.SortFunc(vms, func(a, b *types.VM) int { return a.CreatedAt.Compare(b.CreatedAt) })
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tNAME\tSTATE\tCPU\tMEMORY\tIMAGE\tCREATED")
+	_, _ = fmt.Fprintln(w, "ID\tNAME\tSTATE\tCPU\tMEMORY\tSTORAGE\tIP\tIMAGE\tCREATED")
 	for _, vm := range vms {
 		state := cmdcore.ReconcileState(vm)
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+		ips := vmIPs(vm)
+		storage := units.BytesSize(float64(vm.Config.Storage))
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
 			vm.ID,
 			vm.Config.Name,
 			state,
 			vm.Config.CPU,
 			units.BytesSize(float64(vm.Config.Memory)),
+			storage,
+			ips,
 			vm.Config.Image,
 			vm.CreatedAt.Local().Format(time.DateTime),
 		)
@@ -401,6 +405,20 @@ func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vm
 	fmt.Printf("  --disk \\\n")
 	fmt.Printf("    \"path=%s,readonly=off,direct=on,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)
+}
+
+// vmIPs extracts a comma-separated IP string from a VM's NetworkConfigs.
+func vmIPs(vm *types.VM) string {
+	var ips []string
+	for _, nc := range vm.NetworkConfigs {
+		if nc != nil && nc.Network != nil && nc.Network.IP != "" {
+			ips = append(ips, nc.Network.IP)
+		}
+	}
+	if len(ips) == 0 {
+		return "-"
+	}
+	return strings.Join(ips, ",")
 }
 
 // printCommonCHArgs outputs CH args for manual debugging.

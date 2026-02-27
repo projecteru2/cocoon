@@ -34,6 +34,10 @@ type VM struct {
 	SocketPath  string `json:"socket_path,omitempty"`  // CH API Unix socket
 	ConsolePath string `json:"console_path,omitempty"` // console output endpoint (socket or PTY)
 
+	// Attached resources — copied from VMRecord for inspect/display.
+	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
+	StorageConfigs []*StorageConfig `json:"storage_configs,omitempty"`
+
 	// Timestamps.
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`

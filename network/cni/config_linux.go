@@ -55,11 +55,11 @@ func deleteNetns(name string) error {
 // TC ingress + mirred redirect, and returns ifName's MAC address.
 // The caller should pass this MAC to CH so the guest's virtio-net MAC
 // matches the CNI veth — required for anti-spoofing CNI plugins.
-func setupTCRedirect(nsPath, ifName, tapName string) (string, error) {
+func setupTCRedirect(nsPath, ifName, tapName string, queues int) (string, error) {
 	var mac string
 	err := cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
 		var nsErr error
-		mac, nsErr = tcRedirectInNS(ifName, tapName)
+		mac, nsErr = tcRedirectInNS(ifName, tapName, queues)
 		return nsErr
 	})
 	return mac, err
@@ -71,7 +71,7 @@ func setupTCRedirect(nsPath, ifName, tapName string) (string, error) {
 //  3. Bring both interfaces up.
 //  4. Attach ingress qdisc to both.
 //  5. Add U32+mirred filters for bidirectional redirect.
-func tcRedirectInNS(ifName, tapName string) (string, error) {
+func tcRedirectInNS(ifName, tapName string, queues int) (string, error) {
 	// 1. Find CNI veth, capture its MAC, and flush IP addresses.
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
@@ -91,12 +91,20 @@ func tcRedirectInNS(ifName, tapName string) (string, error) {
 
 	// 2. Create tap device.
 	// VNET_HDR: allows kernel to parse virtio_net headers for checksum/GSO offload.
-	// ONE_QUEUE: prevents packet drops on older kernels when send buffer is full.
+	// Multi-queue: match CH num_queues so each vCPU gets its own TX/RX ring.
+	// Single-queue: ONE_QUEUE prevents packet drops on older kernels.
+	if queues <= 0 {
+		queues = 1
+	}
+	flags := netlink.TUNTAP_ONE_QUEUE | netlink.TUNTAP_VNET_HDR
+	if queues > 1 {
+		flags = netlink.TUNTAP_MULTI_QUEUE_DEFAULTS | netlink.TUNTAP_VNET_HDR
+	}
 	tap := &netlink.Tuntap{
 		LinkAttrs: netlink.LinkAttrs{Name: tapName},
 		Mode:      netlink.TUNTAP_MODE_TAP,
-		Queues:    1,
-		Flags:     netlink.TUNTAP_ONE_QUEUE | netlink.TUNTAP_VNET_HDR,
+		Queues:    queues,
+		Flags:     flags,
 	}
 	if addErr := netlink.LinkAdd(tap); addErr != nil {
 		return "", fmt.Errorf("add tap %s: %w", tapName, addErr)
