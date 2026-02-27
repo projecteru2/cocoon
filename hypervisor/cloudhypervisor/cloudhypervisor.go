@@ -43,7 +43,7 @@ func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VM, 
 		if err != nil {
 			return err
 		}
-		result = ch.toVM(idx.VMs[id])
+		result = toVM(idx.VMs[id])
 		return nil
 	})
 }
@@ -56,7 +56,7 @@ func (ch *CloudHypervisor) List(ctx context.Context) ([]*types.VM, error) {
 			if rec == nil {
 				continue
 			}
-			result = append(result, ch.toVM(rec))
+			result = append(result, toVM(rec))
 		}
 		return nil
 	})
@@ -68,8 +68,12 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 	if err != nil {
 		return nil, err
 	}
-	return forEachVM(ctx, ids, "Delete", true, func(ctx context.Context, id string) error {
-		if err := ch.withRunningVM(id, func(_ int) error {
+	return forEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
+		rec, loadErr := ch.loadRecord(ctx, id)
+		if loadErr != nil {
+			return loadErr
+		}
+		if err := ch.withRunningVM(&rec, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}
@@ -77,21 +81,31 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 		}); err != nil && !errors.Is(err, hypervisor.ErrNotRunning) {
 			return fmt.Errorf("stop before delete: %w", err)
 		}
-		if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-			rec := idx.VMs[id]
-			if rec == nil {
-				return hypervisor.ErrNotFound
-			}
-			delete(idx.Names, rec.Config.Name)
-			delete(idx.VMs, id)
-			return nil
-		}); err != nil {
-			return err
-		}
-		if err := ch.removeVMDirs(ctx, id); err != nil {
+		// Remove dirs BEFORE deleting the DB record so that a dir-cleanup
+		// failure keeps the record intact and the user can retry vm rm.
+		// This also ensures the ID lands in the succeeded list for network cleanup.
+		if err := removeVMDirs(rec.RunDir, rec.LogDir); err != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", err)
 		}
-		return nil
+		return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+			r := idx.VMs[id]
+			if r == nil {
+				return hypervisor.ErrNotFound
+			}
+			delete(idx.Names, r.Config.Name)
+			delete(idx.VMs, id)
+			return nil
+		})
+	})
+}
+
+// resolveRef resolves a single ref (ID, name, or prefix) to an exact VM ID.
+func (ch *CloudHypervisor) resolveRef(ctx context.Context, ref string) (string, error) {
+	var id string
+	return id, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+		var err error
+		id, err = hypervisor.ResolveVMRef(idx, ref)
+		return err
 	})
 }
 

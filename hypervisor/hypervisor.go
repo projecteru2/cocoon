@@ -28,8 +28,5 @@ type Hypervisor interface {
 	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
 	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
 
-	// TODO SNAPSHOT
-	// TODO RESTORE
-	// TODO MIGRATE
 	RegisterGC(*gc.Orchestrator)
 }

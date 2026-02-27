@@ -39,24 +39,7 @@ func (c *Config) CHVMRunDir(vmID string) string {
 	return filepath.Join(c.CHRunDir(), vmID)
 }
 
-func (c *Config) CHVMSocketPath(vmID string) string {
-	return filepath.Join(c.CHVMRunDir(vmID), "api.sock")
-}
-func (c *Config) CHVMPIDFile(vmID string) string { return filepath.Join(c.CHVMRunDir(vmID), "ch.pid") }
-
 func (c *Config) CHVMLogDir(vmID string) string { return filepath.Join(c.CHLogDir(), vmID) }
-func (c *Config) CHVMConsoleSock(vmID string) string {
-	return filepath.Join(c.CHVMRunDir(vmID), "console.sock")
-}
-
-func (c *Config) CHVMProcessLog(vmID string) string {
-	return filepath.Join(c.CHVMLogDir(vmID), "ch.log")
-}
-
-// CHVMCmdlineFile returns the path for the saved CH launch command.
-func (c *Config) CHVMCmdlineFile(vmID string) string {
-	return filepath.Join(c.CHVMRunDir(vmID), "cmdline")
-}
 
 // CHVMCOWRawPath returns the path for the OCI COW raw disk.
 func (c *Config) CHVMCOWRawPath(vmID string) string {

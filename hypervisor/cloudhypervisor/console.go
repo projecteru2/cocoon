@@ -16,16 +16,21 @@ import (
 // The endpoint is stored in VM.ConsolePath at start time.
 // The caller is responsible for closing the returned ReadWriteCloser.
 func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWriteCloser, error) {
-	info, err := ch.Inspect(ctx, ref)
+	id, err := ch.resolveRef(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	rec, err := ch.loadRecord(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	var conn io.ReadWriteCloser
-	if err := ch.withRunningVM(info.ID, func(_ int) error {
-		path := info.ConsolePath
+	if err := ch.withRunningVM(&rec, func(_ int) error {
+		path := rec.ConsolePath
 		if path == "" {
-			return fmt.Errorf("no console path for VM %s", info.ID)
+			return fmt.Errorf("no console path for VM %s", id)
 		}
 
 		fi, statErr := os.Stat(path)
@@ -48,7 +53,7 @@ func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWrit
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("console %s: %w", info.ID, err)
+		return nil, fmt.Errorf("console %s: %w", id, err)
 	}
 	return conn, nil
 }

@@ -326,7 +326,9 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *c
 	info, createErr := hyper.Create(ctx, vmID, vmCfg, storageConfigs, networkConfigs, bootCfg)
 	if createErr != nil {
 		if netProvider != nil {
-			_, _ = netProvider.Delete(ctx, []string{vmID})
+			if _, delErr := netProvider.Delete(ctx, []string{vmID}); delErr != nil {
+				log.WithFunc("cmd.createVM").Warnf(ctx, "rollback network for %s: %v", vmID, delErr)
+			}
 		}
 		return nil, nil, fmt.Errorf("create VM: %w", createErr)
 	}
@@ -356,10 +358,10 @@ func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName,
 	var diskArgs []string
 	for _, d := range configs {
 		diskArgs = append(diskArgs,
-			fmt.Sprintf("path=%s,readonly=on,direct=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", d.Path, d.Serial))
+			fmt.Sprintf("path=%s,readonly=on,direct=off,image_type=raw,num_queues=2,queue_size=256,serial=%s", d.Path, d.Serial))
 	}
 	diskArgs = append(diskArgs,
-		fmt.Sprintf("path=%s,readonly=off,direct=on,sparse=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", cowPath, cloudhypervisor.CowSerial))
+		fmt.Sprintf("path=%s,readonly=off,direct=off,sparse=on,image_type=raw,num_queues=2,queue_size=256,serial=%s", cowPath, cloudhypervisor.CowSerial))
 
 	cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
 
@@ -403,7 +405,7 @@ func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vm
 	fmt.Printf("%s \\\n", chBin)
 	fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
 	fmt.Printf("  --disk \\\n")
-	fmt.Printf("    \"path=%s,readonly=off,direct=on,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
+	fmt.Printf("    \"path=%s,readonly=off,direct=off,image_type=qcow2,backing_files=on,num_queues=2,queue_size=256\" \\\n", cowPath)
 	printCommonCHArgs(cpu, maxCPU, memory, balloon)
 }
 

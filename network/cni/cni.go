@@ -149,7 +149,7 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	// Remove the named netns (unmount bind-mount + remove file).
 	// deleteNetns retries briefly to handle async fd cleanup after process kill.
 	nsName := c.conf.CNINetnsName(vmID)
-	if err := deleteNetns(nsName); err != nil && !os.IsNotExist(err) {
+	if err := deleteNetns(ctx, nsName); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove netns %s: %w", nsPath, err)
 	}
 

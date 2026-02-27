@@ -24,11 +24,23 @@ const CowSerial = "cocoon-cow"
 // To avoid a race with GC (which scans directories and removes those not in
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
-func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) { //nolint:cyclop
+func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
 	var err error
 	now := time.Now()
+	runDir := ch.conf.CHVMRunDir(id)
+	logDir := ch.conf.CHVMLogDir(id)
 
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+
+	// Rollback on any failure after the placeholder is written.
+	// All cleanup ops are idempotent — safe even if dirs/records don't exist yet.
+	success := false
+	defer func() {
+		if !success {
+			_ = removeVMDirs(runDir, logDir)
+			ch.rollbackCreate(ctx, id, vmCfg.Name)
+		}
+	}()
 
 	// Step 1: write a placeholder record so GC won't treat our dirs as orphans.
 	if updateErr := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
@@ -44,6 +56,8 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 				Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
 			},
 			ImageBlobIDs: blobIDs,
+			RunDir:       runDir,
+			LogDir:       logDir,
 		}
 		idx.Names[vmCfg.Name] = id
 		return nil
@@ -52,51 +66,49 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 	}
 
 	// Step 2: create directories and prepare disks.
-	if dirErr := ch.conf.EnsureCHVMDirs(id); dirErr != nil {
-		ch.rollbackCreate(ctx, id, vmCfg.Name)
-		return nil, fmt.Errorf("ensure dirs: %w", dirErr)
+	if err = ch.conf.EnsureCHVMDirs(id); err != nil {
+		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	var (
-		preparedStorage []*types.StorageConfig
-		bootCopy        *types.BootConfig
-	)
+	var bootCopy *types.BootConfig
 	if bootCfg != nil {
 		b := *bootCfg
 		bootCopy = &b
 	}
+
+	var preparedStorage []*types.StorageConfig
 	if bootCopy != nil && bootCopy.KernelPath != "" {
 		preparedStorage, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, networkConfigs, bootCopy)
 	} else {
 		preparedStorage, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs, networkConfigs)
 	}
 	if err != nil {
-		_ = ch.removeVMDirs(ctx, id)
-		ch.rollbackCreate(ctx, id, vmCfg.Name)
 		return nil, err
 	}
 
 	// Step 3: finalize the record with full data and Created state.
 	info := types.VM{
 		ID: id, State: types.VMStateCreated,
-		Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
-	}
-	rec := hypervisor.VMRecord{
-		VM:             info,
+		Config:         *vmCfg,
 		StorageConfigs: preparedStorage,
 		NetworkConfigs: networkConfigs,
-		BootConfig:     bootCopy,
-		ImageBlobIDs:   blobIDs,
+		CreatedAt:      now, UpdatedAt: now,
+	}
+	rec := hypervisor.VMRecord{
+		VM:           info,
+		BootConfig:   bootCopy,
+		ImageBlobIDs: blobIDs,
+		RunDir:       runDir,
+		LogDir:       logDir,
 	}
 	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		idx.VMs[id] = &rec
 		return nil
 	}); err != nil {
-		_ = ch.removeVMDirs(ctx, id)
-		ch.rollbackCreate(ctx, id, vmCfg.Name)
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
 
+	success = true
 	return &info, nil
 }
 

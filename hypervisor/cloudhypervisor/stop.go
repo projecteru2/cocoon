@@ -31,7 +31,7 @@ func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	return forEachVM(ctx, ids, "Stop", true, ch.stopOne)
+	return forEachVM(ctx, ids, "Stop", ch.stopOne)
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
@@ -40,10 +40,10 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 		return err
 	}
 
-	socketPath := ch.conf.CHVMSocketPath(id)
+	socketPath := socketPath(rec.RunDir)
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
 
-	shutdownErr := ch.withRunningVM(id, func(pid int) error {
+	shutdownErr := ch.withRunningVM(&rec, func(pid int) error {
 		if isDirectBoot(rec.BootConfig) {
 			return ch.forceTerminate(ctx, id, socketPath, pid)
 		}
@@ -53,7 +53,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	switch {
 	case errors.Is(shutdownErr, hypervisor.ErrNotRunning):
 		// Fast path: no running process — clean up and mark stopped.
-		ch.cleanupRuntimeFiles(id)
+		cleanupRuntimeFiles(rec.RunDir)
 		return ch.updateState(ctx, id, types.VMStateStopped)
 	case shutdownErr != nil:
 		// Stop failed — do NOT clean runtime files; the process may still be
@@ -61,7 +61,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 		ch.markError(ctx, id)
 		return shutdownErr
 	default:
-		ch.cleanupRuntimeFiles(id)
+		cleanupRuntimeFiles(rec.RunDir)
 		return ch.updateState(ctx, id, types.VMStateStopped)
 	}
 }

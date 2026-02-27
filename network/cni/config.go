@@ -57,7 +57,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 				logger.Warnf(ctx, "rollback CNI DEL %s/%s: %v", vmID, ifn, delErr)
 			}
 		}
-		_ = deleteNetns(nsName)
+		_ = deleteNetns(ctx, nsName)
 	}()
 
 	for i := range numNICs {

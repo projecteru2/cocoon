@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/lock"
 	"github.com/projecteru2/cocoon/storage"
 	"github.com/projecteru2/cocoon/utils"
@@ -64,7 +66,11 @@ func (s *Store[T]) With(ctx context.Context, fn func(*T) error) error {
 	if err := s.locker.Lock(ctx); err != nil {
 		return err
 	}
-	defer s.locker.Unlock(ctx) //nolint:errcheck
+	defer func() {
+		if err := s.locker.Unlock(ctx); err != nil {
+			log.WithFunc("storage.json").Warnf(ctx, "unlock %s: %v", s.filePath, err)
+		}
+	}()
 	return s.Read(fn)
 }
 
@@ -74,7 +80,11 @@ func (s *Store[T]) Update(ctx context.Context, fn func(*T) error) error {
 	if err := s.locker.Lock(ctx); err != nil {
 		return err
 	}
-	defer s.locker.Unlock(ctx) //nolint:errcheck
+	defer func() {
+		if err := s.locker.Unlock(ctx); err != nil {
+			log.WithFunc("storage.json").Warnf(ctx, "unlock %s: %v", s.filePath, err)
+		}
+	}()
 	return s.Write(fn)
 }
 

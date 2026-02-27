@@ -1,10 +1,13 @@
 package cloudhypervisor
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/projecteru2/core/log"
 
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
@@ -13,12 +16,14 @@ import (
 
 const defaultDiskQueueSize = 256
 
-func buildVMConfig(rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {
+func buildVMConfig(ctx context.Context, rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {
 	cpu := rec.Config.CPU
 	mem := rec.Config.Memory
 
 	maxVCPUs := runtime.NumCPU()
 	if cpu > maxVCPUs {
+		log.WithFunc("cloudhypervisor.buildVMConfig").Warnf(ctx,
+			"requested %d vCPUs exceeds host cores (%d), clamping to %d", cpu, maxVCPUs, maxVCPUs)
 		cpu = maxVCPUs
 	}
 
@@ -182,7 +187,7 @@ func diskToCLIArg(d chDisk) string {
 		parts = append(parts, "readonly=on")
 	}
 	if d.Direct {
-		parts = append(parts, "direct=on")
+		parts = append(parts, "direct=off")
 	}
 	if d.Sparse {
 		parts = append(parts, "sparse=on")

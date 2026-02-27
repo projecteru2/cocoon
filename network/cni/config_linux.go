@@ -1,7 +1,9 @@
 package cni
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"syscall"
 	"time"
@@ -9,6 +11,8 @@ import (
 	cns "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
+
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // createNetns creates a named network namespace at /run/netns/{name}.
@@ -41,14 +45,11 @@ func createNetns(name string) error {
 // deleteNetns removes a named network namespace.
 // Retries briefly because the kernel may still hold a reference to the netns
 // right after the CH process is killed (fd cleanup is asynchronous).
-func deleteNetns(name string) error {
-	for range 10 {
-		if err := netns.DeleteNamed(name); err == nil {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return netns.DeleteNamed(name)
+func deleteNetns(ctx context.Context, name string) error {
+	return utils.WaitFor(ctx, time.Second, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
+		err := netns.DeleteNamed(name)
+		return err == nil || os.IsNotExist(err), nil
+	})
 }
 
 // setupTCRedirect enters the target netns, wires ifName ↔ tapName using

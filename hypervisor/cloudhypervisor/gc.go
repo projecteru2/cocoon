@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,17 +84,9 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
 			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
 			netnsOrphans := utils.FilterUnreferenced(snap.netnsNames, snap.vmIDs)
-			candidates := append(append(append(runOrphans, logOrphans...), netnsOrphans...), snap.staleCreate...)
-			seen := make(map[string]struct{}, len(candidates))
-			var result []string
-			for _, id := range candidates {
-				if _, ok := seen[id]; ok {
-					continue
-				}
-				seen[id] = struct{}{}
-				result = append(result, id)
-			}
-			return result
+			candidates := slices.Concat(runOrphans, logOrphans, netnsOrphans, snap.staleCreate)
+			slices.Sort(candidates)
+			return slices.Compact(candidates)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error
@@ -104,8 +97,14 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 				if err := netns.DeleteNamed(nsName); err != nil && !os.IsNotExist(err) {
 					errs = append(errs, fmt.Errorf("remove netns %s: %w", nsName, err))
 				}
-				// Remove orphan run/log directories.
-				if err := ch.removeVMDirs(ctx, id); err != nil {
+
+				// Try loading the DB record so we use stored RunDir/LogDir;
+				// for true orphans (no record) fall back to config-derived paths.
+				runDir, logDir := ch.conf.CHVMRunDir(id), ch.conf.CHVMLogDir(id)
+				if rec, loadErr := ch.loadRecord(ctx, id); loadErr == nil {
+					runDir, logDir = rec.RunDir, rec.LogDir
+				}
+				if err := removeVMDirs(runDir, logDir); err != nil {
 					errs = append(errs, err)
 				}
 			}

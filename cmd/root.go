@@ -93,11 +93,7 @@ func initConfig(ctx context.Context) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	var err error
-	conf, err = config.ApplyDefaults(conf)
-	if err != nil {
-		return fmt.Errorf("ensure dirs: %w", err)
-	}
+	conf = config.ApplyDefaults(conf)
 	if conf.PoolSize <= 0 {
 		conf.PoolSize = runtime.NumCPU()
 	}

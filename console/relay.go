@@ -60,12 +60,10 @@ func Relay(ctx context.Context, rw io.ReadWriter, escapeChar byte) error {
 	}
 
 	if firstErr == nil || isCleanExit(firstErr) {
-		select {
-		case secondErr := <-errCh:
-			if secondErr != nil && !isCleanExit(secondErr) {
-				return secondErr
-			}
-		default:
+		// cancel() already fired — the other goroutine will exit promptly
+		// (relayStdinToPTY checks ctx.Done(); io.Copy returns on close).
+		if secondErr := <-errCh; secondErr != nil && !isCleanExit(secondErr) {
+			return secondErr
 		}
 		return nil
 	}

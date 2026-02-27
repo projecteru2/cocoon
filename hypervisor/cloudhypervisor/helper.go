@@ -11,8 +11,8 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // ReverseLayerSerials extracts read-only layer serial names from StorageConfigs
@@ -31,25 +31,25 @@ func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 // shutdownVM asks Cloud Hypervisor to shut down the guest (flush disk backends).
 // Used by the stop flow — the start flow uses CLI args instead of REST API.
 func shutdownVM(ctx context.Context, socketPath string) error {
-	hc := hypervisor.NewSocketHTTPClient(socketPath)
-	return hypervisor.DoWithRetry(ctx, func() error {
-		return hypervisor.DoPUT(ctx, hc, "/api/v1/vm.shutdown", nil)
+	hc := utils.NewSocketHTTPClient(socketPath)
+	return utils.DoWithRetry(ctx, func() error {
+		return utils.DoPUT(ctx, hc, "/api/v1/vm.shutdown", nil)
 	})
 }
 
 // powerButton sends an ACPI power-button event to the guest.
 func powerButton(ctx context.Context, socketPath string) error {
-	hc := hypervisor.NewSocketHTTPClient(socketPath)
-	return hypervisor.DoWithRetry(ctx, func() error {
-		return hypervisor.DoPUT(ctx, hc, "/api/v1/vm.power-button", nil)
+	hc := utils.NewSocketHTTPClient(socketPath)
+	return utils.DoWithRetry(ctx, func() error {
+		return utils.DoPUT(ctx, hc, "/api/v1/vm.power-button", nil)
 	})
 }
 
 // queryConsolePTY retrieves the virtio-console PTY path from a running CH instance
 // via GET /api/v1/vm.info. Returns empty string if the console is not in Pty mode.
 func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
-	hc := hypervisor.NewSocketHTTPClient(apiSocketPath)
-	body, err := hypervisor.DoGET(ctx, hc, "/api/v1/vm.info")
+	hc := utils.NewSocketHTTPClient(apiSocketPath)
+	body, err := utils.DoGET(ctx, hc, "/api/v1/vm.info")
 	if err != nil {
 		return "", fmt.Errorf("query vm.info: %w", err)
 	}
@@ -68,18 +68,14 @@ func blobHexFromPath(path string) string {
 }
 
 // forEachVM runs fn for each ID, collects successes, and logs failures.
-// In bestEffort mode all IDs are attempted; errors are logged and collected.
-// Otherwise the first error stops processing.
+// All IDs are attempted (best-effort); errors are logged and collected.
 // The returned succeeded slice is always valid, even when err != nil.
-func forEachVM(ctx context.Context, ids []string, op string, bestEffort bool, fn func(context.Context, string) error) ([]string, error) {
+func forEachVM(ctx context.Context, ids []string, op string, fn func(context.Context, string) error) ([]string, error) {
 	logger := log.WithFunc("cloudhypervisor." + op)
 	var succeeded []string
 	var errs []error
 	for _, id := range ids {
 		if err := fn(ctx, id); err != nil {
-			if !bestEffort {
-				return succeeded, fmt.Errorf("%s VM %s: %w", op, id, err)
-			}
 			logger.Warnf(ctx, "%s VM %s: %v", op, id, err)
 			errs = append(errs, fmt.Errorf("VM %s: %w", id, err))
 			continue

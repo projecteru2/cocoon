@@ -214,6 +214,20 @@ func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestD
 		initrdLayer  images.Digest
 	)
 
+	// Validate boot files exist before moving any artifacts to shared paths.
+	hasKernel, hasInitrd := false, false
+	for i := range results {
+		if results[i].kernelPath != "" {
+			hasKernel = true
+		}
+		if results[i].initrdPath != "" {
+			hasInitrd = true
+		}
+	}
+	if !hasKernel || !hasInitrd {
+		return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
+	}
+
 	for i := range results {
 		r := &results[i]
 		layerDigestHex := r.digest.Hex()
@@ -494,7 +508,7 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 		}
 
 		// Accept regular files only (TypeReg and deprecated TypeRegA '\x00').
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != '\x00' { // '\x00' is deprecated tar.TypeRegA
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA { //nolint:staticcheck // accept deprecated TypeRegA from legacy tar writers
 			continue
 		}
 

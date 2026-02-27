@@ -27,21 +27,25 @@ func (ch *CloudHypervisor) chBinaryName() string {
 	return filepath.Base(ch.conf.CHBinary)
 }
 
-func (ch *CloudHypervisor) withRunningVM(id string, fn func(pid int) error) error {
-	pid, _ := utils.ReadPIDFile(ch.conf.CHVMPIDFile(id))
-	if !utils.VerifyProcessCmdline(pid, ch.chBinaryName(), ch.conf.CHVMSocketPath(id)) {
+// socketPath returns the API socket path under a VM's run directory.
+func socketPath(runDir string) string { return filepath.Join(runDir, "api.sock") }
+
+// pidFile returns the PID file path under a VM's run directory.
+func pidFile(runDir string) string { return filepath.Join(runDir, "ch.pid") }
+
+func (ch *CloudHypervisor) withRunningVM(rec *hypervisor.VMRecord, fn func(pid int) error) error {
+	pid, _ := utils.ReadPIDFile(pidFile(rec.RunDir))
+	if !utils.VerifyProcessCmdline(pid, ch.chBinaryName(), socketPath(rec.RunDir)) {
 		return hypervisor.ErrNotRunning
 	}
 	return fn(pid)
 }
 
 // toVM converts a VMRecord to an external types.VM with runtime info.
-func (ch *CloudHypervisor) toVM(rec *hypervisor.VMRecord) *types.VM {
+func toVM(rec *hypervisor.VMRecord) *types.VM {
 	info := rec.VM // value copy — detached from the DB record
-	info.SocketPath = ch.conf.CHVMSocketPath(info.ID)
-	info.PID, _ = utils.ReadPIDFile(ch.conf.CHVMPIDFile(info.ID))
-	info.NetworkConfigs = rec.NetworkConfigs
-	info.StorageConfigs = rec.StorageConfigs
+	info.SocketPath = socketPath(rec.RunDir)
+	info.PID, _ = utils.ReadPIDFile(pidFile(rec.RunDir))
 	return &info
 }
 
@@ -68,27 +72,26 @@ func (ch *CloudHypervisor) markError(ctx context.Context, id string) {
 	_ = ch.updateState(ctx, id, types.VMStateError)
 }
 
-func (ch *CloudHypervisor) saveCmdline(vmID string, args []string) {
+func (ch *CloudHypervisor) saveCmdline(rec *hypervisor.VMRecord, args []string) {
 	line := ch.conf.CHBinary + " " + strings.Join(args, " ")
-	_ = os.WriteFile(ch.conf.CHVMCmdlineFile(vmID), []byte(line), 0o600) //nolint:gosec
+	_ = os.WriteFile(filepath.Join(rec.RunDir, "cmdline"), []byte(line), 0o600) //nolint:gosec
 }
 
-func (ch *CloudHypervisor) cleanupRuntimeFiles(vmID string) {
-	_ = os.Remove(ch.conf.CHVMSocketPath(vmID))
-	_ = os.Remove(ch.conf.CHVMPIDFile(vmID))
-	_ = os.Remove(ch.conf.CHVMCmdlineFile(vmID))
-	_ = os.Remove(ch.conf.CHVMConsoleSock(vmID))
+// runtimeFiles are the per-VM files created at start time
+// and removed at stop / cleanup.
+var runtimeFiles = []string{"api.sock", "ch.pid", "cmdline", "console.sock"}
+
+func cleanupRuntimeFiles(runDir string) {
+	for _, name := range runtimeFiles {
+		_ = os.Remove(filepath.Join(runDir, name))
+	}
 }
 
-func (ch *CloudHypervisor) removeVMDirs(_ context.Context, vmID string) error {
-	var errs []error
-	if err := os.RemoveAll(ch.conf.CHVMRunDir(vmID)); err != nil {
-		errs = append(errs, fmt.Errorf("run dir %s: %w", vmID, err))
-	}
-	if err := os.RemoveAll(ch.conf.CHVMLogDir(vmID)); err != nil {
-		errs = append(errs, fmt.Errorf("log dir %s: %w", vmID, err))
-	}
-	return errors.Join(errs...)
+func removeVMDirs(runDir, logDir string) error {
+	return errors.Join(
+		os.RemoveAll(runDir),
+		os.RemoveAll(logDir),
+	)
 }
 
 // rollbackCreate removes a placeholder VM record from the DB.

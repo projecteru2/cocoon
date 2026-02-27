@@ -3,6 +3,7 @@ package oci
 import (
 	"context"
 	"os"
+	"slices"
 
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/images"
@@ -42,20 +43,12 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			used := gc.CollectUsedBlobIDs(others)
 			allRefs := utils.MergeSets(snap.refs, used)
 
-			candidates := append(
+			candidates := slices.Concat(
 				utils.FilterUnreferenced(snap.blobs, allRefs),
-				utils.FilterUnreferenced(snap.bootDirs, allRefs)...,
+				utils.FilterUnreferenced(snap.bootDirs, allRefs),
 			)
-			// Deduplicate (a hex may appear in both blobs and bootDirs).
-			seen := make(map[string]struct{}, len(candidates))
-			var result []string
-			for _, hex := range candidates {
-				if _, ok := seen[hex]; !ok {
-					seen[hex] = struct{}{}
-					result = append(result, hex)
-				}
-			}
-			return result
+			slices.Sort(candidates)
+			return slices.Compact(candidates)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			return images.GCCollectBlobs(ctx, o.conf.OCITempDir(), true, ids,

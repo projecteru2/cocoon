@@ -1,6 +1,9 @@
 package utils
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+)
 
 // LookupCopy returns a copy of the value at key in m.
 // Returns an error if the key is absent or the stored pointer is nil.
@@ -22,9 +25,7 @@ func MergeSets[K comparable](sets ...map[K]struct{}) map[K]struct{} {
 	}
 	out := make(map[K]struct{}, total)
 	for _, s := range sets {
-		for k := range s {
-			out[k] = struct{}{}
-		}
+		maps.Copy(out, s)
 	}
 	return out
 }

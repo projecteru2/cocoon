@@ -40,7 +40,7 @@ type Config struct {
 	DefaultRootPassword string `json:"default_root_password" mapstructure:"default_root_password"`
 	// DNS is a comma or semicolon separated list of DNS server addresses
 	// injected into VM network configuration.
-	// Env: COCOON_DNS. Default: "8.8.8.8,8.8.4.4".
+	// Env: COCOON_DNS. Default: "8.8.8.8,1.1.1.1".
 	DNS string `json:"dns" mapstructure:"dns"`
 	// Log configuration, uses eru core's ServerLogConfig.
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
@@ -69,7 +69,7 @@ func DefaultConfig() *Config {
 
 // ApplyDefaults fills in zero-value fields with sensible defaults.
 // Called after viper.Unmarshal to handle empty strings from unset flags/env.
-func ApplyDefaults(conf *Config) (*Config, error) {
+func ApplyDefaults(conf *Config) *Config {
 	defaults := DefaultConfig()
 	if conf.RootDir == "" {
 		conf.RootDir = defaults.RootDir
@@ -97,7 +97,7 @@ func ApplyDefaults(conf *Config) (*Config, error) {
 	} else if conf.Log.Level == "" {
 		conf.Log.Level = defaults.Log.Level
 	}
-	return conf, nil
+	return conf
 }
 
 // DNSServers parses the DNS string into a slice of server addresses.

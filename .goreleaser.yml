@@ -14,7 +14,6 @@ builds:
       - -X github.com/projecteru2/cocoon/version.VERSION={{.Env.VERSION}}
       - -X github.com/projecteru2/cocoon/version.BUILTAT={{.Date}}
     goos:
-      - darwin
       - linux
     goarch:
       - amd64
@@ -36,27 +35,10 @@ builds:
       - arm64
     main: .
 
-  - id: cocoon-darwin
-    binary: cocoon
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -w -s
-      - -X github.com/projecteru2/cocoon/version.REVISION={{.Commit}}
-      - -X github.com/projecteru2/cocoon/version.VERSION={{.Env.VERSION}}
-      - -X github.com/projecteru2/cocoon/version.BUILTAT={{.Date}}
-    goos:
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    main: .
-
 archives:
   - id: release
     builds:
       - cocoon-linux
-      - cocoon-darwin
     name_template: >-
       {{- .ProjectName }}_{{- .Version }}_
       {{- title .Os }}_

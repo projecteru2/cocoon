@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -27,7 +28,7 @@ func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	return forEachVM(ctx, ids, "Start", true, ch.startOne)
+	return forEachVM(ctx, ids, "Start", ch.startOne)
 }
 
 func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
@@ -38,7 +39,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	// Idempotent: skip if the VM process is already running regardless of
 	// recorded state — prevents double-launch after a state-update failure.
-	runErr := ch.withRunningVM(id, func(_ int) error {
+	runErr := ch.withRunningVM(&rec, func(_ int) error {
 		if rec.State != types.VMStateRunning {
 			return ch.updateState(ctx, id, types.VMStateRunning)
 		}
@@ -54,24 +55,26 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		return fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}
 
-	// Ensure per-VM runtime and log directories.
-	if err = ch.conf.EnsureCHVMDirs(id); err != nil {
+	// Ensure per-VM runtime and log directories exist (use persisted paths
+	// from create time — never overwrite them so cleanup stays consistent).
+	if err = utils.EnsureDirs(rec.RunDir, rec.LogDir); err != nil {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	socketPath := ch.conf.CHVMSocketPath(id)
-
 	// Clean up stale runtime files from any previous run.
-	ch.cleanupRuntimeFiles(id)
+	cleanupRuntimeFiles(rec.RunDir)
+
+	socketPath := socketPath(rec.RunDir)
+	consoleSock := filepath.Join(rec.RunDir, "console.sock")
 
 	// Build VM config and convert to CLI args — CH boots immediately on launch.
-	vmCfg := buildVMConfig(&rec, ch.conf.CHVMConsoleSock(id))
+	vmCfg := buildVMConfig(ctx, &rec, consoleSock)
 	args := buildCLIArgs(vmCfg, socketPath)
-	ch.saveCmdline(id, args)
+	ch.saveCmdline(&rec, args)
 
 	// Launch the CH process with full config.
 	withNetwork := len(rec.NetworkConfigs) > 0
-	pid, err := ch.launchProcess(ctx, id, socketPath, args, withNetwork)
+	pid, err := ch.launchProcess(ctx, &rec, socketPath, args, withNetwork)
 	if err != nil {
 		ch.markError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
@@ -79,7 +82,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	var consolePath string
 	if isDirectBoot(rec.BootConfig) {
-		if ptyErr := hypervisor.DoWithRetry(ctx, func() error {
+		if ptyErr := utils.DoWithRetry(ctx, func() error {
 			var err error
 			consolePath, err = queryConsolePTY(ctx, socketPath)
 			return err
@@ -87,7 +90,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 			log.WithFunc("cloudhypervisor.startOne").Warnf(ctx, "query console PTY for %s: %v", id, ptyErr)
 		}
 	} else {
-		consolePath = ch.conf.CHVMConsoleSock(id)
+		consolePath = consoleSock
 	}
 
 	// Persist running state + console path.
@@ -105,7 +108,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		return nil
 	}); err != nil {
 		_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, terminateGracePeriod)
-		ch.cleanupRuntimeFiles(id)
+		cleanupRuntimeFiles(rec.RunDir)
 		return fmt.Errorf("update state: %w", err)
 	}
 	return nil
@@ -115,8 +118,9 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 // writes the PID file, waits for the API socket to be ready, then releases
 // the process handle so CH lives as an independent OS process past the
 // lifetime of this binary.
-func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath string, args []string, withNetwork bool) (int, error) {
-	logFile, err := os.Create(ch.conf.CHVMProcessLog(vmID)) //nolint:gosec
+func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, socketPath string, args []string, withNetwork bool) (int, error) {
+	processLog := filepath.Join(rec.LogDir, "cloud-hypervisor.log")
+	logFile, err := os.Create(processLog) //nolint:gosec
 	if err != nil {
 		log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "create process log: %v", err)
 	} else {
@@ -134,7 +138,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 	// If the VM has network, CH must be launched inside the VM's netns
 	// so it can access the tap device. We setns before fork and restore after.
 	if withNetwork {
-		restore, enterErr := enterNetns(ch.conf.CNINetnsPath(vmID))
+		restore, enterErr := enterNetns(ch.conf.CNINetnsPath(rec.ID))
 		if enterErr != nil {
 			return 0, fmt.Errorf("enter netns: %w", enterErr)
 		}
@@ -146,7 +150,8 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 	}
 	pid := cmd.Process.Pid
 
-	if err := utils.WritePIDFile(ch.conf.CHVMPIDFile(vmID), pid); err != nil {
+	pidPath := pidFile(rec.RunDir)
+	if err := utils.WritePIDFile(pidPath, pid); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return 0, fmt.Errorf("write PID file: %w", err)
@@ -155,7 +160,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 	if err := waitForSocket(ctx, socketPath, pid); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		_ = os.Remove(ch.conf.CHVMPIDFile(vmID))
+		_ = os.Remove(pidPath)
 		return 0, err
 	}
 
@@ -168,7 +173,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, vmID, socketPath s
 // the timeout/context fires.
 func waitForSocket(ctx context.Context, socketPath string, pid int) error {
 	return utils.WaitFor(ctx, socketWaitTimeout, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
-		if hypervisor.CheckSocket(socketPath) == nil {
+		if utils.CheckSocket(socketPath) == nil {
 			return true, nil
 		}
 		if !utils.IsProcessAlive(pid) {
