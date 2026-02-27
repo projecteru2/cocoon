@@ -203,7 +203,7 @@ func netToCLIArg(n chNet) string {
 		parts = append(parts, "mac="+n.Mac)
 	}
 	if n.NumQueues > 0 {
-		parts = append(parts, fmt.Sprintf("num_queues=%d", n.NumQueues))
+		parts = append(parts, fmt.Sprintf("num_queues=%d", n.NumQueues*2))
 	}
 	if n.QueueSize > 0 {
 		parts = append(parts, fmt.Sprintf("queue_size=%d", n.QueueSize))
