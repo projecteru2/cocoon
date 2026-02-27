@@ -93,12 +93,12 @@ func tcRedirectInNS(ifName, tapName string, queues int) (string, error) {
 	// VNET_HDR: allows kernel to parse virtio_net headers for checksum/GSO offload.
 	// Multi-queue: match CH num_queues so each vCPU gets its own TX/RX ring.
 	// Single-queue: ONE_QUEUE prevents packet drops on older kernels.
-	if queues <= 0 {
+	flags := netlink.TUNTAP_VNET_HDR
+	if queues <= 1 {
 		queues = 1
-	}
-	flags := netlink.TUNTAP_ONE_QUEUE | netlink.TUNTAP_VNET_HDR
-	if queues > 1 {
-		flags = netlink.TUNTAP_MULTI_QUEUE_DEFAULTS | netlink.TUNTAP_VNET_HDR
+		flags |= netlink.TUNTAP_ONE_QUEUE
+	} else {
+		flags |= netlink.TUNTAP_MULTI_QUEUE_DEFAULTS
 	}
 	tap := &netlink.Tuntap{
 		LinkAttrs: netlink.LinkAttrs{Name: tapName},
@@ -108,6 +108,9 @@ func tcRedirectInNS(ifName, tapName string, queues int) (string, error) {
 	}
 	if addErr := netlink.LinkAdd(tap); addErr != nil {
 		return "", fmt.Errorf("add tap %s: %w", tapName, addErr)
+	}
+	for _, fd := range tap.Fds {
+		_ = fd.Close()
 	}
 	tapLink, err := netlink.LinkByName(tapName)
 	if err != nil {
