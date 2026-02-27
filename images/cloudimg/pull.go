@@ -102,7 +102,7 @@ func pull(ctx context.Context, conf *config.Config, store storage.Store[imageInd
 				return fmt.Errorf("rename blob: %w", err)
 			}
 			if err := os.Chmod(blobPath, 0o444); err != nil { //nolint:gosec // G302: intentionally world-readable
-				return fmt.Errorf("chmod blob: %w", err)
+				log.WithFunc("cloudimg.pull").Warnf(ctx, "chmod blob %s: %v", blobPath, err)
 			}
 		}
 

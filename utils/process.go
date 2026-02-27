@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -41,22 +40,22 @@ func IsProcessAlive(pid int) bool {
 }
 
 // VerifyProcess checks whether pid is running the expected binary.
-// On Linux, reads /proc/{pid}/exe. Falls back to IsProcessAlive on other
-// platforms or when /proc is unavailable.
+// On Linux, reads /proc/{pid}/exe. On other platforms, falls back to
+// IsProcessAlive (can confirm the process exists but not its binary name).
 func VerifyProcess(pid int, binaryName string) bool {
 	if pid <= 0 {
 		return false
 	}
-	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
-	if err != nil {
-		return false
+	if match, ok := verifyProcessExe(pid, binaryName); ok {
+		return match
 	}
-	return filepath.Base(exe) == binaryName
+	return IsProcessAlive(pid)
 }
 
 // VerifyProcessCmdline checks binary name and that expectArg appears in
 // /proc/{pid}/cmdline. This prevents cross-instance misidentification when
 // multiple processes of the same binary are running (e.g. multiple VMs).
+// On non-Linux platforms, falls back to IsProcessAlive.
 func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	if pid <= 0 {
 		return false
@@ -64,12 +63,10 @@ func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	if expectArg == "" {
 		return VerifyProcess(pid, binaryName)
 	}
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	if err != nil {
-		return false
+	if match, ok := verifyProcessCmdline(pid, binaryName, expectArg); ok {
+		return match
 	}
-	cmdline := string(data)
-	return strings.Contains(cmdline, binaryName) && strings.Contains(cmdline, expectArg)
+	return IsProcessAlive(pid)
 }
 
 // TerminateProcess verifies the PID belongs to binaryName (with optional

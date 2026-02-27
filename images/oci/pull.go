@@ -41,44 +41,73 @@ type pullLayerResult struct {
 func pull(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
 	logger := log.WithFunc("oci.pull")
 
-	ref, digestHex, workDir, results, err := fetchAndProcess(ctx, conf, store, imageRef, tracker)
+	// Phase 1: network I/O — no lock held.
+	ref, digestHex, layers, err := fetchImage(ctx, imageRef)
 	if err != nil {
 		return err
 	}
-	if results == nil {
-		logger.Debugf(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
+
+	// Phase 2: lock → idempotency check → process layers → commit.
+	// GC uses the same locker, so it will wait until we finish.
+	return store.Update(ctx, func(idx *imageIndex) error {
+		// Idempotency: check if already pulled with same manifest and all files intact.
+		if isUpToDate(conf, idx, ref, digestHex) {
+			logger.Debugf(ctx, "Already up to date: %s (digest: sha256:%s)", ref, digestHex)
+			return nil
+		}
+
+		// Collect known boot layer digests from ALL entries for cross-image self-heal.
+		knownBootHexes := collectBootHexes(idx)
+
+		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: len(layers)})
+
+		workDir, mkErr := os.MkdirTemp(conf.OCITempDir(), "pull-*")
+		if mkErr != nil {
+			return fmt.Errorf("create work dir: %w", mkErr)
+		}
+		defer os.RemoveAll(workDir) //nolint:errcheck
+
+		// Process layers concurrently with bounded parallelism.
+		results := make([]pullLayerResult, len(layers))
+		g, gctx := errgroup.WithContext(ctx)
+		limit := conf.PoolSize
+		if limit <= 0 {
+			limit = runtime.NumCPU()
+		}
+		g.SetLimit(limit)
+
+		totalLayers := len(layers)
+		for i, layer := range layers {
+			g.Go(func() error {
+				return processLayer(gctx, conf, i, totalLayers, layer, workDir, knownBootHexes, tracker, &results[i])
+			})
+		}
+		if waitErr := g.Wait(); waitErr != nil {
+			return fmt.Errorf("process layers: %w", waitErr)
+		}
+
+		healCachedBootFiles(ctx, conf, layers, results, workDir)
+
+		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseCommit, Index: -1, Total: len(results)})
+		manifestDigest := images.NewDigest(digestHex)
+		if err := commitAndRecord(conf, idx, ref, manifestDigest, results); err != nil {
+			return err
+		}
+
+		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseDone, Index: -1, Total: len(results)})
+		logger.Infof(ctx, "Pulled: %s (digest: sha256:%s, layers: %d)", ref, digestHex, len(results))
 		return nil
-	}
-	// Clean up workDir after commit (not before).
-	defer os.RemoveAll(workDir) //nolint:errcheck
-
-	// Commit artifacts and update index atomically under flock.
-	// No digest-only short-circuit here: fetchAndProcess proceeds even when the
-	// digest matches but local files are invalid, so commitAndRecord must always
-	// run to move repaired artifacts into place. commitAndRecord itself is
-	// idempotent (skips rename when src == dst).
-	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseCommit, Index: -1, Total: len(results)})
-	manifestDigest := images.NewDigest(digestHex)
-	if err := store.Update(ctx, func(idx *imageIndex) error {
-		return commitAndRecord(conf, idx, ref, manifestDigest, results)
-	}); err != nil {
-		return fmt.Errorf("update image index: %w", err)
-	}
-
-	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseDone, Index: -1, Total: len(results)})
-	logger.Infof(ctx, "Pulled: %s (digest: sha256:%s, layers: %d)", ref, digestHex, len(results))
-	return nil
+	})
 }
 
-// fetchAndProcess downloads the image and processes all layers concurrently.
-// Returns nil results if the image is already up-to-date.
-// The caller owns workDir cleanup via the returned path (empty when already up-to-date).
-func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) (ref, digestHex, workDir string, results []pullLayerResult, err error) {
+// fetchImage resolves the image reference, fetches the manifest, and returns
+// the layer descriptors. No lock is held — this is pure network I/O.
+func fetchImage(ctx context.Context, imageRef string) (ref, digestHex string, layers []v1.Layer, err error) {
 	logger := log.WithFunc("oci.pull")
 
 	parsedRef, parseErr := name.ParseReference(imageRef)
 	if parseErr != nil {
-		return "", "", "", nil, fmt.Errorf("invalid image reference %q: %w", imageRef, parseErr)
+		return "", "", nil, fmt.Errorf("invalid image reference %q: %w", imageRef, parseErr)
 	}
 	ref = parsedRef.String()
 
@@ -95,99 +124,61 @@ func fetchAndProcess(ctx context.Context, conf *config.Config, store storage.Sto
 		remote.WithPlatform(platform),
 	)
 	if fetchErr != nil {
-		return "", "", "", nil, fmt.Errorf("fetch image %s: %w", ref, fetchErr)
+		return "", "", nil, fmt.Errorf("fetch image %s: %w", ref, fetchErr)
 	}
 
 	manifest, digestErr := img.Digest()
 	if digestErr != nil {
-		return "", "", "", nil, fmt.Errorf("get manifest digest: %w", digestErr)
+		return "", "", nil, fmt.Errorf("get manifest digest: %w", digestErr)
 	}
 	digestHex = manifest.Hex
 
-	// Idempotency: check if already pulled with same manifest and all files intact.
-	// Also collect known boot layer digests so processLayer can target self-heal
-	// even when the boot directory has been entirely deleted.
-	var alreadyPulled bool
-	knownBootHexes := make(map[string]struct{})
-	if withErr := store.With(ctx, func(idx *imageIndex) error {
-		// Collect boot layer digests from ALL entries for cross-image self-heal.
-		// This ensures processLayer can recover boot files even when the current
-		// ref has no prior index record (e.g., first pull sharing cached layers).
-		for _, e := range idx.Images {
-			if e == nil {
-				continue
-			}
-			if e.KernelLayer != "" {
-				knownBootHexes[e.KernelLayer.Hex()] = struct{}{}
-			}
-			if e.InitrdLayer != "" {
-				knownBootHexes[e.InitrdLayer.Hex()] = struct{}{}
-			}
-		}
-
-		// Idempotency check: same ref and manifest digest with all files intact.
-		entry, ok := idx.Images[ref]
-		if !ok || entry == nil || entry.ManifestDigest != images.NewDigest(digestHex) {
-			return nil
-		}
-		if !utils.ValidFile(conf.KernelPath(entry.KernelLayer.Hex())) ||
-			!utils.ValidFile(conf.InitrdPath(entry.InitrdLayer.Hex())) {
-			return nil
-		}
-		for _, layer := range entry.Layers {
-			if !utils.ValidFile(conf.BlobPath(layer.Digest.Hex())) {
-				return nil
-			}
-		}
-		alreadyPulled = true
-		return nil
-	}); withErr != nil {
-		return "", "", "", nil, fmt.Errorf("read image index: %w", withErr)
-	}
-	if alreadyPulled {
-		return ref, digestHex, "", nil, nil
-	}
-
 	layers, layersErr := img.Layers()
 	if layersErr != nil {
-		return "", "", "", nil, fmt.Errorf("get layers: %w", layersErr)
+		return "", "", nil, fmt.Errorf("get layers: %w", layersErr)
 	}
 	if len(layers) == 0 {
-		return "", "", "", nil, fmt.Errorf("image %s has no layers", ref)
+		return "", "", nil, fmt.Errorf("image %s has no layers", ref)
 	}
 
-	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: len(layers)})
+	return ref, digestHex, layers, nil
+}
 
-	// Create working directory under temp. Caller is responsible for cleanup.
-	workDir, mkErr := os.MkdirTemp(conf.OCITempDir(), "pull-*")
-	if mkErr != nil {
-		return "", "", "", nil, fmt.Errorf("create work dir: %w", mkErr)
+// isUpToDate checks if the image is already pulled with the same manifest digest
+// and all files (blobs, kernel, initrd) are intact on disk.
+func isUpToDate(conf *config.Config, idx *imageIndex, ref, digestHex string) bool {
+	entry, ok := idx.Images[ref]
+	if !ok || entry == nil || entry.ManifestDigest != images.NewDigest(digestHex) {
+		return false
 	}
-
-	// Process layers concurrently with bounded parallelism.
-	results = make([]pullLayerResult, len(layers))
-	g, gctx := errgroup.WithContext(ctx)
-	limit := conf.PoolSize
-	if limit <= 0 {
-		limit = runtime.NumCPU()
+	if !utils.ValidFile(conf.KernelPath(entry.KernelLayer.Hex())) ||
+		!utils.ValidFile(conf.InitrdPath(entry.InitrdLayer.Hex())) {
+		return false
 	}
-	g.SetLimit(limit)
-
-	totalLayers := len(layers)
-	for i, layer := range layers {
-		g.Go(func() error {
-			return processLayer(gctx, conf, i, totalLayers, layer, workDir, knownBootHexes, tracker, &results[i])
-		})
+	for _, layer := range entry.Layers {
+		if !utils.ValidFile(conf.BlobPath(layer.Digest.Hex())) {
+			return false
+		}
 	}
+	return true
+}
 
-	if waitErr := g.Wait(); waitErr != nil {
-		os.RemoveAll(workDir) //nolint:errcheck,gosec
-		return "", "", "", nil, fmt.Errorf("process layers: %w", waitErr)
+// collectBootHexes gathers boot layer digests from ALL index entries
+// for cross-image self-heal during processLayer.
+func collectBootHexes(idx *imageIndex) map[string]struct{} {
+	hexes := make(map[string]struct{})
+	for _, e := range idx.Images {
+		if e == nil {
+			continue
+		}
+		if e.KernelLayer != "" {
+			hexes[e.KernelLayer.Hex()] = struct{}{}
+		}
+		if e.InitrdLayer != "" {
+			hexes[e.InitrdLayer.Hex()] = struct{}{}
+		}
 	}
-
-	healCachedBootFiles(ctx, conf, layers, results, workDir)
-
-	return ref, digestHex, workDir, results, nil
+	return hexes
 }
 
 // moveBootFile renames a boot artifact (kernel or initrd) to its shared path,

@@ -83,10 +83,12 @@ func (l *Lock) commitFlock(acquire func(*flock.Flock) (bool, error)) (bool, erro
 	fl := flock.New(l.path)
 	locked, err := acquire(fl)
 	if err != nil {
+		_ = fl.Close()
 		<-l.ch
 		return false, err
 	}
 	if !locked {
+		_ = fl.Close()
 		<-l.ch
 		return false, nil
 	}

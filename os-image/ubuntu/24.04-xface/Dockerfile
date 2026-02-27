@@ -1,4 +1,3 @@
-# Use the latest Ubuntu 24.04 (Noble) LTS
 FROM ubuntu:24.04
 
 ARG TARGETARCH
@@ -20,14 +19,14 @@ RUN --mount=type=secret,id=cocoon_overlay \
         wget "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" && \
         apt-get install -y "./google-chrome-stable_current_amd64.deb" && \
         rm "google-chrome-stable_current_amd64.deb" && \
-        sed -i 's/exec -a "$0" "$HERE\/chrome" "$@"/exec -a "$0" "$HERE\/chrome" "$@" --no-sandbox --user-data-dir/ ' /opt/google/chrome/google-chrome && \
+        sed -i 's/exec -a "$0" "$HERE\/chrome" "$@"/exec -a "$0" "$HERE\/chrome" "$@" --no-sandbox --user-data-dir --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage/ ' /opt/google/chrome/google-chrome && \
         mkdir -p /etc/xdg/autostart && \
         cp /usr/share/applications/google-chrome.desktop /etc/xdg/autostart/; \
     else \
         add-apt-repository -y ppa:xtradeb/apps && \
         apt-get update && \
         apt-get install -y chromium && \
-        sed -i 's/^Exec=chromium.*/Exec=chromium --no-sandbox --user-data-dir %U/' /usr/share/applications/chromium.desktop && \
+        sed -i 's/^Exec=chromium.*/Exec=chromium --no-sandbox --user-data-dir --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage %U/' /usr/share/applications/chromium.desktop && \
         mkdir -p /etc/xdg/autostart && \
         cp /usr/share/applications/chromium.desktop /etc/xdg/autostart/; \
     fi && \
@@ -46,6 +45,11 @@ RUN --mount=type=secret,id=cocoon_overlay \
     printf "[Match]\nName=e* v*\n[Network]\nDHCP=yes\n" > /etc/systemd/network/20-wired.network && \
     echo "xfce4-session" > /root/.xsession && \
     sed -i 's/test -x \/etc\/X11\/Xsession && exec \/etc\/X11\/Xsession/exec \/usr\/bin\/startxfce4/g' /etc/xrdp/startwm.sh && \
+    sed -i 's/^max_bpp=.*/max_bpp=16/' /etc/xrdp/xrdp.ini && \
+    sed -i 's/^crypt_level=.*/crypt_level=none/' /etc/xrdp/xrdp.ini && \
+    sed -i 's/^tcp_nodelay=.*/tcp_nodelay=true/' /etc/xrdp/xrdp.ini && \
+    mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<channel name="xfwm4" version="1.0">\n  <property name="general" type="empty">\n    <property name="use_compositing" type="bool" value="false"/>\n  </property>\n</channel>\n' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml && \
     adduser xrdp ssl-cert && \
     systemctl enable xrdp && \
     echo 'root:cocoon' | chpasswd && \
