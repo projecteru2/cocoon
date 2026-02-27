@@ -19,14 +19,14 @@ RUN --mount=type=secret,id=cocoon_overlay \
         wget "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" && \
         apt-get install -y "./google-chrome-stable_current_amd64.deb" && \
         rm "google-chrome-stable_current_amd64.deb" && \
-        sed -i 's/exec -a "$0" "$HERE\/chrome" "$@"/exec -a "$0" "$HERE\/chrome" "$@" --no-sandbox --user-data-dir --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage/ ' /opt/google/chrome/google-chrome && \
+        sed -i 's/exec -a "$0" "$HERE\/chrome" "$@"/exec -a "$0" "$HERE\/chrome" "$@" --no-sandbox --user-data-dir --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-smooth-scrolling/ ' /opt/google/chrome/google-chrome && \
         mkdir -p /etc/xdg/autostart && \
         cp /usr/share/applications/google-chrome.desktop /etc/xdg/autostart/; \
     else \
         add-apt-repository -y ppa:xtradeb/apps && \
         apt-get update && \
         apt-get install -y chromium && \
-        sed -i 's/^Exec=chromium.*/Exec=chromium --no-sandbox --user-data-dir --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage %U/' /usr/share/applications/chromium.desktop && \
+        sed -i 's/^Exec=chromium.*/Exec=chromium --no-sandbox --user-data-dir --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage --disable-smooth-scrolling %U/' /usr/share/applications/chromium.desktop && \
         mkdir -p /etc/xdg/autostart && \
         cp /usr/share/applications/chromium.desktop /etc/xdg/autostart/; \
     fi && \
