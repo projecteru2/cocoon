@@ -12,7 +12,7 @@ set -uo pipefail
 # Configuration (override via environment)
 # ---------------------------------------------------------------------------
 COCOON_ROOT_DIR="${COCOON_ROOT_DIR:-/var/lib/cocoon}"
-COCOON_RUN_DIR="${COCOON_RUN_DIR:-/var/run/cocoon}"
+COCOON_RUN_DIR="${COCOON_RUN_DIR:-/var/lib/cocoon/run}"
 COCOON_LOG_DIR="${COCOON_LOG_DIR:-/var/log/cocoon}"
 COCOON_CNI_CONF_DIR="${COCOON_CNI_CONF_DIR:-/etc/cni/net.d}"
 COCOON_CNI_BIN_DIR="${COCOON_CNI_BIN_DIR:-/opt/cni/bin}"

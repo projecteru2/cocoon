@@ -14,7 +14,7 @@ type Config struct {
 	RootDir string `json:"root_dir" mapstructure:"root_dir"`
 	// RunDir is the base directory for runtime state (PID files, Unix sockets).
 	// Contents are ephemeral and may not survive reboots.
-	// Env: COCOON_RUN_DIR. Default: /var/run/cocoon.
+	// Env: COCOON_RUN_DIR. Default: /var/lib/cocoon/run.
 	RunDir string `json:"run_dir" mapstructure:"run_dir"`
 	// LogDir is the base directory for VM and process logs.
 	// Env: COCOON_LOG_DIR. Default: /var/log/cocoon.
@@ -50,7 +50,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		RootDir:            "/var/lib/cocoon",
-		RunDir:             "/var/run/cocoon",
+		RunDir:             "/var/lib/cocoon/run",
 		LogDir:             "/var/log/cocoon",
 		CHBinary:           "cloud-hypervisor",
 		CNIConfDir:         "/etc/cni/net.d",

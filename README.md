@@ -140,7 +140,7 @@ cocoon
 | ----------------- | ------------------------------ | ------------------ | -------------------------------------- |
 | `--config`        |                                |                    | Config file path                       |
 | `--root-dir`      | `COCOON_ROOT_DIR`              | `/var/lib/cocoon`  | Root directory for persistent data     |
-| `--run-dir`       | `COCOON_RUN_DIR`               | `/var/run/cocoon`  | Runtime directory for sockets and PIDs |
+| `--run-dir`       | `COCOON_RUN_DIR`               | `/var/lib/cocoon/run` | Runtime directory for sockets and PIDs |
 | `--log-dir`       | `COCOON_LOG_DIR`               | `/var/log/cocoon`  | Log directory for VM and process logs  |
 | `--log-level`     | `COCOON_LOG_LEVEL`             | `info`             | Log level: debug, info, warn, error    |
 | `--cni-conf-dir`  | `COCOON_CNI_CONF_DIR`          | `/etc/cni/net.d`   | CNI plugin config directory            |
