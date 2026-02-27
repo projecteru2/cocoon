@@ -4,18 +4,25 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 
 ## Features
 
-- **OCI VM images** -- pull OCI images with kernel + rootfs layers, content-addressed blob cache with SHA-256 deduplication
-- **Cloud image support** -- pull from HTTP/HTTPS URLs (e.g. Ubuntu cloud images), automatic qcow2 conversion
-- **UEFI boot** -- CLOUDHV.fd firmware by default; direct kernel boot for OCI images (auto-detected)
-- **COW overlays** -- copy-on-write disks backed by shared base images (raw for OCI, qcow2 for cloud images)
-- **CNI networking** -- automatic NIC creation via CNI plugins, multi-NIC support, per-VM IP allocation
-- **DNS configuration** -- custom DNS servers injected into VMs via kernel cmdline
-- **Cloud-init metadata** -- automatic NoCloud cidata disk for cloudimg VMs (hostname, root password)
-- **Interactive console** -- `cocoon vm console` for bidirectional PTY access, SSH-style escape sequences
-- **Docker-like CLI** -- `create`, `run`, `start`, `stop`, `list`, `inspect`, `console`, `rm`
-- **Zero-daemon architecture** -- one Cloud Hypervisor process per VM, no long-running daemon
-- **Garbage collection** -- automatic lock-safe GC of unreferenced images, orphaned overlays, and expired temp entries
-- **Doctor script** -- pre-flight environment check and one-command dependency installation
+- **OCI VM images** — pull OCI images with kernel + rootfs layers, content-addressed blob cache with SHA-256 deduplication
+- **Cloud image support** — pull from HTTP/HTTPS URLs (e.g. Ubuntu cloud images), automatic qcow2 conversion
+- **UEFI boot** — CLOUDHV.fd firmware by default; direct kernel boot for OCI images (auto-detected)
+- **COW overlays** — copy-on-write disks backed by shared base images (raw for OCI, qcow2 for cloud images)
+- **CNI networking** — automatic NIC creation via CNI plugins, multi-NIC support, per-VM IP allocation
+- **Multi-queue virtio-net** — TAP devices created with per-vCPU queue pairs; TSO/UFO/csum offload enabled by default
+- **TC redirect I/O path** — veth ↔ TAP wired via ingress qdisc + mirred redirect (no bridge in the data path)
+- **DNS configuration** — custom DNS servers injected into VMs via kernel cmdline (OCI) or cloud-init network-config (cloudimg)
+- **Cloud-init metadata** — automatic NoCloud cidata FAT12 disk for cloudimg VMs (hostname, root password, multi-NIC Netplan v2 network-config); cidata is automatically skipped on subsequent boots
+- **Hugepages** — automatic detection of host hugepage configuration; VM memory backed by hugepages when available
+- **Memory balloon** — 25% of memory returned via virtio-balloon (deflate-on-OOM, free-page reporting) when memory >= 256 MiB
+- **Graceful shutdown** — ACPI power-button for UEFI VMs with configurable timeout, fallback to SIGTERM → SIGKILL
+- **Interactive console** — `cocoon vm console` with bidirectional PTY relay, SSH-style escape sequences (`~.` disconnect, `~?` help), configurable escape character, SIGWINCH propagation
+- **Docker-like CLI** — `create`, `run`, `start`, `stop`, `list`, `inspect`, `console`, `rm`, `debug`
+- **Structured logging** — configurable log level (`--log-level`), log rotation (max size / age / backups)
+- **Debug command** — `cocoon vm debug` generates a copy-pasteable `cloud-hypervisor` command for manual debugging
+- **Zero-daemon architecture** — one Cloud Hypervisor process per VM, no long-running daemon
+- **Garbage collection** — modular lock-safe GC with cross-module snapshot resolution; protects blobs referenced by running VMs
+- **Doctor script** — pre-flight environment check and one-command dependency installation
 
 ## Requirements
 
@@ -115,7 +122,7 @@ cocoon
 │   ├── stop VM [VM...]            Stop running VM(s)
 │   ├── list (alias: ls)           List VMs with status
 │   ├── inspect VM                 Show detailed VM info (JSON)
-│   ├── console VM                 Attach interactive console
+│   ├── console [flags] VM         Attach interactive console
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
 │   └── debug [flags] IMAGE        Generate CH launch command (dry run)
 ├── gc                             Remove unreferenced blobs and VM dirs
@@ -125,16 +132,17 @@ cocoon
 
 ## Global Flags
 
-| Flag              | Env Variable                   | Default           | Description                            |
-| ----------------- | ------------------------------ | ----------------- | -------------------------------------- |
-| `--config`        |                                |                   | Config file path                       |
-| `--root-dir`      | `COCOON_ROOT_DIR`              | `/var/lib/cocoon` | Root directory for persistent data     |
-| `--run-dir`       | `COCOON_RUN_DIR`               | `/var/run/cocoon` | Runtime directory for sockets and PIDs |
-| `--log-dir`       | `COCOON_LOG_DIR`               | `/var/log/cocoon` | Log directory for VM serial logs       |
-| `--cni-conf-dir`  | `COCOON_CNI_CONF_DIR`          | `/etc/cni/net.d`  | CNI plugin config directory            |
-| `--cni-bin-dir`   | `COCOON_CNI_BIN_DIR`           | `/opt/cni/bin`    | CNI plugin binary directory            |
-| `--root-password` | `COCOON_DEFAULT_ROOT_PASSWORD` |                   | Default root password for cloudimg VMs |
-| `--dns`           | `COCOON_DNS`                   | `8.8.8.8,1.1.1.1` | DNS servers for VMs (comma separated)  |
+| Flag              | Env Variable                   | Default            | Description                            |
+| ----------------- | ------------------------------ | ------------------ | -------------------------------------- |
+| `--config`        |                                |                    | Config file path                       |
+| `--root-dir`      | `COCOON_ROOT_DIR`              | `/var/lib/cocoon`  | Root directory for persistent data     |
+| `--run-dir`       | `COCOON_RUN_DIR`               | `/var/run/cocoon`  | Runtime directory for sockets and PIDs |
+| `--log-dir`       | `COCOON_LOG_DIR`               | `/var/log/cocoon`  | Log directory for VM and process logs  |
+| `--log-level`     | `COCOON_LOG_LEVEL`             | `info`             | Log level: debug, info, warn, error    |
+| `--cni-conf-dir`  | `COCOON_CNI_CONF_DIR`          | `/etc/cni/net.d`   | CNI plugin config directory            |
+| `--cni-bin-dir`   | `COCOON_CNI_BIN_DIR`           | `/opt/cni/bin`     | CNI plugin binary directory            |
+| `--root-password` | `COCOON_DEFAULT_ROOT_PASSWORD` |                    | Default root password for cloudimg VMs |
+| `--dns`           | `COCOON_DNS`                   | `8.8.8.8,1.1.1.1`  | DNS servers for VMs (comma separated)  |
 
 ## VM Flags
 
@@ -148,14 +156,46 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--storage` | `10G`            | COW disk size (e.g., 10G, 20G)                |
 | `--nics`    | `1`              | Number of network interfaces (0 = no network) |
 
+### Debug-only Flags
+
+Applies to `cocoon vm debug`:
+
+| Flag        | Default              | Description                                        |
+| ----------- | -------------------- | -------------------------------------------------- |
+| `--max-cpu` | `8`                  | Max CPUs for the generated command                  |
+| `--balloon` | `0`                  | Balloon size in MB (0 = auto)                       |
+| `--cow`     |                      | COW disk path (default: auto-generated)             |
+| `--ch`      | `cloud-hypervisor`   | cloud-hypervisor binary path                        |
+
+### Console Flags
+
+| Flag             | Default  | Description                                       |
+| ---------------- | -------- | ------------------------------------------------- |
+| `--escape-char`  | `^]`     | Escape character (single char or `^X` caret notation) |
+
 ## Networking
 
-Cocoon uses [CNI](https://www.cni.dev/) for VM networking. Each NIC is backed by a TAP device wired through the CNI plugin chain.
+Cocoon uses [CNI](https://www.cni.dev/) for VM networking. Each NIC is backed by a TAP device wired to the CNI veth via TC ingress redirect — no bridge sits in the data path.
+
+### Architecture
+
+```
+Guest virtio-net  ←→  TAP (multi-queue)  ←TC redirect→  veth  ←→  CNI bridge/overlay
+```
+
+- **Multi-queue**: each TAP device is created with one queue pair per boot vCPU (`num_queues = 2 × vCPU` in Cloud Hypervisor), enabling per-CPU TX/RX rings for better throughput
+- **Offload**: TSO, UFO, and checksum offload are enabled on the virtio-net device; TAP uses `VNET_HDR` for zero-copy GSO passthrough
+- **MAC passthrough**: the guest NIC inherits the CNI veth's MAC address, satisfying anti-spoofing requirements of Cilium, Calico eBPF, and VPC ENI plugins
+- **MTU sync**: TAP MTU is automatically synced to the veth to prevent silent large-packet drops in overlay or jumbo-frame setups
+
+### Options
 
 - **Default**: 1 NIC with automatic IP assignment via CNI
 - **No network**: `--nics 0` creates a VM with no network interfaces
-- **Multi-NIC**: `--nics N` creates N interfaces; for cloudimg VMs all NICs are auto-configured, for OCI images only the last NIC is auto-configured (others need manual setup inside the guest)
-- **DNS**: Use `--dns` to set custom DNS servers (comma separated), injected via kernel cmdline
+- **Multi-NIC**: `--nics N` creates N interfaces; for cloudimg VMs all NICs are auto-configured via Netplan, for OCI images only the last NIC is auto-configured (others need manual setup inside the guest)
+- **DNS**: Use `--dns` to set custom DNS servers (comma separated)
+
+### CNI Configuration
 
 CNI configuration is read from `--cni-conf-dir` (default `/etc/cni/net.d`). A typical bridge config:
 
@@ -174,6 +214,50 @@ CNI configuration is read from `--cni-conf-dir` (default `/etc/cni/net.d`). A ty
   }
 }
 ```
+
+## Cloud-init & First Boot
+
+Cloudimg VMs receive a NoCloud cidata disk (FAT12 with `CIDATA` volume label) containing:
+
+- **meta-data**: instance ID and hostname
+- **user-data**: `#cloud-config` with optional root password (`--root-password`)
+- **network-config**: Netplan v2 format with MAC-matched ethernets, static IP/gateway/DNS per NIC
+
+The cidata disk is **automatically excluded on subsequent boots** — after the first successful start, the VM record is marked as `first_booted` and the cidata disk is no longer attached, preventing cloud-init from re-running.
+
+## VM Lifecycle
+
+| State      | Description                                              |
+| ---------- | -------------------------------------------------------- |
+| `creating` | DB placeholder written, disks being prepared             |
+| `created`  | Registered, cloud-hypervisor process not yet started     |
+| `running`  | Cloud-hypervisor process alive, guest is up              |
+| `stopped`  | Cloud-hypervisor process exited cleanly                  |
+| `error`    | Start or stop failed                                     |
+
+### Shutdown Behavior
+
+- **UEFI VMs (cloudimg)**: ACPI power-button → poll for graceful exit → timeout (default 30s, configurable via `stop_timeout_seconds` in config) → SIGTERM → 5s → SIGKILL
+- **Direct-boot VMs (OCI)**: `vm.shutdown` API → SIGTERM → 5s → SIGKILL (no ACPI support)
+- PID ownership is verified before sending signals to prevent killing unrelated processes
+
+## Performance Tuning
+
+- **Hugepages**: automatically detected from `/proc/sys/vm/nr_hugepages`; when available, VM memory is backed by 2 MiB hugepages for reduced TLB pressure
+- **Disk I/O**: multi-queue virtio-blk with `num_queues` matching boot CPUs and `queue_size=256`; direct I/O for EROFS layers and COW raw disks
+- **Balloon**: 25% of memory auto-returned via virtio-balloon with deflate-on-OOM and free-page reporting (VMs with < 256 MiB memory skip balloon)
+- **Watchdog**: hardware watchdog enabled by default for automatic guest reset on hang
+
+## Garbage Collection
+
+`cocoon gc` performs cross-module garbage collection:
+
+1. **Lock** all modules (images, VMs, network) — if any module is busy, the entire GC cycle is skipped to maintain consistency
+2. **Snapshot** all module indexes under lock
+3. **Resolve** each module identifies unreferenced resources using the full snapshot set (e.g., image GC checks VM snapshots for blob references)
+4. **Collect** — delete identified targets
+
+This ensures blobs referenced by running VMs are never deleted.
 
 ## OS Images
 
