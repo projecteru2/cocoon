@@ -13,6 +13,7 @@ import (
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/metadata"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // CowSerial is the well-known virtio serial for the COW disk attached to OCI VMs.
@@ -66,7 +67,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 	}
 
 	// Step 2: create directories and prepare disks.
-	if err = ch.conf.EnsureCHVMDirs(id); err != nil {
+	if err = utils.EnsureDirs(runDir, logDir); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
