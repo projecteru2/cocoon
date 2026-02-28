@@ -70,7 +70,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	// Build VM config and convert to CLI args — CH boots immediately on launch.
 	vmCfg := buildVMConfig(ctx, &rec, consoleSock)
 	args := buildCLIArgs(vmCfg, socketPath)
-	ch.saveCmdline(&rec, args)
+	ch.saveCmdline(ctx, &rec, args)
 
 	// Launch the CH process with full config.
 	withNetwork := len(rec.NetworkConfigs) > 0

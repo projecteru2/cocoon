@@ -58,6 +58,7 @@ func Command(h Actions) *cobra.Command {
 		Short:   "List VMs with status",
 		RunE:    h.List,
 	}
+	listCmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
 
 	inspectCmd := &cobra.Command{
 		Use:   "inspect VM",

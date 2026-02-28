@@ -92,6 +92,12 @@ func ApplyDefaults(conf *Config) *Config {
 	if conf.DNS == "" {
 		conf.DNS = defaults.DNS
 	}
+	if conf.StopTimeoutSeconds <= 0 {
+		conf.StopTimeoutSeconds = defaults.StopTimeoutSeconds
+	}
+	if conf.PoolSize <= 0 {
+		conf.PoolSize = defaults.PoolSize
+	}
 	if conf.Log == nil {
 		conf.Log = defaults.Log
 	} else if conf.Log.Level == "" {

@@ -73,6 +73,14 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		fmt.Println("No images found.")
 		return nil
 	}
+
+	format, _ := cmd.Flags().GetString("format")
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(all)
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "TYPE\tNAME\tDIGEST\tSIZE\tCREATED")
 	for _, img := range all {

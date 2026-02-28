@@ -7,21 +7,11 @@ import (
 )
 
 // EnsureCHDirs creates all static directories required by the Cloud Hypervisor backend.
-// Per-VM runtime and log directories are created on demand via EnsureCHVMDirs.
 func (c *Config) EnsureCHDirs() error {
 	return utils.EnsureDirs(
 		c.chDBDir(),
 		c.CHRunDir(),
 		c.CHLogDir(),
-	)
-}
-
-// EnsureCHVMDirs creates per-VM runtime and log directories.
-// Called when a VM is created or started.
-func (c *Config) EnsureCHVMDirs(vmID string) error {
-	return utils.EnsureDirs(
-		c.CHVMRunDir(vmID),
-		c.CHVMLogDir(vmID),
 	)
 }
 

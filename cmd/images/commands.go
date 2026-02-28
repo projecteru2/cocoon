@@ -16,6 +16,14 @@ func Command(h Actions) *cobra.Command {
 		Use:   "image",
 		Short: "Manage images",
 	}
+	listCmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List locally stored images (all backends)",
+		RunE:    h.List,
+	}
+	listCmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
+
 	imageCmd.AddCommand(
 		&cobra.Command{
 			Use:   "pull IMAGE [IMAGE...]",
@@ -23,12 +31,7 @@ func Command(h Actions) *cobra.Command {
 			Args:  cobra.MinimumNArgs(1),
 			RunE:  h.Pull,
 		},
-		&cobra.Command{
-			Use:     "list",
-			Aliases: []string{"ls"},
-			Short:   "List locally stored images (all backends)",
-			RunE:    h.List,
-		},
+		listCmd,
 		&cobra.Command{
 			Use:   "rm ID [ID...]",
 			Short: "Delete locally stored image(s)",

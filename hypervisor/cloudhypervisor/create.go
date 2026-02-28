@@ -119,17 +119,16 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
 	cowPath := ch.conf.CHVMCOWRawPath(vmID)
 
-	// Create sparse COW file (equivalent to truncate -s <size>).
+	// Create sparse COW file
 	// os.Truncate requires the file to exist; create it first.
-	f, err := os.Create(cowPath) //nolint:gosec
+	f, err := os.OpenFile(cowPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("create COW: %w", err)
 	}
-	if err := f.Truncate(vmCfg.Storage); err != nil {
-		_ = f.Close()
+	_ = f.Close()
+	if err := os.Truncate(cowPath, vmCfg.Storage); err != nil {
 		return nil, fmt.Errorf("truncate COW: %w", err)
 	}
-	_ = f.Close()
 	// mkfs.ext4
 	if out, err := exec.CommandContext(ctx, //nolint:gosec
 		"mkfs.ext4", "-F", "-m", "0", "-q",

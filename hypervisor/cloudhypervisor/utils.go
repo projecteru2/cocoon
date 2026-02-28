@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
@@ -69,12 +71,16 @@ func (ch *CloudHypervisor) updateState(ctx context.Context, id string, state typ
 }
 
 func (ch *CloudHypervisor) markError(ctx context.Context, id string) {
-	_ = ch.updateState(ctx, id, types.VMStateError)
+	if err := ch.updateState(ctx, id, types.VMStateError); err != nil {
+		log.WithFunc("cloudhypervisor.markError").Warnf(ctx, "mark VM %s error: %v", id, err)
+	}
 }
 
-func (ch *CloudHypervisor) saveCmdline(rec *hypervisor.VMRecord, args []string) {
+func (ch *CloudHypervisor) saveCmdline(ctx context.Context, rec *hypervisor.VMRecord, args []string) {
 	line := ch.conf.CHBinary + " " + strings.Join(args, " ")
-	_ = os.WriteFile(filepath.Join(rec.RunDir, "cmdline"), []byte(line), 0o600) //nolint:gosec
+	if err := os.WriteFile(filepath.Join(rec.RunDir, "cmdline"), []byte(line), 0o600); err != nil {
+		log.WithFunc("cloudhypervisor.saveCmdline").Warnf(ctx, "save cmdline: %v", err)
+	}
 }
 
 // runtimeFiles are the per-VM files created at start time
@@ -96,9 +102,11 @@ func removeVMDirs(runDir, logDir string) error {
 
 // rollbackCreate removes a placeholder VM record from the DB.
 func (ch *CloudHypervisor) rollbackCreate(ctx context.Context, id, name string) {
-	_ = ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		delete(idx.VMs, id)
 		delete(idx.Names, name)
 		return nil
-	})
+	}); err != nil {
+		log.WithFunc("cloudhypervisor.rollbackCreate").Warnf(ctx, "rollback VM %s (name=%s): %v", id, name, err)
+	}
 }

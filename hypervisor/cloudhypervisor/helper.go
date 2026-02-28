@@ -60,6 +60,9 @@ func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) 
 	if err := json.Unmarshal(body, &info); err != nil {
 		return "", fmt.Errorf("decode vm.info: %w", err)
 	}
+	if info.Config.Console.File == "" {
+		return "", fmt.Errorf("console PTY not available (mode=%s)", info.Config.Console.Mode)
+	}
 	return info.Config.Console.File, nil
 }
 

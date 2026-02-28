@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os/signal"
-	"runtime"
 	"syscall"
 
 	"github.com/projecteru2/core/log"
@@ -94,12 +93,6 @@ func initConfig(ctx context.Context) error {
 	}
 
 	conf = config.ApplyDefaults(conf)
-	if conf.PoolSize <= 0 {
-		conf.PoolSize = runtime.NumCPU()
-	}
-	if conf.StopTimeoutSeconds <= 0 {
-		conf.StopTimeoutSeconds = 30 //nolint:mnd
-	}
 
 	return log.SetupLog(ctx, conf.Log, "")
 }
