@@ -38,59 +38,34 @@ func NewSocketHTTPClient(socketPath string) *http.Client {
 	}
 }
 
-// DoPUT sends a PUT request over a Unix socket. Expects 204 No Content.
-func DoPUT(ctx context.Context, hc *http.Client, path string, body []byte) error {
+// DoAPI sends an HTTP request and validates the response status code.
+// url must be a fully-formed URL (e.g., "http://localhost/api/v1/vm.shutdown").
+// Returns the response body on success. For 204 No Content the body is nil.
+func DoAPI(ctx context.Context, hc *http.Client, method, url string, body []byte, expectedStatus int) ([]byte, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://localhost"+path, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
-		return fmt.Errorf("build request %s: %w", path, err)
+		return nil, fmt.Errorf("build request %s %s: %w", method, url, err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("PUT %s: %w", path, err)
+		return nil, fmt.Errorf("%s %s: %w", method, url, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode != http.StatusNoContent {
-		rb, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("PUT %s → %d (read body: %w)", path, resp.StatusCode, err)
-		}
-		return &APIError{
-			Code:    resp.StatusCode,
-			Message: fmt.Sprintf("PUT %s → %d: %s", path, resp.StatusCode, rb),
-		}
-	}
-	return nil
-}
-
-// DoGET sends a GET request over a Unix socket, returns the response body.
-func DoGET(ctx context.Context, hc *http.Client, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost"+path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request %s: %w", path, err)
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: %w", path, err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("GET %s read body: %w", path, err)
-	}
-	if resp.StatusCode != http.StatusOK {
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != expectedStatus {
 		return nil, &APIError{
 			Code:    resp.StatusCode,
-			Message: fmt.Sprintf("GET %s → %d: %s", path, resp.StatusCode, body),
+			Message: fmt.Sprintf("%s %s → %d: %s", method, url, resp.StatusCode, rb),
 		}
 	}
-	return body, nil
+	return rb, nil
 }
 
 // CheckSocket verifies that a Unix socket is connectable.
@@ -103,26 +78,28 @@ func CheckSocket(socketPath string) error {
 }
 
 // DoWithRetry retries fn with exponential backoff for transient errors.
-func DoWithRetry(ctx context.Context, fn func() error) error {
+func DoWithRetry[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	var zero T
 	var lastErr error
 	for i := 0; i <= MaxRetries; i++ {
-		lastErr = fn()
-		if lastErr == nil {
-			return nil
+		result, err := fn()
+		if err == nil {
+			return result, nil
 		}
-		if !IsRetryable(lastErr) {
-			return lastErr
+		lastErr = err
+		if !IsRetryable(err) {
+			return zero, err
 		}
 		if i < MaxRetries {
 			backoff := BaseBackoff * time.Duration(1<<i)
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return zero, ctx.Err()
 			case <-time.After(backoff):
 			}
 		}
 	}
-	return lastErr
+	return zero, lastErr
 }
 
 // IsRetryable returns true for transient errors (connection failures, 5xx, 429).

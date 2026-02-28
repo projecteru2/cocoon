@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -32,24 +33,26 @@ func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 // Used by the stop flow — the start flow uses CLI args instead of REST API.
 func shutdownVM(ctx context.Context, socketPath string) error {
 	hc := utils.NewSocketHTTPClient(socketPath)
-	return utils.DoWithRetry(ctx, func() error {
-		return utils.DoPUT(ctx, hc, "/api/v1/vm.shutdown", nil)
+	_, err := utils.DoWithRetry(ctx, func() ([]byte, error) {
+		return utils.DoAPI(ctx, hc, http.MethodPut, "http://localhost/api/v1/vm.shutdown", nil, http.StatusNoContent)
 	})
+	return err
 }
 
 // powerButton sends an ACPI power-button event to the guest.
 func powerButton(ctx context.Context, socketPath string) error {
 	hc := utils.NewSocketHTTPClient(socketPath)
-	return utils.DoWithRetry(ctx, func() error {
-		return utils.DoPUT(ctx, hc, "/api/v1/vm.power-button", nil)
+	_, err := utils.DoWithRetry(ctx, func() ([]byte, error) {
+		return utils.DoAPI(ctx, hc, http.MethodPut, "http://localhost/api/v1/vm.power-button", nil, http.StatusNoContent)
 	})
+	return err
 }
 
 // queryConsolePTY retrieves the virtio-console PTY path from a running CH instance
 // via GET /api/v1/vm.info. Returns empty string if the console is not in Pty mode.
 func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
 	hc := utils.NewSocketHTTPClient(apiSocketPath)
-	body, err := utils.DoGET(ctx, hc, "/api/v1/vm.info")
+	body, err := utils.DoAPI(ctx, hc, http.MethodGet, "http://localhost/api/v1/vm.info", nil, http.StatusOK)
 	if err != nil {
 		return "", fmt.Errorf("query vm.info: %w", err)
 	}
