@@ -6,7 +6,11 @@ on:
       - '!v*'
     branches:
       - '*'
+    paths-ignore:
+      - 'os-image/**'
   pull_request:
+    paths-ignore:
+      - 'os-image/**'
 
 jobs:
   test:

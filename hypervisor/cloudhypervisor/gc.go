@@ -22,7 +22,7 @@ type chSnapshot struct {
 	logDirs     []string            // subdirectory names under CHLogDir
 }
 
-func (s chSnapshot) UsedBlobIDs() map[string]struct{}  { return s.blobIDs }
+func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 func (s chSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
 
 // GCModule returns the GC module for cross-module blob pinning and orphan cleanup.
