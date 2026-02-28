@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -20,4 +21,6 @@ type Network interface {
 	Delete(context.Context, []string) ([]string, error)
 	Inspect(context.Context, string) (*types.Network, error)
 	List(context.Context) ([]*types.Network, error)
+
+	RegisterGC(*gc.Orchestrator)
 }

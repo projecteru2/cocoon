@@ -24,12 +24,17 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	netProvider, err := cmdcore.InitNetwork(conf)
+	if err != nil {
+		return err
+	}
 
 	o := gc.New()
 	for _, b := range backends {
 		b.RegisterGC(o)
 	}
 	hyper.RegisterGC(o)
+	netProvider.RegisterGC(o)
 	if err := o.Run(ctx); err != nil {
 		return err
 	}

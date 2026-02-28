@@ -3,15 +3,9 @@ package cloudhypervisor
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"slices"
-	"strings"
 	"time"
 
-	"github.com/vishvananda/netns"
-
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/gc"
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/types"
@@ -26,10 +20,10 @@ type chSnapshot struct {
 	staleCreate []string            // IDs in stale "creating" state (crash remnants)
 	runDirs     []string            // subdirectory names under CHRunDir
 	logDirs     []string            // subdirectory names under CHLogDir
-	netnsNames  []string            // entries under /var/run/netns/
 }
 
-func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
+func (s chSnapshot) UsedBlobIDs() map[string]struct{}  { return s.blobIDs }
+func (s chSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
 
 // GCModule returns the GC module for cross-module blob pinning and orphan cleanup.
 func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
@@ -65,15 +59,6 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.CHLogDir()); err != nil {
 				return snap, err
 			}
-			// Scan named netns with the cocoon- prefix only.
-			// Other tools (docker, containerd) may have their own entries.
-			if entries, readErr := os.ReadDir(config.NetnsPath); readErr == nil {
-				for _, e := range entries {
-					if name, ok := strings.CutPrefix(e.Name(), config.NetnsPrefix); ok {
-						snap.netnsNames = append(snap.netnsNames, name)
-					}
-				}
-			}
 			return snap, nil
 		},
 		Resolve: func(snap chSnapshot, _ map[string]any) []string {
@@ -83,21 +68,13 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			reserved := map[string]struct{}{"db": {}}
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
 			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
-			netnsOrphans := utils.FilterUnreferenced(snap.netnsNames, snap.vmIDs)
-			candidates := slices.Concat(runOrphans, logOrphans, netnsOrphans, snap.staleCreate)
+			candidates := slices.Concat(runOrphans, logOrphans, snap.staleCreate)
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
 			var errs []error
 			for _, id := range ids {
-				// Remove orphan netns (unmount bind-mount + remove file).
-				// Kernel cleans up bridge/tap/veth devices when netns is destroyed.
-				nsName := ch.conf.CNINetnsName(id)
-				if err := netns.DeleteNamed(nsName); err != nil && !os.IsNotExist(err) {
-					errs = append(errs, fmt.Errorf("remove netns %s: %w", nsName, err))
-				}
-
 				// Try loading the DB record so we use stored RunDir/LogDir;
 				// for true orphans (no record) fall back to config-derived paths.
 				runDir, logDir := ch.conf.CHVMRunDir(id), ch.conf.CHVMLogDir(id)

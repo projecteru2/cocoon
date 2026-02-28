@@ -40,7 +40,7 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(snap ociSnapshot, others map[string]any) []string {
-			used := gc.CollectUsedBlobIDs(others)
+			used := gc.Collect(others, gc.BlobIDs)
 			allRefs := utils.MergeSets(snap.refs, used)
 
 			candidates := slices.Concat(

@@ -35,7 +35,7 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(snap cloudimgSnapshot, others map[string]any) []string {
-			used := gc.CollectUsedBlobIDs(others)
+			used := gc.Collect(others, gc.BlobIDs)
 			allRefs := utils.MergeSets(snap.refs, used)
 			return utils.FilterUnreferenced(snap.blobs, allRefs)
 		},
