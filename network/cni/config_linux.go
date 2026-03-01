@@ -3,6 +3,7 @@ package cni
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"syscall"
@@ -56,11 +57,14 @@ func deleteNetns(ctx context.Context, name string) error {
 // TC ingress + mirred redirect, and returns ifName's MAC address.
 // The caller should pass this MAC to CH so the guest's virtio-net MAC
 // matches the CNI veth — required for anti-spoofing CNI plugins.
-func setupTCRedirect(nsPath, ifName, tapName string, queues int) (string, error) {
+// When overrideMAC is non-empty (recovery), the veth's hardware address is
+// set to the given value before proceeding, so the returned MAC matches
+// the persisted CH --net mac= value.
+func setupTCRedirect(nsPath, ifName, tapName string, queues int, overrideMAC string) (string, error) {
 	var mac string
 	err := cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
 		var nsErr error
-		mac, nsErr = tcRedirectInNS(ifName, tapName, queues)
+		mac, nsErr = tcRedirectInNS(ifName, tapName, queues, overrideMAC)
 		return nsErr
 	})
 	return mac, err
@@ -72,12 +76,25 @@ func setupTCRedirect(nsPath, ifName, tapName string, queues int) (string, error)
 //  3. Bring both interfaces up.
 //  4. Attach ingress qdisc to both.
 //  5. Add U32+mirred filters for bidirectional redirect.
-func tcRedirectInNS(ifName, tapName string, queues int) (string, error) {
-	// 1. Find CNI veth, capture its MAC, and flush IP addresses.
+func tcRedirectInNS(ifName, tapName string, queues int, overrideMAC string) (string, error) {
+	// 1. Find CNI veth, optionally restore its MAC (recovery), then flush IP addresses.
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
 		return "", fmt.Errorf("find %s: %w", ifName, err)
 	}
+
+	// Recovery: set veth MAC back to persisted value so anti-spoofing
+	// plugins (Cilium, Calico eBPF) see the same MAC as CH --net mac=.
+	if overrideMAC != "" {
+		hwAddr, parseErr := net.ParseMAC(overrideMAC)
+		if parseErr != nil {
+			return "", fmt.Errorf("parse MAC %s: %w", overrideMAC, parseErr)
+		}
+		if setErr := netlink.LinkSetHardwareAddr(link, hwAddr); setErr != nil {
+			return "", fmt.Errorf("set MAC on %s: %w", ifName, setErr)
+		}
+	}
+
 	mac := link.Attrs().HardwareAddr.String()
 
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)

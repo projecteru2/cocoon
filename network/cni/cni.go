@@ -60,6 +60,15 @@ func New(conf *config.Config) (*CNI, error) {
 
 func (c *CNI) Type() string { return typ }
 
+// Verify checks whether the network namespace for a VM exists.
+func (c *CNI) Verify(_ context.Context, vmID string) error {
+	nsPath := c.conf.CNINetnsPath(vmID)
+	if _, err := os.Stat(nsPath); err != nil {
+		return fmt.Errorf("netns %s: %w", nsPath, err)
+	}
+	return nil
+}
+
 // Inspect returns the network record for a single network ID.
 // Returns (nil, nil) if not found.
 func (c *CNI) Inspect(ctx context.Context, id string) (*types.Network, error) {

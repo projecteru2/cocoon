@@ -24,7 +24,7 @@ const defaultQueueSize = 256
 //  2. CNI ADD (containerID=vmID, netns path, ifName=eth{i})
 //  3. Inside netns: flush eth{i} IP, create tap{i}, wire via TC ingress mirred
 //  4. Return NetworkConfig{Tap: "tap{i}", Mac: generated, Network: CNI result}
-func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig) (configs []*types.NetworkConfig, retErr error) {
+func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig, existing ...*types.NetworkConfig) (configs []*types.NetworkConfig, retErr error) {
 	if c.networkConfList == nil || c.cniConf == nil {
 		return nil, fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
 	}
@@ -84,7 +84,13 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		// Step 3: inside netns — flush IP, create tap, wire via TC redirect (platform-specific).
 		// Returns eth0's MAC so the guest virtio-net uses the same address,
 		// required for anti-spoofing CNI plugins (Cilium, Calico eBPF, VPC ENI).
-		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, vmCfg.CPU)
+		// On recovery, overrideMAC restores the original veth MAC to match
+		// the persisted CH --net mac= value.
+		var overrideMAC string
+		if i < len(existing) && existing[i] != nil {
+			overrideMAC = existing[i].Mac
+		}
+		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, vmCfg.CPU, overrideMAC)
 		if setupErr != nil {
 			return nil, fmt.Errorf("setup tc-redirect %s: %w", vmID, setupErr)
 		}
@@ -99,6 +105,11 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 
 		logger.Debugf(ctx, "NIC %d: %s ip=%s gw=%s tap=%s mac=%s",
 			i, ifName, netInfo.IP, netInfo.Gateway, tapName, mac)
+	}
+
+	// Recovery: DB records survived reboot, nothing to write.
+	if len(existing) > 0 {
+		return configs, nil
 	}
 
 	// Step 4: persist network records to DB.

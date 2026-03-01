@@ -59,11 +59,41 @@ func (h Handler) Run(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) Start(cmd *cobra.Command, args []string) error {
-	ctx, hyper, err := h.initHyper(cmd)
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
+	hyper, err := cmdcore.InitHypervisor(conf)
+	if err != nil {
+		return err
+	}
+
+	// Pre-start: recover missing netns (e.g. after host reboot).
+	if netProvider, netErr := cmdcore.InitNetwork(conf); netErr == nil {
+		h.recoverNetwork(ctx, hyper, netProvider, args)
+	}
+
 	return batchVMCmd(ctx, "start", "started", hyper.Start, args)
+}
+
+// recoverNetwork recreates the network namespace and TC redirect for VMs
+// whose netns was lost (e.g. after host reboot). Best-effort: failures are
+// logged but do not block start — hyper.Start will report the real error.
+func (h Handler) recoverNetwork(ctx context.Context, hyper hypervisor.Hypervisor, net network.Network, refs []string) {
+	logger := log.WithFunc("cmd.recoverNetwork")
+	for _, ref := range refs {
+		vm, err := hyper.Inspect(ctx, ref)
+		if err != nil || vm == nil || len(vm.NetworkConfigs) == 0 {
+			continue
+		}
+		if net.Verify(ctx, vm.ID) == nil {
+			continue // netns exists, no recovery needed
+		}
+		logger.Warnf(ctx, "netns missing for VM %s, recovering network", vm.ID)
+		if _, recoverErr := net.Config(ctx, vm.ID, len(vm.NetworkConfigs), &vm.Config, vm.NetworkConfigs...); recoverErr != nil {
+			logger.Warnf(ctx, "recover network for VM %s: %v (start will fail)", vm.ID, recoverErr)
+		}
+	}
 }
 
 func (h Handler) Stop(cmd *cobra.Command, args []string) error {
