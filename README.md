@@ -28,7 +28,7 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 
 - Linux with KVM (x86_64 or aarch64)
 - Root access (sudo)
-- [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v38.0+
+- [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v51.0+
 - `qemu-img` (from qemu-utils, for cloud images)
 - UEFI firmware (`CLOUDHV.fd`, for cloud images)
 - CNI plugins (`bridge`, `host-local`, `loopback`)
@@ -94,7 +94,7 @@ sudo cocoon-check --upgrade
 cocoon image pull ghcr.io/projecteru2/cocoon/ubuntu:24.04
 
 # Or pull a cloud image from URL
-cocoon image pull https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img
+cocoon image pull https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
 
 # Create and start a VM
 cocoon vm run --name my-vm --cpu 2 --memory 1G ghcr.io/projecteru2/cocoon/ubuntu:24.04
@@ -299,6 +299,23 @@ make ci       # Full CI pipeline: fmt-check + vet + lint + test + build
 ```
 
 See `make help` for all available targets.
+
+## Known Limitations
+
+### Cloud image UEFI boot compatibility
+
+Cocoon uses [rust-hypervisor-firmware](https://github.com/cloud-hypervisor/rust-hypervisor-firmware) (`CLOUDHV.fd`) for cloud image UEFI boot. This firmware implements a minimal EFI specification and does **not** support the `InstallMultipleProtocolInterfaces()` call required by newer distributions.
+
+**Affected images** (kernel panic on boot — GRUB loads kernel but not initrd):
+
+- Ubuntu 24.04 (Noble) and later
+- Debian 13 (Trixie) and later
+
+**Working images**:
+
+- Ubuntu 22.04 (Jammy)
+
+This is an upstream issue tracked in [rust-hypervisor-firmware#333](https://github.com/cloud-hypervisor/rust-hypervisor-firmware/issues/333) and [cloud-hypervisor#7356](https://github.com/cloud-hypervisor/cloud-hypervisor/issues/7356). As a workaround, use **OCI VM images** for Ubuntu 24.04 — OCI images use direct kernel boot and are not affected.
 
 ## License
 
