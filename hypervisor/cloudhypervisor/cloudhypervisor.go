@@ -18,19 +18,23 @@ const typ = "cloud-hypervisor"
 
 // CloudHypervisor implements hypervisor.Hypervisor.
 type CloudHypervisor struct {
-	conf   *config.Config
+	conf   *Config
 	store  storage.Store[hypervisor.VMIndex]
 	locker lock.Locker
 }
 
 // New creates a CloudHypervisor backend.
 func New(conf *config.Config) (*CloudHypervisor, error) {
-	if err := conf.EnsureCHDirs(); err != nil {
+	if conf == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	cfg := &Config{Config: *conf}
+	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
-	locker := flock.New(conf.CHIndexLock())
-	store := storejson.New[hypervisor.VMIndex](conf.CHIndexFile(), locker)
-	return &CloudHypervisor{conf: conf, store: store, locker: locker}, nil
+	locker := flock.New(cfg.IndexLock())
+	store := storejson.New[hypervisor.VMIndex](cfg.IndexFile(), locker)
+	return &CloudHypervisor{conf: cfg, store: store, locker: locker}, nil
 }
 
 func (ch *CloudHypervisor) Type() string { return typ }

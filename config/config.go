@@ -1,7 +1,6 @@
 package config
 
 import (
-	"runtime"
 	"strings"
 
 	coretypes "github.com/projecteru2/core/types"
@@ -44,66 +43,6 @@ type Config struct {
 	DNS string `json:"dns" mapstructure:"dns"`
 	// Log configuration, uses eru core's ServerLogConfig.
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
-}
-
-// DefaultConfig returns a Config with sensible defaults.
-func DefaultConfig() *Config {
-	return &Config{
-		RootDir:            "/var/lib/cocoon",
-		RunDir:             "/var/lib/cocoon/run",
-		LogDir:             "/var/log/cocoon",
-		CHBinary:           "cloud-hypervisor",
-		CNIConfDir:         "/etc/cni/net.d",
-		CNIBinDir:          "/opt/cni/bin",
-		DNS:                "8.8.8.8,1.1.1.1",
-		StopTimeoutSeconds: 30,
-		PoolSize:           runtime.NumCPU(),
-		Log: &coretypes.ServerLogConfig{
-			Level:      "info",
-			MaxSize:    500,
-			MaxAge:     28,
-			MaxBackups: 3,
-		},
-	}
-}
-
-// ApplyDefaults fills in zero-value fields with sensible defaults.
-// Called after viper.Unmarshal to handle empty strings from unset flags/env.
-func ApplyDefaults(conf *Config) *Config {
-	defaults := DefaultConfig()
-	if conf.RootDir == "" {
-		conf.RootDir = defaults.RootDir
-	}
-	if conf.RunDir == "" {
-		conf.RunDir = defaults.RunDir
-	}
-	if conf.LogDir == "" {
-		conf.LogDir = defaults.LogDir
-	}
-	if conf.CHBinary == "" {
-		conf.CHBinary = defaults.CHBinary
-	}
-	if conf.CNIConfDir == "" {
-		conf.CNIConfDir = defaults.CNIConfDir
-	}
-	if conf.CNIBinDir == "" {
-		conf.CNIBinDir = defaults.CNIBinDir
-	}
-	if conf.DNS == "" {
-		conf.DNS = defaults.DNS
-	}
-	if conf.StopTimeoutSeconds <= 0 {
-		conf.StopTimeoutSeconds = defaults.StopTimeoutSeconds
-	}
-	if conf.PoolSize <= 0 {
-		conf.PoolSize = defaults.PoolSize
-	}
-	if conf.Log == nil {
-		conf.Log = defaults.Log
-	} else if conf.Log.Level == "" {
-		conf.Log.Level = defaults.Log.Level
-	}
-	return conf
 }
 
 // DNSServers parses the DNS string into a slice of server addresses.

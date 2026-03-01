@@ -161,7 +161,7 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 // EnsureFirmwarePath sets default firmware path for cloudimg boot.
 func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
 	if bootCfg != nil && bootCfg.KernelPath == "" && bootCfg.FirmwarePath == "" {
-		bootCfg.FirmwarePath = conf.FirmwarePath()
+		bootCfg.FirmwarePath = cloudimg.NewConfig(conf).FirmwarePath()
 	}
 }
 

@@ -31,10 +31,10 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 				return snap, err
 			}
 			var err error
-			if snap.blobs, err = utils.ScanFileStems(o.conf.OCIBlobsDir(), ".erofs"); err != nil {
+			if snap.blobs, err = utils.ScanFileStems(o.conf.BlobsDir(), ".erofs"); err != nil {
 				return snap, err
 			}
-			if snap.bootDirs, err = utils.ScanSubdirs(o.conf.OCIBootBaseDir()); err != nil {
+			if snap.bootDirs, err = utils.ScanSubdirs(o.conf.BootBaseDir()); err != nil {
 				return snap, err
 			}
 			return snap, nil
@@ -51,7 +51,7 @@ func (o *OCI) GCModule() gc.Module[ociSnapshot] {
 			return slices.Compact(candidates)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
-			return images.GCCollectBlobs(ctx, o.conf.OCITempDir(), true, ids,
+			return images.GCCollectBlobs(ctx, o.conf.TempDir(), true, ids,
 				func(hex string) error { return os.Remove(o.conf.BlobPath(hex)) },
 				func(hex string) error { return os.RemoveAll(o.conf.BootDir(hex)) },
 			)

@@ -26,7 +26,7 @@ const (
 // OCI implements the images.Images interface using OCI container images
 // converted to EROFS filesystems for use with Cloud Hypervisor.
 type OCI struct {
-	conf      *config.Config
+	conf      *Config
 	store     storage.Store[imageIndex]
 	locker    lock.Locker
 	pullGroup singleflight.Group
@@ -35,15 +35,19 @@ type OCI struct {
 
 // New creates a new OCI image backend.
 func New(ctx context.Context, conf *config.Config) (*OCI, error) {
-	if err := conf.EnsureOCIDirs(); err != nil {
+	if conf == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	cfg := &Config{Config: *conf}
+	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
 	log.WithFunc("oci.New").Debugf(ctx, "OCI image backend initialized, pool size: %d", conf.PoolSize)
 
-	store, locker := images.NewStore[imageIndex](conf.OCIIndexFile(), conf.OCIIndexLock())
+	store, locker := images.NewStore[imageIndex](cfg.IndexFile(), cfg.IndexLock())
 	o := &OCI{
-		conf:   conf,
+		conf:   cfg,
 		store:  store,
 		locker: locker,
 		ops: images.Ops[imageIndex, imageEntry]{
@@ -51,7 +55,7 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 			Type:       typ,
 			LookupRefs: func(idx *imageIndex, q string) []string { return idx.LookupRefs(q) },
 			Entries:    func(idx *imageIndex) map[string]*imageEntry { return idx.Images },
-			Sizer:      imageSizer(conf),
+			Sizer:      imageSizer(cfg),
 		},
 	}
 	return o, nil
@@ -130,7 +134,7 @@ func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*ty
 	return result, boot, err
 }
 
-func imageSizer(conf *config.Config) func(*imageEntry) int64 {
+func imageSizer(paths *Config) func(*imageEntry) int64 {
 	return func(e *imageEntry) int64 {
 		if e.Size > 0 {
 			return e.Size
@@ -138,17 +142,17 @@ func imageSizer(conf *config.Config) func(*imageEntry) int64 {
 		// Fallback for index entries created before Size was cached.
 		var total int64
 		for _, layer := range e.Layers {
-			if info, err := os.Stat(conf.BlobPath(layer.Digest.Hex())); err == nil {
+			if info, err := os.Stat(paths.BlobPath(layer.Digest.Hex())); err == nil {
 				total += info.Size()
 			}
 		}
 		if e.KernelLayer != "" {
-			if info, err := os.Stat(conf.KernelPath(e.KernelLayer.Hex())); err == nil {
+			if info, err := os.Stat(paths.KernelPath(e.KernelLayer.Hex())); err == nil {
 				total += info.Size()
 			}
 		}
 		if e.InitrdLayer != "" {
-			if info, err := os.Stat(conf.InitrdPath(e.InitrdLayer.Hex())); err == nil {
+			if info, err := os.Stat(paths.InitrdPath(e.InitrdLayer.Hex())); err == nil {
 				total += info.Size()
 			}
 		}

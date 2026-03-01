@@ -22,7 +22,7 @@ const typ = "cloudimg"
 // CloudImg implements the images.Images interface using cloud images (qcow2/raw)
 // downloaded from HTTP/HTTPS URLs, converted to qcow2 v3 for use with Cloud Hypervisor via UEFI boot.
 type CloudImg struct {
-	conf      *config.Config
+	conf      *Config
 	store     storage.Store[imageIndex]
 	locker    lock.Locker
 	pullGroup singleflight.Group
@@ -31,15 +31,16 @@ type CloudImg struct {
 
 // New creates a new cloud image backend.
 func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
-	if err := conf.EnsureCloudimgDirs(); err != nil {
+	cfg := NewConfig(conf)
+	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
 
 	log.WithFunc("cloudimg.New").Debug(ctx, "cloud image backend initialized")
 
-	store, locker := images.NewStore[imageIndex](conf.CloudimgIndexFile(), conf.CloudimgIndexLock())
+	store, locker := images.NewStore[imageIndex](cfg.IndexFile(), cfg.IndexLock())
 	c := &CloudImg{
-		conf:   conf,
+		conf:   cfg,
 		store:  store,
 		locker: locker,
 		ops: images.Ops[imageIndex, imageEntry]{
@@ -92,7 +93,7 @@ func (c *CloudImg) Config(ctx context.Context, vms []*types.VMConfig) (result []
 				return fmt.Errorf("image %q not found for VM %s", vm.Image, vm.Name)
 			}
 
-			blobPath := c.conf.CloudimgBlobPath(entry.ContentSum.Hex())
+			blobPath := c.conf.BlobPath(entry.ContentSum.Hex())
 			if !utils.ValidFile(blobPath) {
 				return fmt.Errorf("blob invalid for VM %s (%s)", vm.Name, entry.ContentSum)
 			}

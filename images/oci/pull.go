@@ -19,7 +19,6 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/progress"
 	ociProgress "github.com/projecteru2/cocoon/progress/oci"
@@ -38,7 +37,7 @@ type pullLayerResult struct {
 
 // pull downloads an OCI image, extracts boot files, and converts each layer
 // to EROFS concurrently using errgroup.
-func pull(ctx context.Context, conf *config.Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
+func pull(ctx context.Context, conf *Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
 	logger := log.WithFunc("oci.pull")
 
 	// Phase 1: network I/O — no lock held.
@@ -61,7 +60,7 @@ func pull(ctx context.Context, conf *config.Config, store storage.Store[imageInd
 
 		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: len(layers)})
 
-		workDir, mkErr := os.MkdirTemp(conf.OCITempDir(), "pull-*")
+		workDir, mkErr := os.MkdirTemp(conf.TempDir(), "pull-*")
 		if mkErr != nil {
 			return fmt.Errorf("create work dir: %w", mkErr)
 		}
@@ -146,7 +145,7 @@ func fetchImage(ctx context.Context, imageRef string) (ref, digestHex string, la
 
 // isUpToDate checks if the image is already pulled with the same manifest digest
 // and all files (blobs, kernel, initrd) are intact on disk.
-func isUpToDate(conf *config.Config, idx *imageIndex, ref, digestHex string) bool {
+func isUpToDate(conf *Config, idx *imageIndex, ref, digestHex string) bool {
 	entry, ok := idx.Images[ref]
 	if !ok || entry == nil || entry.ManifestDigest != images.NewDigest(digestHex) {
 		return false
@@ -198,14 +197,14 @@ func moveBootFile(src, dst, bootDir string, layerIdx int, name string) error {
 
 // commitAndRecord moves artifacts to shared image paths and records the image entry.
 // Must be called under flock (inside idx.Update).
-func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestDigest images.Digest, results []pullLayerResult) error {
+func commitAndRecord(conf *Config, idx *imageIndex, ref string, manifestDigest images.Digest, results []pullLayerResult) error {
 	var (
 		layerEntries []layerEntry
 		kernelLayer  images.Digest
 		initrdLayer  images.Digest
 	)
 
-	// Validate boot files exist before moving any artifacts to shared paths.
+	// Validate boot files exist before moving any artifacts to shared conf.
 	hasKernel, hasInitrd := false, false
 	for i := range results {
 		if results[i].kernelPath != "" {
@@ -303,7 +302,7 @@ func commitAndRecord(conf *config.Config, idx *imageIndex, ref string, manifestD
 // healCachedBootFiles closes that gap by running after all layers are processed:
 // if kernel or initrd (or both) are still missing across results, it sequentially
 // re-scans every cached layer to find them.
-func healCachedBootFiles(ctx context.Context, conf *config.Config, layers []v1.Layer, results []pullLayerResult, workDir string) {
+func healCachedBootFiles(ctx context.Context, conf *Config, layers []v1.Layer, results []pullLayerResult, workDir string) {
 	logger := log.WithFunc("oci.healCachedBootFiles")
 
 	var hasKernel, hasInitrd bool
@@ -342,7 +341,7 @@ func healCachedBootFiles(ctx context.Context, conf *config.Config, layers []v1.L
 // for missing boot files and self-heals by re-extracting them.
 // knownBootHexes contains digest hex strings of layers previously recorded as boot
 // layers in the index, enabling targeted self-heal even when bootDir is deleted.
-func processLayer(ctx context.Context, conf *config.Config, idx, total int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) error {
+func processLayer(ctx context.Context, conf *Config, idx, total int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) error {
 	logger := log.WithFunc("oci.processLayer")
 
 	layerDigest, err := layer.Digest()
@@ -412,7 +411,7 @@ func processLayer(ctx context.Context, conf *config.Config, idx, total int, laye
 }
 
 // handleCachedLayer handles already-cached layers: checks boot files and self-heals if needed.
-func handleCachedLayer(ctx context.Context, conf *config.Config, layer v1.Layer, workDir string, idx, total int, digestHex string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) {
+func handleCachedLayer(ctx context.Context, conf *Config, layer v1.Layer, workDir string, idx, total int, digestHex string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) {
 	logger := log.WithFunc("oci.processLayer")
 	logger.Debugf(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
 	result.erofsPath = conf.BlobPath(digestHex)
@@ -432,7 +431,7 @@ func handleCachedLayer(ctx context.Context, conf *config.Config, layer v1.Layer,
 // selfHealBootFiles re-extracts missing boot files from a cached layer when
 // evidence suggests it is a boot layer. Evidence sources: existing boot file,
 // boot dir on disk, or index records this digest as a boot layer.
-func selfHealBootFiles(ctx context.Context, conf *config.Config, layer v1.Layer, workDir string, idx int, digestHex string, knownBootHexes map[string]struct{}, result *pullLayerResult) {
+func selfHealBootFiles(ctx context.Context, conf *Config, layer v1.Layer, workDir string, idx int, digestHex string, knownBootHexes map[string]struct{}, result *pullLayerResult) {
 	if result.kernelPath != "" && result.initrdPath != "" {
 		return
 	}

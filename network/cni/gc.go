@@ -11,7 +11,6 @@ import (
 	"github.com/containernetworking/cni/libcni"
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/gc"
 )
 
@@ -40,9 +39,9 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 			}
 			// Scan named netns with the cocoon- prefix only.
 			// Other tools (docker, containerd) may have their own entries.
-			if entries, readErr := os.ReadDir(config.NetnsPath); readErr == nil {
+			if entries, readErr := os.ReadDir(netnsBasePath); readErr == nil {
 				for _, e := range entries {
-					if name, ok := strings.CutPrefix(e.Name(), config.NetnsPrefix); ok {
+					if name, ok := strings.CutPrefix(e.Name(), netnsPrefix); ok {
 						snap.netnsNames = append(snap.netnsNames, name)
 					}
 				}
@@ -84,7 +83,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 
 				// 2. CNI DEL per NIC — best-effort IPAM release.
 				if c.cniConf != nil && c.networkConfList != nil {
-					nsPath := c.conf.CNINetnsPath(vmID)
+					nsPath := netnsPath(vmID)
 					for _, rec := range records {
 						rt := &libcni.RuntimeConf{
 							ContainerID: vmID,
@@ -98,7 +97,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 				}
 
 				// 3. Remove the named netns (with retry for async kernel fd cleanup).
-				nsName := c.conf.CNINetnsName(vmID)
+				nsName := netnsName(vmID)
 				if err := deleteNetns(ctx, nsName); err != nil && !os.IsNotExist(err) {
 					errs = append(errs, fmt.Errorf("remove netns %s: %w", nsName, err))
 				}

@@ -28,8 +28,8 @@ const CowSerial = "cocoon-cow"
 func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
 	var err error
 	now := time.Now()
-	runDir := ch.conf.CHVMRunDir(id)
-	logDir := ch.conf.CHVMLogDir(id)
+	runDir := ch.conf.VMRunDir(id)
+	logDir := ch.conf.VMLogDir(id)
 
 	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
 
@@ -117,7 +117,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 // the kernel cmdline with layer/cow serial mappings.
 // Returns the updated StorageConfig slice.
 func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
-	cowPath := ch.conf.CHVMCOWRawPath(vmID)
+	cowPath := ch.conf.COWRawPath(vmID)
 
 	// Create sparse COW file
 	// os.Truncate requires the file to exist; create it first.
@@ -181,7 +181,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		return nil, fmt.Errorf("cloudimg: no base image StorageConfig")
 	}
 	basePath := storageConfigs[0].Path
-	overlayPath := ch.conf.CHVMOverlayPath(vmID)
+	overlayPath := ch.conf.OverlayPath(vmID)
 
 	// qemu-img create -f qcow2 -F qcow2 -b <base> <overlay>
 	if out, err := exec.CommandContext(ctx, //nolint:gosec
@@ -224,7 +224,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		}
 	}
 
-	cidataPath := ch.conf.CHVMCidataPath(vmID)
+	cidataPath := ch.conf.CidataPath(vmID)
 	f, err := os.OpenFile(cidataPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("create cidata: %w", err)

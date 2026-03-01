@@ -29,7 +29,7 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 				return snap, err
 			}
 			var err error
-			if snap.blobs, err = utils.ScanFileStems(c.conf.CloudimgBlobsDir(), ".qcow2"); err != nil {
+			if snap.blobs, err = utils.ScanFileStems(c.conf.BlobsDir(), ".qcow2"); err != nil {
 				return snap, err
 			}
 			return snap, nil
@@ -40,8 +40,8 @@ func (c *CloudImg) GCModule() gc.Module[cloudimgSnapshot] {
 			return utils.FilterUnreferenced(snap.blobs, allRefs)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
-			return images.GCCollectBlobs(ctx, c.conf.CloudimgTempDir(), false, ids,
-				func(hex string) error { return os.Remove(c.conf.CloudimgBlobPath(hex)) },
+			return images.GCCollectBlobs(ctx, c.conf.TempDir(), false, ids,
+				func(hex string) error { return os.Remove(c.conf.BlobPath(hex)) },
 			)
 		},
 	}

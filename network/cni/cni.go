@@ -21,7 +21,7 @@ const typ = "cni"
 
 // CNI implements network.Network using CNI plugins with per-VM netns + bridge + tap.
 type CNI struct {
-	conf            *config.Config
+	conf            *Config
 	store           storage.Store[networkIndex]
 	locker          lock.Locker
 	networkConfList *libcni.NetworkConfigList
@@ -33,24 +33,28 @@ type CNI struct {
 // available (e.g. no network needed), Delete/Inspect/List still work.
 // Config() will fail if the conflist is not loaded.
 func New(conf *config.Config) (*CNI, error) {
-	if err := conf.EnsureCNIDirs(); err != nil {
+	if conf == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	cfg := &Config{Config: *conf}
+	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure cni dirs: %w", err)
 	}
 
-	locker := flock.New(conf.CNIIndexLock())
-	store := storejson.New[networkIndex](conf.CNIIndexFile(), locker)
+	locker := flock.New(cfg.IndexLock())
+	store := storejson.New[networkIndex](cfg.IndexFile(), locker)
 
 	c := &CNI{
-		conf:   conf,
+		conf:   cfg,
 		store:  store,
 		locker: locker,
 	}
 
-	if confList, loadErr := loadFirstConfList(conf.CNIConfDir); loadErr == nil {
+	if confList, loadErr := loadFirstConfList(cfg.CNIConfDir); loadErr == nil {
 		c.networkConfList = confList
 		c.cniConf = libcni.NewCNIConfigWithCacheDir(
-			[]string{conf.CNIBinDir},
-			conf.CNICacheDir(),
+			[]string{cfg.CNIBinDir},
+			cfg.CacheDir(),
 			nil,
 		)
 	}
@@ -62,7 +66,7 @@ func (c *CNI) Type() string { return typ }
 
 // Verify checks whether the network namespace for a VM exists.
 func (c *CNI) Verify(_ context.Context, vmID string) error {
-	nsPath := c.conf.CNINetnsPath(vmID)
+	nsPath := netnsPath(vmID)
 	if _, err := os.Stat(nsPath); err != nil {
 		return fmt.Errorf("netns %s: %w", nsPath, err)
 	}
@@ -137,7 +141,7 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 		return nil
 	}
 
-	nsPath := c.conf.CNINetnsPath(vmID)
+	nsPath := netnsPath(vmID)
 
 	// CNI DEL for each NIC — releases IPs from IPAM and removes veth pairs.
 	// Best-effort: log failures but continue. Netns deletion cleans up
@@ -157,7 +161,7 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 
 	// Remove the named netns (unmount bind-mount + remove file).
 	// deleteNetns retries briefly to handle async fd cleanup after process kill.
-	nsName := c.conf.CNINetnsName(vmID)
+	nsName := netnsName(vmID)
 	if err := deleteNetns(ctx, nsName); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove netns %s: %w", nsPath, err)
 	}

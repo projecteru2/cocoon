@@ -7,6 +7,11 @@ type NetworkConfig struct {
 	Queue     int64  `json:"queue"`
 	QueueSize int64  `json:"queue_size"`
 
+	// NetnsPath is the network namespace path where the tap device lives.
+	// Set by the network plugin at Config time; read by the hypervisor at Start time.
+	// Empty when the network backend does not use network namespaces (e.g. macOS vmnet).
+	NetnsPath string `json:"netns_path,omitempty"`
+
 	// Guest-side IP configuration returned by the network plugin.
 	// nil means DHCP / no static config.
 	Network *Network `json:"network,omitempty"`

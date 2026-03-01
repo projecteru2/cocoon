@@ -53,10 +53,10 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 				return snap, err
 			}
 			var err error
-			if snap.runDirs, err = utils.ScanSubdirs(ch.conf.CHRunDir()); err != nil {
+			if snap.runDirs, err = utils.ScanSubdirs(ch.conf.RunDir()); err != nil {
 				return snap, err
 			}
-			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.CHLogDir()); err != nil {
+			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.LogDir()); err != nil {
 				return snap, err
 			}
 			return snap, nil
@@ -77,7 +77,7 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			for _, id := range ids {
 				// Try loading the DB record so we use stored RunDir/LogDir;
 				// for true orphans (no record) fall back to config-derived paths.
-				runDir, logDir := ch.conf.CHVMRunDir(id), ch.conf.CHVMLogDir(id)
+				runDir, logDir := ch.conf.VMRunDir(id), ch.conf.VMLogDir(id)
 				if rec, loadErr := ch.loadRecord(ctx, id); loadErr == nil {
 					runDir, logDir = rec.RunDir, rec.LogDir
 				}

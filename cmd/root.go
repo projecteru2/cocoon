@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/projecteru2/core/log"
@@ -54,6 +55,19 @@ var rootCmd = func() *cobra.Command {
 
 	viper.SetEnvPrefix("COCOON")
 	viper.AutomaticEnv()
+	viper.SetDefault("root_dir", "/var/lib/cocoon")
+	viper.SetDefault("run_dir", "/var/lib/cocoon/run")
+	viper.SetDefault("log_dir", "/var/log/cocoon")
+	viper.SetDefault("ch_binary", "cloud-hypervisor")
+	viper.SetDefault("cni_conf_dir", "/etc/cni/net.d")
+	viper.SetDefault("cni_bin_dir", "/opt/cni/bin")
+	viper.SetDefault("dns", "8.8.8.8,1.1.1.1")
+	viper.SetDefault("stop_timeout_seconds", 30)
+	viper.SetDefault("pool_size", runtime.NumCPU())
+	viper.SetDefault("log.level", "info")
+	viper.SetDefault("log.max_size", 500)
+	viper.SetDefault("log.max_age", 28)
+	viper.SetDefault("log.max_backups", 3)
 
 	confProvider := func() *config.Config { return conf }
 	base := cmdcore.BaseHandler{ConfProvider: confProvider}
@@ -75,8 +89,6 @@ func Execute() error {
 }
 
 func initConfig(ctx context.Context) error {
-	conf = config.DefaultConfig()
-
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	}
@@ -88,11 +100,10 @@ func initConfig(ctx context.Context) error {
 		}
 	}
 
+	conf = &config.Config{}
 	if err := viper.Unmarshal(conf); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
-
-	conf = config.ApplyDefaults(conf)
 
 	return log.SetupLog(ctx, conf.Log, "")
 }
