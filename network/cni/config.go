@@ -71,12 +71,17 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			IfName:      ifName,
 		}
 
-		// Recovery: release stale IPAM allocation before re-adding.
-		// After host reboot, IPAM state files survive on disk but the netns
-		// is gone. DEL clears the old allocation so ADD can proceed.
-		if len(existing) > 0 {
+		// Recovery: release stale IPAM allocation, then re-add requesting
+		// the same IP. After host reboot, IPAM state files survive on disk
+		// but the netns is gone. DEL clears the old record; the IP= CNI_ARG
+		// tells host-local to allocate exactly the original address so the
+		// guest's static IP config still matches.
+		if i < len(existing) && existing[i] != nil {
 			if delErr := c.cniConf.DelNetworkList(ctx, c.networkConfList, rt); delErr != nil {
 				logger.Warnf(ctx, "pre-recovery CNI DEL %s/%s: %v (continuing)", vmID, ifName, delErr)
+			}
+			if existing[i].Network != nil && existing[i].Network.IP != "" {
+				rt.Args = [][2]string{{"IP", existing[i].Network.IP}}
 			}
 		}
 
