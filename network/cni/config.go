@@ -70,6 +70,16 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			NetNS:       nsPath,
 			IfName:      ifName,
 		}
+
+		// Recovery: release stale IPAM allocation before re-adding.
+		// After host reboot, IPAM state files survive on disk but the netns
+		// is gone. DEL clears the old allocation so ADD can proceed.
+		if len(existing) > 0 {
+			if delErr := c.cniConf.DelNetworkList(ctx, c.networkConfList, rt); delErr != nil {
+				logger.Warnf(ctx, "pre-recovery CNI DEL %s/%s: %v (continuing)", vmID, ifName, delErr)
+			}
+		}
+
 		cniResult, err := c.cniConf.AddNetworkList(ctx, c.networkConfList, rt)
 		if err != nil {
 			return nil, fmt.Errorf("CNI ADD %s/%s: %w", vmID, ifName, err)
