@@ -81,7 +81,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 				logger.Warnf(ctx, "pre-recovery CNI DEL %s/%s: %v (continuing)", vmID, ifName, delErr)
 			}
 			if existing[i].Network != nil && existing[i].Network.IP != "" {
-				rt.Args = [][2]string{{"IP", existing[i].Network.IP}}
+				rt.Args = [][2]string{{"IgnoreUnknown", "1"}, {"IP", existing[i].Network.IP}}
 			}
 		}
 
