@@ -15,6 +15,7 @@ import (
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
 	cmdimages "github.com/projecteru2/cocoon/cmd/images"
 	cmdothers "github.com/projecteru2/cocoon/cmd/others"
+	cmdsnapshot "github.com/projecteru2/cocoon/cmd/snapshot"
 	cmdvm "github.com/projecteru2/cocoon/cmd/vm"
 	"github.com/projecteru2/cocoon/config"
 )
@@ -74,6 +75,7 @@ var rootCmd = func() *cobra.Command {
 
 	cmd.AddCommand(cmdimages.Command(cmdimages.Handler{BaseHandler: base}))
 	cmd.AddCommand(cmdvm.Command(cmdvm.Handler{BaseHandler: base}))
+	cmd.AddCommand(cmdsnapshot.Command(cmdsnapshot.Handler{BaseHandler: base}))
 	for _, c := range cmdothers.Commands(cmdothers.Handler{BaseHandler: base}) {
 		cmd.AddCommand(c)
 	}

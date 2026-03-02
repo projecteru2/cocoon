@@ -16,6 +16,8 @@ import (
 	"github.com/projecteru2/cocoon/images/oci"
 	"github.com/projecteru2/cocoon/network"
 	"github.com/projecteru2/cocoon/network/cni"
+	"github.com/projecteru2/cocoon/snapshot"
+	"github.com/projecteru2/cocoon/snapshot/localfile"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
@@ -101,6 +103,15 @@ func InitNetwork(conf *config.Config) (network.Network, error) {
 		return nil, fmt.Errorf("init network: %w", err)
 	}
 	return p, nil
+}
+
+// InitSnapshot initializes the snapshot backend.
+func InitSnapshot(conf *config.Config) (snapshot.Snapshot, error) {
+	s, err := localfile.New(conf)
+	if err != nil {
+		return nil, fmt.Errorf("init snapshot backend: %w", err)
+	}
+	return s, nil
 }
 
 // ResolveImage resolves an image reference to StorageConfigs + BootConfig.

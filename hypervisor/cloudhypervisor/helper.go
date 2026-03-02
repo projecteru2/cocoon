@@ -39,6 +39,40 @@ func shutdownVM(ctx context.Context, socketPath string) error {
 	return err
 }
 
+// pauseVM pauses a running VM via the Cloud Hypervisor REST API.
+func pauseVM(ctx context.Context, socketPath string) error {
+	hc := utils.NewSocketHTTPClient(socketPath)
+	_, err := utils.DoWithRetry(ctx, func() ([]byte, error) {
+		return utils.DoAPI(ctx, hc, http.MethodPut, "http://localhost/api/v1/vm.pause", nil, http.StatusNoContent)
+	})
+	return err
+}
+
+// resumeVM resumes a paused VM via the Cloud Hypervisor REST API.
+func resumeVM(ctx context.Context, socketPath string) error {
+	hc := utils.NewSocketHTTPClient(socketPath)
+	_, err := utils.DoWithRetry(ctx, func() ([]byte, error) {
+		return utils.DoAPI(ctx, hc, http.MethodPut, "http://localhost/api/v1/vm.resume", nil, http.StatusNoContent)
+	})
+	return err
+}
+
+// snapshotVM triggers a VM snapshot via the Cloud Hypervisor REST API.
+// CH writes config.json, state.json, and memory-ranges into destDir.
+func snapshotVM(ctx context.Context, socketPath, destDir string) error {
+	hc := utils.NewSocketHTTPClient(socketPath)
+	body, err := json.Marshal(map[string]string{
+		"destination_url": "file://" + destDir,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal snapshot request: %w", err)
+	}
+	_, err = utils.DoWithRetry(ctx, func() ([]byte, error) {
+		return utils.DoAPI(ctx, hc, http.MethodPut, "http://localhost/api/v1/vm.snapshot", body, http.StatusNoContent)
+	})
+	return err
+}
+
 // powerButton sends an ACPI power-button event to the guest.
 func powerButton(ctx context.Context, socketPath string) error {
 	hc := utils.NewSocketHTTPClient(socketPath)
