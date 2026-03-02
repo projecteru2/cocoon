@@ -19,8 +19,7 @@ type VMConfig struct {
 	CPU     int    `json:"cpu"`
 	Memory  int64  `json:"memory"`  // bytes
 	Storage int64  `json:"storage"` // COW disk size, bytes
-
-	Image string `json:"image"`
+	Image   string `json:"image"`
 }
 
 // VM is the runtime record for a VM, persisted by the hypervisor backend.

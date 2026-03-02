@@ -135,9 +135,9 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			if genErr != nil {
 				return genErr
 			}
-			cfg.Network.ID = netID
-			cfg.Network.Type = c.networkConfList.Name
 			idx.Networks[netID] = &networkRecord{
+				ID:      netID,
+				Type:    c.networkConfList.Name,
 				Network: *cfg.Network,
 				VMID:    vmID,
 				IfName:  fmt.Sprintf("eth%d", i),

@@ -7,8 +7,11 @@ import (
 // networkRecord is one NIC's persisted network state.
 // Keyed by a generated network ID (unique per NIC, not per VM).
 type networkRecord struct {
-	types.Network
-
+	types.Network `json:"network"`
+	// ID is the unique network record identifier (map key in networkIndex).
+	ID string `json:"id"`
+	// Type is the CNI conflist name (e.g. "cocoon", "calico").
+	Type string `json:"type"`
 	// VMID links this network back to the owning VM.
 	VMID string `json:"vm_id"`
 	// IfName is the CNI interface name inside the netns (eth0, eth1, ...).

@@ -20,9 +20,6 @@ type NetworkConfig struct {
 // Network holds guest-visible IP configuration for a NIC.
 // All addresses are stored as human-readable strings for JSON clarity.
 type Network struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-
 	IP      string `json:"ip"`                // dotted decimal, e.g. "10.0.0.2"
 	Gateway string `json:"gateway,omitempty"` // dotted decimal, e.g. "10.0.0.1"
 	Prefix  int    `json:"prefix"`            // CIDR prefix length, e.g. 24
