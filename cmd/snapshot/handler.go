@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
+	"github.com/projecteru2/cocoon/snapshot"
 	"github.com/projecteru2/cocoon/types"
 )
 
@@ -40,6 +42,15 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	vmRef := args[0]
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
+
+	// Pre-check: reject if the snapshot name is already taken.
+	if name != "" {
+		if _, inspectErr := snapBackend.Inspect(ctx, name); inspectErr == nil {
+			return fmt.Errorf("snapshot name %q already exists", name)
+		} else if !errors.Is(inspectErr, snapshot.ErrNotFound) {
+			return fmt.Errorf("check snapshot name: %w", inspectErr)
+		}
+	}
 
 	logger.Infof(ctx, "snapshotting VM %s ...", vmRef)
 

@@ -10,6 +10,8 @@ import (
 
 // Snapshot manages snapshot lifecycle and storage.
 type Snapshot interface {
+	Type() string
+
 	// Create persists a snapshot from the given config and data stream, returning the snapshot ID.
 	Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (string, error)
 	// List returns all snapshots.

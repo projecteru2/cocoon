@@ -27,8 +27,6 @@ type Hypervisor interface {
 	List(context.Context) ([]*types.VM, error)
 	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
 	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
-	// Snapshot exports the VM's disk data as a tar stream.
-	// Returns a SnapshotConfig (with ImageBlobIDs filled for GC pinning) and the data stream.
 	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
 
 	RegisterGC(*gc.Orchestrator)

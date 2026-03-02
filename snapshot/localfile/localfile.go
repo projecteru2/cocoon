@@ -18,6 +18,8 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
+const typ = "localfile"
+
 // compile-time interface check.
 var _ snapshot.Snapshot = (*LocalFile)(nil)
 
@@ -27,6 +29,8 @@ type LocalFile struct {
 	store  storage.Store[snapshot.SnapshotIndex]
 	locker lock.Locker
 }
+
+func (lf *LocalFile) Type() string { return typ }
 
 // New creates a new LocalFile snapshot backend.
 func New(conf *config.Config) (*LocalFile, error) {
