@@ -3,7 +3,6 @@ package utils
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"io"
 	"os"
 	"path/filepath"
@@ -150,12 +149,11 @@ func TestTarDir_NotExist(t *testing.T) {
 	}
 }
 
-// helper: create a tar.gz in memory from a map of name→content.
-func makeTarGz(t *testing.T, files map[string][]byte) *bytes.Buffer {
+// helper: create a tar in memory from a map of name→content.
+func makeTar(t *testing.T, files map[string][]byte) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
+	tw := tar.NewWriter(&buf)
 	for name, data := range files {
 		if err := tw.WriteHeader(&tar.Header{
 			Name:     name,
@@ -172,22 +170,19 @@ func makeTarGz(t *testing.T, files map[string][]byte) *bytes.Buffer {
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
 	return &buf
 }
 
-func TestExtractTarGz(t *testing.T) {
+func TestExtractTar(t *testing.T) {
 	files := map[string][]byte{
 		"a.txt": []byte("hello"),
 		"b.bin": []byte("world"),
 	}
-	buf := makeTarGz(t, files)
+	buf := makeTar(t, files)
 
 	dir := t.TempDir()
-	if err := ExtractTarGz(dir, buf); err != nil {
-		t.Fatalf("ExtractTarGz: %v", err)
+	if err := ExtractTar(dir, buf); err != nil {
+		t.Fatalf("ExtractTar: %v", err)
 	}
 
 	for name, want := range files {
@@ -202,22 +197,20 @@ func TestExtractTarGz(t *testing.T) {
 	}
 }
 
-func TestExtractTarGz_SkipsDirectories(t *testing.T) {
+func TestExtractTar_SkipsDirectories(t *testing.T) {
 	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
+	tw := tar.NewWriter(&buf)
 
 	// Add a directory entry.
-	tw.WriteHeader(&tar.Header{Name: "subdir/", Typeflag: tar.TypeDir, Mode: 0o755})
+	tw.WriteHeader(&tar.Header{Name: "subdir/", Typeflag: tar.TypeDir, Mode: 0o755}) //nolint:errcheck
 	// Add a regular file.
-	tw.WriteHeader(&tar.Header{Name: "file.txt", Size: 3, Typeflag: tar.TypeReg, Mode: 0o644})
-	tw.Write([]byte("abc"))
-	tw.Close()
-	gw.Close()
+	tw.WriteHeader(&tar.Header{Name: "file.txt", Size: 3, Typeflag: tar.TypeReg, Mode: 0o644}) //nolint:errcheck
+	tw.Write([]byte("abc"))                                                                      //nolint:errcheck
+	tw.Close()                                                                                   //nolint:errcheck
 
 	dir := t.TempDir()
-	if err := ExtractTarGz(dir, &buf); err != nil {
-		t.Fatalf("ExtractTarGz: %v", err)
+	if err := ExtractTar(dir, &buf); err != nil {
+		t.Fatalf("ExtractTar: %v", err)
 	}
 
 	// Only file.txt should exist, no subdir.
@@ -231,16 +224,16 @@ func TestExtractTarGz_SkipsDirectories(t *testing.T) {
 	}
 }
 
-func TestExtractTarGz_PathTraversal(t *testing.T) {
+func TestExtractTar_PathTraversal(t *testing.T) {
 	files := map[string][]byte{
 		"../../../etc/passwd": []byte("evil"),
 		"normal.txt":          []byte("safe"),
 	}
-	buf := makeTarGz(t, files)
+	buf := makeTar(t, files)
 
 	dir := t.TempDir()
-	if err := ExtractTarGz(dir, buf); err != nil {
-		t.Fatalf("ExtractTarGz: %v", err)
+	if err := ExtractTar(dir, buf); err != nil {
+		t.Fatalf("ExtractTar: %v", err)
 	}
 
 	// The traversal path should be sanitized to just "passwd" (base name).
@@ -258,12 +251,12 @@ func TestExtractTarGz_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestExtractTarGz_Empty(t *testing.T) {
-	buf := makeTarGz(t, nil)
+func TestExtractTar_Empty(t *testing.T) {
+	buf := makeTar(t, nil)
 
 	dir := t.TempDir()
-	if err := ExtractTarGz(dir, buf); err != nil {
-		t.Fatalf("ExtractTarGz: %v", err)
+	if err := ExtractTar(dir, buf); err != nil {
+		t.Fatalf("ExtractTar: %v", err)
 	}
 
 	entries, _ := os.ReadDir(dir)
@@ -272,18 +265,18 @@ func TestExtractTarGz_Empty(t *testing.T) {
 	}
 }
 
-func TestExtractTarGz_InvalidGzip(t *testing.T) {
-	if err := ExtractTarGz(t.TempDir(), strings.NewReader("not gzip")); err == nil {
-		t.Fatal("expected error for invalid gzip")
+func TestExtractTar_InvalidData(t *testing.T) {
+	if err := ExtractTar(t.TempDir(), strings.NewReader("not a tar")); err == nil {
+		t.Fatal("expected error for invalid tar")
 	}
 }
 
-func TestExtractTarGz_RoundTrip(t *testing.T) {
-	// TarDir → gzip → ExtractTarGz round trip.
+func TestExtractTar_RoundTrip(t *testing.T) {
+	// TarDir → ExtractTar round trip.
 	srcDir := t.TempDir()
 	files := map[string][]byte{
-		"config.json":  []byte(`{"key":"value"}`),
-		"state.json":   []byte(`{"state":"paused"}`),
+		"config.json":   []byte(`{"key":"value"}`),
+		"state.json":    []byte(`{"state":"paused"}`),
 		"memory-ranges": bytes.Repeat([]byte{0xAB}, 1024),
 	}
 	for name, data := range files {
@@ -294,18 +287,16 @@ func TestExtractTarGz_RoundTrip(t *testing.T) {
 
 	// Pack.
 	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
+	tw := tar.NewWriter(&buf)
 	if err := TarDir(tw, srcDir); err != nil {
 		t.Fatalf("TarDir: %v", err)
 	}
-	tw.Close()
-	gw.Close()
+	tw.Close() //nolint:errcheck
 
 	// Extract.
 	dstDir := t.TempDir()
-	if err := ExtractTarGz(dstDir, &buf); err != nil {
-		t.Fatalf("ExtractTarGz: %v", err)
+	if err := ExtractTar(dstDir, &buf); err != nil {
+		t.Fatalf("ExtractTar: %v", err)
 	}
 
 	// Verify.

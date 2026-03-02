@@ -2,7 +2,6 @@ package utils
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -73,21 +72,14 @@ func TarFile(tw *tar.Writer, path, nameInTar string) error {
 	return nil
 }
 
-// ExtractTarGz decompresses a gzip stream, then extracts tar entries as flat
-// files into dir. Only regular files are extracted; the base name is used to
-// prevent path traversal.
+// ExtractTar extracts tar entries as flat files into dir.
+// Only regular files are extracted; the base name is used to prevent path traversal.
 //
 // Entries with COCOON.sparse PAX records are extracted using the embedded
 // sparse map, writing data segments to their original offsets and leaving
 // holes untouched. This preserves sparsity without scanning for zero blocks.
-func ExtractTarGz(dir string, r io.Reader) error {
-	gr, err := gzip.NewReader(r)
-	if err != nil {
-		return fmt.Errorf("gzip reader: %w", err)
-	}
-	defer gr.Close() //nolint:errcheck
-
-	tr := tar.NewReader(gr)
+func ExtractTar(dir string, r io.Reader) error {
+	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {

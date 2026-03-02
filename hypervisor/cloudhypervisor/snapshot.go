@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -102,7 +101,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		maps.Copy(cfg.ImageBlobIDs, rec.ImageBlobIDs)
 	}
 
-	// Stream tmpDir as tar.gz via io.Pipe. Goroutine cleans up tmpDir when done.
+	// Stream tmpDir as tar via io.Pipe. Goroutine cleans up tmpDir when done.
 	// snapshotReader.Close waits for the goroutine to finish so tmpDir is
 	// always removed before the process exits.
 	pr, pw := io.Pipe()
@@ -119,14 +118,10 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 			}
 		}()
 
-		gw := gzip.NewWriter(pw)
-		tw := tar.NewWriter(gw)
+		tw := tar.NewWriter(pw)
 
 		streamErr = utils.TarDir(tw, tmpDir)
 		if closeErr := tw.Close(); streamErr == nil {
-			streamErr = closeErr
-		}
-		if closeErr := gw.Close(); streamErr == nil {
 			streamErr = closeErr
 		}
 	}()

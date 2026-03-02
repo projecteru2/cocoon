@@ -59,8 +59,8 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		return "", fmt.Errorf("create data dir: %w", err)
 	}
 
-	// Extract tar.gz stream into the data directory.
-	if err := utils.ExtractTarGz(dataDir, stream); err != nil {
+	// Extract tar stream into the data directory.
+	if err := utils.ExtractTar(dataDir, stream); err != nil {
 		os.RemoveAll(dataDir) //nolint:errcheck,gosec
 		return "", fmt.Errorf("extract snapshot data: %w", err)
 	}
