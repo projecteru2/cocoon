@@ -229,6 +229,7 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotCo
 		cfg = &types.SnapshotConfig{
 			Name:         rec.Name,
 			Description:  rec.Description,
+			Image:        rec.Image,
 			ImageBlobIDs: blobIDs,
 		}
 		dataDir = rec.DataDir

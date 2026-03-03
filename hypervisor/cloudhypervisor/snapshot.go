@@ -114,7 +114,9 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	}
 
 	// Build SnapshotConfig from the VM record.
-	cfg := &types.SnapshotConfig{}
+	cfg := &types.SnapshotConfig{
+		Image: rec.Config.Image,
+	}
 	if rec.ImageBlobIDs != nil {
 		cfg.ImageBlobIDs = make(map[string]struct{}, len(rec.ImageBlobIDs))
 		maps.Copy(cfg.ImageBlobIDs, rec.ImageBlobIDs)

@@ -3,10 +3,11 @@ package types
 import "time"
 
 // SnapshotConfig carries the parameters for creating a snapshot.
-// The hypervisor fills ImageBlobIDs (for GC pinning); the CLI adds Name and Description.
+// The hypervisor fills Image and ImageBlobIDs; the CLI adds Name and Description.
 type SnapshotConfig struct {
 	Name         string              `json:"name"`
 	Description  string              `json:"description,omitempty"`
+	Image        string              `json:"image,omitempty"`          // source image reference (e.g. "ubuntu:22.04")
 	ImageBlobIDs map[string]struct{} `json:"image_blob_ids,omitempty"` // blob hex set for GC pinning
 }
 

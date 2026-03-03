@@ -32,6 +32,11 @@ import (
 func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotCfg *types.SnapshotConfig, networkConfigs []*types.NetworkConfig, snapshot io.Reader) (*types.VM, error) {
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
+	// Inherit image reference from the snapshot when the clone command doesn't specify one.
+	if vmCfg.Image == "" && snapshotCfg.Image != "" {
+		vmCfg.Image = snapshotCfg.Image
+	}
+
 	now := time.Now()
 	runDir := ch.conf.VMRunDir(vmID)
 	logDir := ch.conf.VMLogDir(vmID)
