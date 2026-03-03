@@ -112,6 +112,14 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 		}
 	}
 
+	// Build old→new disk path mapping for state.json patching.
+	diskPathMap := make(map[string]string, len(chCfg.Disks))
+	for i, d := range chCfg.Disks {
+		if storageConfigs[i].Path != d.Path {
+			diskPathMap[d.Path] = storageConfigs[i].Path
+		}
+	}
+
 	// Patch CH config.json with new paths, network, and resources.
 	consoleSock := filepath.Join(runDir, "console.sock")
 	if err = patchCHConfig(chConfigPath, &patchOptions{
@@ -125,6 +133,14 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 		dnsServers:     ch.conf.DNSServers(),
 	}); err != nil {
 		return nil, fmt.Errorf("patch CH config: %w", err)
+	}
+
+	// Patch state.json: update stale disk_path values in virtio-blk device states.
+	// disk_path is informational (CH opens disks via config.json), but keeping
+	// it accurate prevents debugging confusion.
+	stateJSONPath := filepath.Join(runDir, "state.json")
+	if err = patchStateJSON(stateJSONPath, diskPathMap); err != nil {
+		return nil, fmt.Errorf("patch state.json: %w", err)
 	}
 
 	// Phase 3: launch CH, restore snapshot, finalize record.
@@ -433,6 +449,30 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	}
 
 	return cmdline.String()
+}
+
+// patchStateJSON updates stale disk_path values in state.json.
+//
+// CH's state.json stores virtio-blk device state with a disk_path field.
+// This field is informational — CH uses config.json paths to open disks
+// during vm.restore — but stale paths cause debugging confusion.
+//
+// Uses raw string replacement since the paths (containing VM IDs) are unique
+// enough to avoid false positives. The paths appear inside a double-encoded
+// JSON string (state.json → snapshot_data.state → inner JSON object).
+func patchStateJSON(path string, diskPathMap map[string]string) error {
+	if len(diskPathMap) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(path) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	content := string(data)
+	for oldPath, newPath := range diskPathMap {
+		content = strings.ReplaceAll(content, oldPath, newPath)
+	}
+	return os.WriteFile(path, []byte(content), 0o600) //nolint:gosec
 }
 
 // prefixToMask converts a CIDR prefix length to a dotted-decimal subnet mask.
