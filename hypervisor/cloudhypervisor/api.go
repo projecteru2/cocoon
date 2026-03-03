@@ -21,6 +21,7 @@ type chVMConfig struct {
 }
 
 type chNet struct {
+	ID        string `json:"id,omitempty"`
 	Tap       string `json:"tap"`
 	Mac       string `json:"mac,omitempty"`
 	NumQueues int64  `json:"num_queues,omitempty"`
@@ -56,6 +57,7 @@ type chMemory struct {
 }
 
 type chDisk struct {
+	ID           string `json:"id,omitempty"`
 	Path         string `json:"path"`
 	ReadOnly     bool   `json:"readonly,omitempty"`
 	Direct       bool   `json:"direct,omitempty"`
@@ -68,9 +70,10 @@ type chDisk struct {
 }
 
 type chBalloon struct {
-	Size              int64 `json:"size"`
-	DeflateOnOOM      bool  `json:"deflate_on_oom,omitempty"`
-	FreePageReporting bool  `json:"free_page_reporting,omitempty"`
+	ID                string `json:"id,omitempty"`
+	Size              int64  `json:"size"`
+	DeflateOnOOM      bool   `json:"deflate_on_oom,omitempty"`
+	FreePageReporting bool   `json:"free_page_reporting,omitempty"`
 }
 
 type chRNG struct {

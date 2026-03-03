@@ -358,32 +358,27 @@ func patchCHConfig(path string, opts *patchOptions) error {
 		chCfg.Disks[i].Path = sc.Path
 	}
 
-	// Patch network: replace with new network configs.
-	// Built inline (not via networkConfigToNet) because config.json
-	// stores num_queues as the final value (cpu*2), whereas the CLI
-	// path multiplies in netToCLIArg.
-	if len(opts.networkConfigs) > 0 {
-		chCfg.Nets = make([]chNet, len(opts.networkConfigs))
-		for i, nc := range opts.networkConfigs {
-			n := chNet{
-				Tap:         nc.Tap,
-				Mac:         nc.Mac,
-				NumQueues:   netNumQueues(opts.cpu),
-				QueueSize:   nc.QueueSize,
-				OffloadTSO:  true,
-				OffloadUFO:  true,
-				OffloadCsum: true,
-			}
-			if nc.Network != nil {
-				ip := nc.Network.IP
-				mask := prefixToMask(nc.Network.Prefix)
-				n.IP = &ip
-				n.Mask = &mask
-			}
-			chCfg.Nets[i] = n
+	// Patch network: update in-place to preserve device IDs from the snapshot.
+	// Rebuilding the slice would lose the CH-assigned id (e.g. "_net3"),
+	// causing device-tree mismatch between state.json and config.json.
+	if len(opts.networkConfigs) != len(chCfg.Nets) {
+		return fmt.Errorf("net count mismatch: networkConfigs=%d, CH config=%d",
+			len(opts.networkConfigs), len(chCfg.Nets))
+	}
+	for i, nc := range opts.networkConfigs {
+		chCfg.Nets[i].Tap = nc.Tap
+		chCfg.Nets[i].Mac = nc.Mac
+		chCfg.Nets[i].NumQueues = netNumQueues(opts.cpu)
+		chCfg.Nets[i].QueueSize = nc.QueueSize
+		chCfg.Nets[i].OffloadTSO = true
+		chCfg.Nets[i].OffloadUFO = true
+		chCfg.Nets[i].OffloadCsum = true
+		if nc.Network != nil {
+			ip := nc.Network.IP
+			mask := prefixToMask(nc.Network.Prefix)
+			chCfg.Nets[i].IP = &ip
+			chCfg.Nets[i].Mask = &mask
 		}
-	} else {
-		chCfg.Nets = nil
 	}
 
 	// Replace serial/console with fresh config (same logic as create).
@@ -409,12 +404,16 @@ func patchCHConfig(path string, opts *patchOptions) error {
 	}
 	if opts.memory > 0 {
 		chCfg.Memory.Size = opts.memory
-		// Recalculate balloon: 25% of memory when memory >= 256 MiB.
+		// Recalculate balloon size but preserve its device ID from the snapshot.
 		if opts.memory >= minBalloonMemory {
-			chCfg.Balloon = &chBalloon{
-				Size:              opts.memory / 4, //nolint:mnd
-				DeflateOnOOM:      true,
-				FreePageReporting: true,
+			if chCfg.Balloon != nil {
+				chCfg.Balloon.Size = opts.memory / 4 //nolint:mnd
+			} else {
+				chCfg.Balloon = &chBalloon{
+					Size:              opts.memory / 4, //nolint:mnd
+					DeflateOnOOM:      true,
+					FreePageReporting: true,
+				}
 			}
 		} else {
 			chCfg.Balloon = nil
