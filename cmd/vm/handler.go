@@ -471,7 +471,7 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	if isCloudimg {
 		printCloudimgNetworkHints(networkConfigs)
 	} else {
-		printOCINetworkHints(networkConfigs)
+		printOCINetworkHints(vm, networkConfigs)
 	}
 	fmt.Println()
 }
@@ -483,7 +483,12 @@ func printCloudimgNetworkHints(_ []*types.NetworkConfig) {
 	fmt.Println("  cloud-init clean --logs && cloud-init init --local && cloud-init init")
 }
 
-func printOCINetworkHints(networkConfigs []*types.NetworkConfig) {
+func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
+	// OCI: no cloud-init, set hostname + MAC + IP manually.
+	fmt.Println()
+	fmt.Printf("  # Set hostname\n")
+	fmt.Printf("  hostnamectl set-hostname %s\n", vm.Config.Name)
+
 	// OCI: net.ifnames=0 → eth0/eth1, set MAC + IP manually.
 	for i, nc := range networkConfigs {
 		if nc == nil || nc.Network == nil || nc.Network.IP == "" {
@@ -499,7 +504,7 @@ func printOCINetworkHints(networkConfigs []*types.NetworkConfig) {
 		fmt.Printf("  ip addr add %s/%d dev %s\n", nc.Network.IP, nc.Network.Prefix, dev)
 		fmt.Printf("  ip link set %s up\n", dev)
 		if nc.Network.Gateway != "" {
-			fmt.Printf("  ip route add default via %s\n", nc.Network.Gateway)
+			fmt.Printf("  ip route replace default via %s\n", nc.Network.Gateway)
 		}
 	}
 }
