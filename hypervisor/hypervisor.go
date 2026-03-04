@@ -27,6 +27,7 @@ type Hypervisor interface {
 	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
 	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
 	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotCfg *types.SnapshotConfig, networkConfigs []*types.NetworkConfig, snapshot io.Reader) (*types.VM, error)
+	Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error)
 
 	RegisterGC(*gc.Orchestrator)
 }

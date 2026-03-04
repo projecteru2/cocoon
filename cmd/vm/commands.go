@@ -13,6 +13,7 @@ type Actions interface {
 	Inspect(cmd *cobra.Command, args []string) error
 	Console(cmd *cobra.Command, args []string) error
 	RM(cmd *cobra.Command, args []string) error
+	Restore(cmd *cobra.Command, args []string) error
 	Debug(cmd *cobra.Command, args []string) error
 }
 
@@ -92,6 +93,16 @@ func Command(h Actions) *cobra.Command {
 	}
 	rmCmd.Flags().Bool("force", false, "force delete running VMs")
 
+	restoreCmd := &cobra.Command{
+		Use:   "restore [flags] VM SNAPSHOT",
+		Short: "Restore a running VM to a previous snapshot",
+		Args:  cobra.ExactArgs(2),
+		RunE:  h.Restore,
+	}
+	restoreCmd.Flags().Int("cpu", 0, "boot CPUs (0 = keep current)")
+	restoreCmd.Flags().String("memory", "", "memory size (empty = keep current)")
+	restoreCmd.Flags().String("storage", "", "COW disk size (empty = keep current)")
+
 	debugCmd := &cobra.Command{
 		Use:   "debug [flags] IMAGE",
 		Short: "Generate cloud-hypervisor launch command (dry run)",
@@ -114,6 +125,7 @@ func Command(h Actions) *cobra.Command {
 		inspectCmd,
 		consoleCmd,
 		rmCmd,
+		restoreCmd,
 		debugCmd,
 	)
 	return vmCmd

@@ -239,6 +239,47 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 	}, nil
 }
 
+// RestoreVMConfigFromFlags builds VMConfig for restore commands.
+// Keeps VM's current values by default; CLI flags override.
+// Validates that final values are >= snapshot minimums.
+func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg *types.SnapshotConfig) (*types.VMConfig, error) {
+	cpu, _ := cmd.Flags().GetInt("cpu")
+	memStr, _ := cmd.Flags().GetString("memory")
+	storStr, _ := cmd.Flags().GetString("storage")
+
+	result := vm.Config // value copy — keep current VM values
+
+	if cpu > 0 {
+		result.CPU = cpu
+	}
+	if memStr != "" {
+		memBytes, err := units.RAMInBytes(memStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --memory %q: %w", memStr, err)
+		}
+		result.Memory = memBytes
+	}
+	if storStr != "" {
+		storBytes, err := units.RAMInBytes(storStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --storage %q: %w", storStr, err)
+		}
+		result.Storage = storBytes
+	}
+
+	if result.CPU < snapCfg.CPU {
+		return nil, fmt.Errorf("--cpu %d below snapshot minimum %d", result.CPU, snapCfg.CPU)
+	}
+	if result.Memory < snapCfg.Memory {
+		return nil, fmt.Errorf("--memory %s below snapshot minimum %s", FormatSize(result.Memory), FormatSize(snapCfg.Memory))
+	}
+	if result.Storage < snapCfg.Storage {
+		return nil, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(result.Storage), FormatSize(snapCfg.Storage))
+	}
+
+	return &result, nil
+}
+
 // EnsureFirmwarePath sets default firmware path for cloudimg boot.
 func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
 	if bootCfg != nil && bootCfg.KernelPath == "" && bootCfg.FirmwarePath == "" {

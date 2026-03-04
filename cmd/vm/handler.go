@@ -302,6 +302,73 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func (h Handler) Restore(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	logger := log.WithFunc("cmd.restore")
+
+	hyper, err := cmdcore.InitHypervisor(conf)
+	if err != nil {
+		return err
+	}
+	snapBackend, err := cmdcore.InitSnapshot(conf)
+	if err != nil {
+		return err
+	}
+
+	vmRef := args[0]
+	snapRef := args[1]
+
+	// Verify the snapshot belongs to this VM.
+	vm, err := hyper.Inspect(ctx, vmRef)
+	if err != nil {
+		return fmt.Errorf("inspect VM: %w", err)
+	}
+	snapInfo, err := snapBackend.Inspect(ctx, snapRef)
+	if err != nil {
+		return fmt.Errorf("inspect snapshot: %w", err)
+	}
+	if _, ok := vm.SnapshotIDs[snapInfo.ID]; !ok {
+		return fmt.Errorf("snapshot %s does not belong to VM %s", snapRef, vmRef)
+	}
+
+	// Validate NIC count matches.
+	if snapInfo.NICs != len(vm.NetworkConfigs) {
+		return fmt.Errorf("NIC count mismatch: VM has %d, snapshot has %d",
+			len(vm.NetworkConfigs), snapInfo.NICs)
+	}
+
+	// Merge resource params: keep VM's current values, override with flags, validate >= snapshot.
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, &snapInfo.SnapshotConfig)
+	if err != nil {
+		return err
+	}
+
+	// Open snapshot data stream.
+	_, stream, err := snapBackend.Restore(ctx, snapRef)
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err)
+	}
+	defer stream.Close() //nolint:errcheck
+
+	stop := context.AfterFunc(ctx, func() {
+		stream.Close() //nolint:errcheck,gosec
+	})
+	defer stop()
+
+	logger.Infof(ctx, "restoring VM %s from snapshot %s ...", vmRef, snapRef)
+
+	result, err := hyper.Restore(ctx, vmRef, vmCfg, stream)
+	if err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
+	return nil
+}
+
 func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {

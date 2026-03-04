@@ -130,6 +130,7 @@ cocoon
 │   ├── inspect VM                 Show detailed VM info (JSON)
 │   ├── console [flags] VM         Attach interactive console
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
+│   ├── restore [flags] VM SNAP   Restore a running VM to a snapshot
 │   └── debug [flags] IMAGE        Generate CH launch command (dry run)
 ├── snapshot
 │   ├── save [flags] VM            Create a snapshot from a running VM
@@ -356,6 +357,27 @@ done
 
 The `cocoon vm clone` command prints these hints with the actual IP/MAC addresses after a successful clone.
 
+### Restore
+
+Restore reverts a **running** VM to a previous snapshot's state in-place:
+
+```bash
+# Restore a VM to a previous snapshot
+cocoon vm restore my-vm my-snap
+
+# Restore with more resources (must be >= snapshot values)
+cocoon vm restore --cpu 4 --memory 4G my-vm my-snap
+```
+
+Cocoon internally restarts the Cloud Hypervisor process with the snapshot's memory and disk state. Network is fully preserved — same IP, same MAC, same network namespace. No guest-side reconfiguration is needed (unlike clone).
+
+### Restore Constraints
+
+- **VM must be running.** Restore operates on a live VM by restarting its CH process with snapshot state. For stopped VMs, use `cocoon vm clone` instead.
+- **Snapshot must belong to the VM.** Only snapshots created from the same VM (tracked in `snapshot_ids`) are accepted. Cross-VM restore is not supported; use `cocoon vm clone` for that.
+- **NIC count must match.** The VM's current NIC count must equal the snapshot's, same as clone (Cloud Hypervisor's `vm.restore` requires device-tree equality).
+- **Resources can be increased, not decreased.** CPU, memory, and storage must be >= the snapshot's original values. Omitting a flag keeps the VM's current value.
+
 ## Garbage Collection
 
 `cocoon gc` performs cross-module garbage collection:
@@ -421,6 +443,10 @@ After `cocoon vm clone`, the cloned VM resumes with the **original VM's IP addre
 ### Clone resource and NIC constraints
 
 Clone resources (CPU, memory, storage) can only be **increased**, never decreased below the snapshot's original values. The NIC count must match the snapshot **exactly** — Cloud Hypervisor's `vm.restore` replays serialized device state (virtio queues, interrupts, PCI device tree) from `state.json`, so adding or removing NICs would cause a device-tree mismatch. See [Clone Constraints](#clone-constraints) for details.
+
+### Restore requires a running VM
+
+`cocoon vm restore` only works on running VMs — it relies on the existing network namespace (netns, tap devices, TC redirect) surviving the CH process restart. A stopped VM's network state may not be intact (e.g., after host reboot the netns is gone). For stopped VMs or cross-VM restore, use `cocoon vm clone` which creates fresh network resources. See [Restore Constraints](#restore-constraints) for all requirements.
 
 ### Cloud image UEFI boot compatibility
 
