@@ -40,6 +40,10 @@ type VM struct {
 	// Used to skip cidata attachment on subsequent starts (cloudimg only).
 	FirstBooted bool `json:"first_booted"`
 
+	// SnapshotIDs tracks snapshots created from this VM.
+	// Populated at runtime by toVM() from VMRecord.SnapshotIDs.
+	SnapshotIDs map[string]struct{} `json:"snapshot_ids,omitempty"`
+
 	// Timestamps.
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`

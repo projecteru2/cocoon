@@ -56,10 +56,7 @@ func New(conf *config.Config) (*LocalFile, error) {
 // a crash between phases leaves a pending record that GC will clean up,
 // rather than an orphan data directory with no DB entry.
 func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (string, error) {
-	id, err := utils.GenerateID()
-	if err != nil {
-		return "", fmt.Errorf("generate ID: %w", err)
-	}
+	id := cfg.ID
 
 	dataDir := lf.conf.SnapshotDataDir(id)
 	now := time.Now()
@@ -74,7 +71,6 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		idx.Snapshots[id] = &snapshot.SnapshotRecord{
 			Snapshot: types.Snapshot{
 				SnapshotConfig: *cfg,
-				ID:             id,
 				CreatedAt:      now,
 			},
 			Pending: true,
@@ -224,6 +220,7 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotCo
 		blobIDs := make(map[string]struct{}, len(rec.ImageBlobIDs))
 		maps.Copy(blobIDs, rec.ImageBlobIDs)
 		cfg = &types.SnapshotConfig{
+			ID:           rec.ID,
 			Name:         rec.Name,
 			Description:  rec.Description,
 			Image:        rec.Image,

@@ -89,10 +89,41 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Optional: filter by VM ownership.
+	vmRef, _ := cmd.Flags().GetString("vm")
+	var filterIDs map[string]struct{}
+	if vmRef != "" {
+		hyper, hyperErr := cmdcore.InitHypervisor(conf)
+		if hyperErr != nil {
+			return hyperErr
+		}
+		vm, inspectErr := hyper.Inspect(ctx, vmRef)
+		if inspectErr != nil {
+			return fmt.Errorf("inspect VM %s: %w", vmRef, inspectErr)
+		}
+		filterIDs = vm.SnapshotIDs
+		if len(filterIDs) == 0 {
+			fmt.Println("No snapshots found for VM.")
+			return nil
+		}
+	}
+
 	snapshots, err := snapBackend.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list: %w", err)
 	}
+
+	// Apply VM filter if specified.
+	if filterIDs != nil {
+		filtered := snapshots[:0]
+		for _, s := range snapshots {
+			if _, ok := filterIDs[s.ID]; ok {
+				filtered = append(filtered, s)
+			}
+		}
+		snapshots = filtered
+	}
+
 	if len(snapshots) == 0 {
 		fmt.Println("No snapshots found.")
 		return nil

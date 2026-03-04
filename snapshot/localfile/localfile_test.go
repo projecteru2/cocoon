@@ -13,9 +13,20 @@ import (
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/snapshot"
 	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
 )
 
 // helpers
+
+// testID generates a random snapshot ID for tests.
+func testID(t *testing.T) string {
+	t.Helper()
+	id, err := utils.GenerateID()
+	if err != nil {
+		t.Fatalf("GenerateID: %v", err)
+	}
+	return id
+}
 
 // newTestLF creates a LocalFile backed by a temp directory.
 func newTestLF(t *testing.T) *LocalFile {
@@ -82,6 +93,7 @@ func TestCreate(t *testing.T) {
 	})
 
 	cfg := &types.SnapshotConfig{
+		ID:          testID(t),
 		Name:        "snap1",
 		Description: "test snapshot",
 		ImageBlobIDs: map[string]struct{}{
@@ -111,7 +123,7 @@ func TestCreate_NoName(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t)}, stream)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -124,15 +136,16 @@ func TestCreate_DuplicateName(t *testing.T) {
 	lf := newTestLF(t)
 	ctx := context.Background()
 
-	cfg := &types.SnapshotConfig{Name: "dup"}
+	cfg := &types.SnapshotConfig{ID: testID(t), Name: "dup"}
 
 	stream1 := makeTarGz(t, map[string][]byte{"a.txt": []byte("a")})
 	if _, err := lf.Create(ctx, cfg, stream1); err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
 
+	cfg2 := &types.SnapshotConfig{ID: testID(t), Name: "dup"}
 	stream2 := makeTarGz(t, map[string][]byte{"b.txt": []byte("b")})
-	_, err := lf.Create(ctx, cfg, stream2)
+	_, err := lf.Create(ctx, cfg2, stream2)
 	if err == nil {
 		t.Fatal("expected error for duplicate name")
 	}
@@ -145,7 +158,7 @@ func TestCreate_InvalidStream(t *testing.T) {
 	lf := newTestLF(t)
 	ctx := context.Background()
 
-	_, err := lf.Create(ctx, &types.SnapshotConfig{Name: "bad"}, strings.NewReader("not gzip"))
+	_, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "bad"}, strings.NewReader("not gzip"))
 	if err == nil {
 		t.Fatal("expected error for invalid stream")
 	}
@@ -172,7 +185,7 @@ func TestList(t *testing.T) {
 
 	for _, name := range []string{"s1", "s2", "s3"} {
 		stream := makeTarGz(t, map[string][]byte{"f.txt": []byte(name)})
-		if _, err := lf.Create(ctx, &types.SnapshotConfig{Name: name}, stream); err != nil {
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: name}, stream); err != nil {
 			t.Fatalf("Create %s: %v", name, err)
 		}
 	}
@@ -203,7 +216,7 @@ func TestInspect_ByID(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "byid", Description: "desc"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "byid", Description: "desc"}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +241,7 @@ func TestInspect_ByName(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "byname"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "byname"}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +260,7 @@ func TestInspect_ByPrefix(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "pfx"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "pfx"}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +296,7 @@ func TestDelete(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "del"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "del"}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +331,7 @@ func TestDelete_ByID(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "delid"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "delid"}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +352,7 @@ func TestDelete_Multiple(t *testing.T) {
 	var ids []string
 	for _, name := range []string{"m1", "m2", "m3"} {
 		stream := makeTarGz(t, map[string][]byte{"f.txt": []byte(name)})
-		id, err := lf.Create(ctx, &types.SnapshotConfig{Name: name}, stream)
+		id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: name}, stream)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -366,7 +379,7 @@ func TestDelete_DuplicateRefs(t *testing.T) {
 	ctx := context.Background()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "dedup"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "dedup"}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,6 +412,7 @@ func TestCreate_Inspect_Fields(t *testing.T) {
 
 	stream := makeTarGz(t, map[string][]byte{"cow.raw": []byte("data")})
 	cfg := &types.SnapshotConfig{
+		ID:           testID(t),
 		Name:         "fields",
 		Description:  "full field check",
 		ImageBlobIDs: map[string]struct{}{"hex1": {}, "hex2": {}},
@@ -434,7 +448,7 @@ func TestDelete_RecreateName(t *testing.T) {
 	ctx := context.Background()
 
 	stream1 := makeTarGz(t, map[string][]byte{"f.txt": []byte("v1")})
-	_, err := lf.Create(ctx, &types.SnapshotConfig{Name: "reuse"}, stream1)
+	_, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "reuse"}, stream1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +458,7 @@ func TestDelete_RecreateName(t *testing.T) {
 	}
 
 	stream2 := makeTarGz(t, map[string][]byte{"f.txt": []byte("v2")})
-	id2, err := lf.Create(ctx, &types.SnapshotConfig{Name: "reuse"}, stream2)
+	id2, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "reuse"}, stream2)
 	if err != nil {
 		t.Fatalf("recreate with same name: %v", err)
 	}
@@ -466,6 +480,7 @@ func TestRestore_ConfigRoundtrip(t *testing.T) {
 
 	stream := makeTarGz(t, map[string][]byte{"cow.raw": []byte("disk")})
 	cfg := &types.SnapshotConfig{
+		ID:           testID(t),
 		Name:         "rt",
 		Description:  "roundtrip",
 		Image:        "ubuntu:22.04",
@@ -520,7 +535,7 @@ func TestRestore_DataStream(t *testing.T) {
 	wantContent := []byte("hello snapshot data")
 	stream := makeTarGz(t, map[string][]byte{"state.json": wantContent})
 
-	id, err := lf.Create(ctx, &types.SnapshotConfig{Name: "ds"}, stream)
+	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "ds"}, stream)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

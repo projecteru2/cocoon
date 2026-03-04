@@ -33,6 +33,7 @@ func Command(h Actions) *cobra.Command {
 		RunE:    h.List,
 	}
 	listCmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
+	listCmd.Flags().String("vm", "", "only show snapshots belonging to this VM")
 
 	inspectCmd := &cobra.Command{
 		Use:   "inspect SNAPSHOT",
