@@ -334,20 +334,27 @@ cloud-init clean --logs --seed --configs network && cloud-init init --local && c
 cloud-init modules --mode=config && systemctl restart systemd-networkd
 ```
 
-**OCI VMs** (manual IP reconfiguration — the new IP is printed by `cocoon vm clone`):
+**OCI VMs** (manual IP reconfiguration — the new IP/MAC is printed by `cocoon vm clone`):
 
 ```bash
 # Release balloon memory
 echo 3 > /proc/sys/vm/drop_caches
 
-# Reconfigure network (replace with actual IP from clone output)
-ip addr flush dev eth0
-ip addr add <NEW_IP>/<PREFIX> dev eth0
-ip link set eth0 up
-ip route add default via <GATEWAY>
+# Reconfigure network (cocoon vm clone prints a ready-to-paste loop with actual values)
+devs=('eth0' 'eth1')
+macs=('<NEW_MAC0>' '<NEW_MAC1>')
+addrs=('<NEW_IP0>/<PREFIX>' '<NEW_IP1>/<PREFIX>')
+gws=('<GATEWAY0>' '<GATEWAY1>')
+for i in "${!devs[@]}"; do
+  ip link set dev "${devs[$i]}" down && ip link set dev "${devs[$i]}" address "${macs[$i]}" && ip link set dev "${devs[$i]}" up
+  ip addr flush dev "${devs[$i]}"
+  ip addr add "${addrs[$i]}" dev "${devs[$i]}"
+  ip link set "${devs[$i]}" up
+  [ -n "${gws[$i]}" ] && ip route replace default via "${gws[$i]}"
+done
 ```
 
-The `cocoon vm clone` command prints these hints with the actual IP addresses after a successful clone.
+The `cocoon vm clone` command prints these hints with the actual IP/MAC addresses after a successful clone.
 
 ## Garbage Collection
 
@@ -398,6 +405,22 @@ make ci       # Full CI pipeline: fmt-check + vet + lint + test + build
 See `make help` for all available targets.
 
 ## Known Limitations
+
+### Post-clone IP conflict window
+
+After `cocoon vm clone`, the cloned VM resumes with the **original VM's IP address** configured inside the guest, even though CNI has allocated a new IP and new MAC for the clone's network namespace. The clone can still reach the network during this window because:
+
+- The entire data path is **L2** (TC ingress redirect + bridge) — no component checks whether the guest's source IP matches the CNI-allocated IP.
+- **MAC anti-spoofing passes**: the clone's virtio-net MAC is patched (in both `config.json` and `state.json`) to match the new CNI veth MAC.
+- Standard **bridge CNI does not enforce IP ↔ veth binding** at the data plane. The `host-local` IPAM only tracks allocations in its control-plane state files; it does not install data-plane rules.
+
+**Consequence**: if the original VM is still running, both VMs advertise the same IP via ARP with different MACs. The upstream gateway flaps between the two MACs, causing **intermittent connectivity loss for both VMs** until the clone's guest IP is reconfigured.
+
+**Mitigation**: run the post-clone guest setup commands printed by `cocoon vm clone` as soon as possible (see [Post-Clone Guest Setup](#post-clone-guest-setup)). For cloudimg VMs this means re-running `cloud-init`; for OCI VMs this means `ip addr flush` + reconfigure with the new IP.
+
+### Clone resource and NIC constraints
+
+Clone resources (CPU, memory, storage) can only be **increased**, never decreased below the snapshot's original values. The NIC count must match the snapshot **exactly** — Cloud Hypervisor's `vm.restore` replays serialized device state (virtio queues, interrupts, PCI device tree) from `state.json`, so adding or removing NICs would cause a device-tree mismatch. See [Clone Constraints](#clone-constraints) for details.
 
 ### Cloud image UEFI boot compatibility
 
