@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -88,18 +89,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 
 	// Phase 3: collect (skip modules with no targets).
-	var errs []string
+	var errs []error
 	for _, m := range locked {
 		ids := targets[m.getName()]
 		if len(ids) == 0 {
 			continue
 		}
 		if err := m.collect(ctx, ids); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", m.getName(), err))
+			errs = append(errs, fmt.Errorf("gc %s: %w", m.getName(), err))
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("gc errors: %s", strings.Join(errs, "; "))
-	}
-	return nil
+	return errors.Join(errs...)
 }

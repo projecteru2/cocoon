@@ -130,7 +130,9 @@ func patchCHConfig(path string, opts *patchOptions) error {
 			}
 			raw["memory"] = patched
 		}
-		patchBalloonRaw(raw, chCfg.Balloon, opts.memory)
+		if balloonErr := patchBalloonRaw(raw, chCfg.Balloon, opts.memory); balloonErr != nil {
+			return fmt.Errorf("patch balloon: %w", balloonErr)
+		}
 	}
 
 	data, err := json.Marshal(raw)
@@ -141,10 +143,10 @@ func patchCHConfig(path string, opts *patchOptions) error {
 }
 
 // patchBalloonRaw handles the balloon device in the raw config map.
-func patchBalloonRaw(raw map[string]json.RawMessage, existing *chBalloon, memory int64) {
+func patchBalloonRaw(raw map[string]json.RawMessage, existing *chBalloon, memory int64) error {
 	if memory < minBalloonMemory {
 		delete(raw, "balloon")
-		return
+		return nil
 	}
 	newSize := memory / defaultBalloon
 	// Existing balloon: patch only "size", preserving device id and other CH fields.
@@ -153,14 +155,15 @@ func patchBalloonRaw(raw map[string]json.RawMessage, existing *chBalloon, memory
 			patched, err := patchRawObject(balloonRaw, func(obj map[string]json.RawMessage) error {
 				return setField(obj, "size", newSize)
 			})
-			if err == nil {
-				raw["balloon"] = patched
+			if err != nil {
+				return fmt.Errorf("patch balloon size: %w", err)
 			}
-			return
+			raw["balloon"] = patched
+			return nil
 		}
 	}
 	// No existing balloon — create fresh.
-	_ = setField(raw, "balloon", &chBalloon{
+	return setField(raw, "balloon", &chBalloon{
 		Size:              newSize,
 		DeflateOnOOM:      true,
 		FreePageReporting: true,

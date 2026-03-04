@@ -2,7 +2,6 @@ package vm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -183,33 +182,17 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 
 	slices.SortFunc(vms, func(a, b *types.VM) int { return a.CreatedAt.Compare(b.CreatedAt) })
 
-	format, _ := cmd.Flags().GetString("format")
-	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(vms)
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tNAME\tSTATE\tCPU\tMEMORY\tSTORAGE\tIP\tIMAGE\tCREATED")
-	for _, vm := range vms {
-		state := cmdcore.ReconcileState(vm)
-		ips := vmIPs(vm)
-		storage := units.BytesSize(float64(vm.Config.Storage))
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
-			vm.ID,
-			vm.Config.Name,
-			state,
-			vm.Config.CPU,
-			units.BytesSize(float64(vm.Config.Memory)),
-			storage,
-			ips,
-			vm.Config.Image,
-			vm.CreatedAt.Local().Format(time.DateTime),
-		)
-	}
-	w.Flush() //nolint:errcheck,gosec
-	return nil
+	return cmdcore.OutputFormatted(cmd, vms, func(w *tabwriter.Writer) {
+		fmt.Fprintln(w, "ID\tNAME\tSTATE\tCPU\tMEMORY\tSTORAGE\tIP\tIMAGE\tCREATED") //nolint:errcheck
+		for _, vm := range vms {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\n", //nolint:errcheck
+				vm.ID, vm.Config.Name, cmdcore.ReconcileState(vm),
+				vm.Config.CPU, units.BytesSize(float64(vm.Config.Memory)),
+				units.BytesSize(float64(vm.Config.Storage)),
+				vmIPs(vm), vm.Config.Image,
+				vm.CreatedAt.Local().Format(time.DateTime))
+		}
+	})
 }
 
 func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
@@ -222,9 +205,7 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("inspect: %w", err)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(info)
+	return cmdcore.OutputJSON(info)
 }
 
 func (h Handler) Console(cmd *cobra.Command, args []string) error {
@@ -307,7 +288,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	if len(deleted) > 0 {
 		if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
 			if _, delErr := netProvider.Delete(ctx, deleted); delErr != nil {
-				logger.Warnf(ctx, "network cleanup: %v", delErr)
+				return fmt.Errorf("VM(s) deleted but network cleanup failed: %w", delErr)
 			}
 		}
 	}

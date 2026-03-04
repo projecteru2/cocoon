@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,7 +25,7 @@ func scanDataSegments(fd int, size int64) ([]sparseSegment, error) {
 		dataStart, err := syscall.Seek(fd, offset, seekData)
 		if err != nil {
 			// ENXIO means no more data after offset — rest is hole.
-			if err == syscall.ENXIO {
+			if errors.Is(err, syscall.ENXIO) {
 				break
 			}
 			return nil, fmt.Errorf("SEEK_DATA at %d: %w", offset, err)
@@ -33,7 +34,7 @@ func scanDataSegments(fd int, size int64) ([]sparseSegment, error) {
 		// Find the end of this data segment (start of next hole).
 		holeStart, err := syscall.Seek(fd, dataStart, seekHole)
 		if err != nil {
-			if err == syscall.ENXIO {
+			if errors.Is(err, syscall.ENXIO) {
 				// Data extends to EOF.
 				holeStart = size
 			} else {

@@ -166,9 +166,12 @@ func resolveConsole(ctx context.Context, vmID, sockPath, consoleSock string, dir
 	return consoleSock
 }
 
-func cleanupRuntimeFiles(runDir string) {
+func cleanupRuntimeFiles(ctx context.Context, runDir string) {
 	for _, name := range runtimeFiles {
-		_ = os.Remove(filepath.Join(runDir, name))
+		p := filepath.Join(runDir, name)
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			log.WithFunc("cloudhypervisor.cleanupRuntimeFiles").Warnf(ctx, "cleanup %s: %v", p, err)
+		}
 	}
 }
 

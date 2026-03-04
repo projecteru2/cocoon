@@ -15,9 +15,15 @@ import (
 )
 
 const (
+	// defaultDiskQueueSize is the virtio-blk queue depth per device.
+	// 256 matches the Cloud Hypervisor default and provides good throughput
+	// without excessive memory use per disk.
 	defaultDiskQueueSize = 256
-	defaultBalloon       = 4
-	cidataFile           = "cidata.img"
+	// defaultBalloon is the memory divisor for balloon sizing: mem/defaultBalloon
+	// gives the initial balloon size (25% of total memory). The balloon starts
+	// inflated to 75%, allowing OOM deflation headroom.
+	defaultBalloon = 4
+	cidataFile     = "cidata.img"
 )
 
 func buildVMConfig(ctx context.Context, rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {

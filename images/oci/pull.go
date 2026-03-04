@@ -69,7 +69,7 @@ func pull(ctx context.Context, conf *Config, store storage.Store[imageIndex], im
 		// Process layers concurrently with bounded parallelism.
 		results := make([]pullLayerResult, len(layers))
 		g, gctx := errgroup.WithContext(ctx)
-		limit := conf.PoolSize
+		limit := conf.Root.PoolSize
 		if limit <= 0 {
 			limit = runtime.NumCPU()
 		}

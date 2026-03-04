@@ -2,10 +2,8 @@ package snapshot
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"text/tabwriter"
 	"time"
@@ -102,27 +100,15 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 
 	slices.SortFunc(snapshots, func(a, b *types.Snapshot) int { return a.CreatedAt.Compare(b.CreatedAt) })
 
-	format, _ := cmd.Flags().GetString("format")
-	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(snapshots)
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ID\tNAME\tCPU\tMEMORY\tDESCRIPTION\tCREATED")
-	for _, s := range snapshots {
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
-			s.ID,
-			s.Name,
-			s.CPU,
-			cmdcore.FormatSize(s.Memory),
-			s.Description,
-			s.CreatedAt.Local().Format(time.DateTime),
-		)
-	}
-	w.Flush() //nolint:errcheck,gosec
-	return nil
+	return cmdcore.OutputFormatted(cmd, snapshots, func(w *tabwriter.Writer) {
+		fmt.Fprintln(w, "ID\tNAME\tCPU\tMEMORY\tDESCRIPTION\tCREATED") //nolint:errcheck
+		for _, s := range snapshots {
+			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n", //nolint:errcheck
+				s.ID, s.Name, s.CPU,
+				cmdcore.FormatSize(s.Memory), s.Description,
+				s.CreatedAt.Local().Format(time.DateTime))
+		}
+	})
 }
 
 func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
@@ -139,9 +125,7 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("inspect: %w", err)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(s)
+	return cmdcore.OutputJSON(s)
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {

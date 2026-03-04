@@ -55,7 +55,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	switch {
 	case errors.Is(shutdownErr, hypervisor.ErrNotRunning):
 		// Fast path: no running process — clean up and mark stopped.
-		cleanupRuntimeFiles(rec.RunDir)
+		cleanupRuntimeFiles(ctx, rec.RunDir)
 		return ch.updateState(ctx, id, types.VMStateStopped)
 	case shutdownErr != nil:
 		// Stop failed — do NOT clean runtime files; the process may still be
@@ -63,7 +63,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 		ch.markError(ctx, id)
 		return shutdownErr
 	default:
-		cleanupRuntimeFiles(rec.RunDir)
+		cleanupRuntimeFiles(ctx, rec.RunDir)
 		return ch.updateState(ctx, id, types.VMStateStopped)
 	}
 }

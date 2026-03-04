@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
+	"text/tabwriter"
 
 	units "github.com/docker/go-units"
 	"github.com/spf13/cobra"
@@ -249,6 +252,24 @@ func ReconcileState(vm *types.VM) string {
 		return "stopped (stale)"
 	}
 	return string(vm.State)
+}
+
+// OutputJSON encodes v as indented JSON to stdout.
+func OutputJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// OutputFormatted checks --format flag: "json" → JSON, otherwise calls tableFn.
+func OutputFormatted(cmd *cobra.Command, data any, tableFn func(w *tabwriter.Writer)) error {
+	format, _ := cmd.Flags().GetString("format")
+	if format == "json" {
+		return OutputJSON(data)
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	tableFn(w)
+	return w.Flush()
 }
 
 func FormatSize(bytes int64) string {

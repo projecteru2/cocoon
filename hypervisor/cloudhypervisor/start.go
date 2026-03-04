@@ -19,6 +19,8 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
+// socketWaitTimeout is the maximum time to wait for the CH API socket after
+// process start. 5s covers typical VM boot; increase if using slow storage.
 const socketWaitTimeout = 5 * time.Second
 
 // Start launches the Cloud Hypervisor process for each VM ref.
@@ -62,7 +64,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	}
 
 	// Clean up stale runtime files from any previous run.
-	cleanupRuntimeFiles(rec.RunDir)
+	cleanupRuntimeFiles(ctx, rec.RunDir)
 
 	socketPath := socketPath(rec.RunDir)
 	consoleSock := filepath.Join(rec.RunDir, "console.sock")

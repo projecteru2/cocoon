@@ -4,34 +4,33 @@ import (
 	"path/filepath"
 
 	"github.com/projecteru2/cocoon/config"
+	"github.com/projecteru2/cocoon/images"
 	"github.com/projecteru2/cocoon/utils"
 )
 
-// Config holds OCI image backend specific configuration, embedding the global config.
+// Config holds OCI image backend specific configuration, embedding the shared BaseConfig.
 type Config struct {
-	*config.Config
+	images.BaseConfig
+}
+
+// NewConfig creates an OCI Config from a global config.
+func NewConfig(conf *config.Config) *Config {
+	return &Config{BaseConfig: images.BaseConfig{
+		Root: conf, Subdir: "oci", BlobExt: ".erofs",
+	}}
 }
 
 // EnsureDirs creates all required directories for the OCI backend.
 func (c *Config) EnsureDirs() error {
-	return utils.EnsureDirs(
-		c.DBDir(),
-		c.TempDir(),
-		c.BlobsDir(),
-		c.BootBaseDir(),
-	)
+	if err := c.EnsureBaseDirs(); err != nil {
+		return err
+	}
+	return utils.EnsureDirs(c.BootBaseDir())
 }
 
-func (c *Config) DBDir() string       { return filepath.Join(c.dir(), "db") }
-func (c *Config) TempDir() string     { return filepath.Join(c.dir(), "temp") }
-func (c *Config) BlobsDir() string    { return filepath.Join(c.dir(), "blobs") }
-func (c *Config) BootBaseDir() string { return filepath.Join(c.dir(), "boot") }
-func (c *Config) IndexFile() string   { return filepath.Join(c.DBDir(), "images.json") }
-func (c *Config) IndexLock() string   { return filepath.Join(c.DBDir(), "images.lock") }
+// OCI-specific paths.
 
-func (c *Config) BlobPath(layerDigestHex string) string {
-	return filepath.Join(c.BlobsDir(), layerDigestHex+".erofs")
-}
+func (c *Config) BootBaseDir() string { return filepath.Join(c.BackendDir(), "boot") }
 
 func (c *Config) BootDir(layerDigestHex string) string {
 	return filepath.Join(c.BootBaseDir(), layerDigestHex)
@@ -44,5 +43,3 @@ func (c *Config) KernelPath(layerDigestHex string) string {
 func (c *Config) InitrdPath(layerDigestHex string) string {
 	return filepath.Join(c.BootDir(layerDigestHex), "initrd.img")
 }
-
-func (c *Config) dir() string { return filepath.Join(c.RootDir, "oci") }

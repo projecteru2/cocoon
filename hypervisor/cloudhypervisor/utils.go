@@ -109,5 +109,5 @@ func (ch *CloudHypervisor) rollbackCreate(ctx context.Context, id, name string) 
 // abortLaunch kills a CH process and removes runtime files after a failed launch sequence.
 func (ch *CloudHypervisor) abortLaunch(ctx context.Context, pid int, sockPath, runDir string) {
 	_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), sockPath, terminateGracePeriod)
-	cleanupRuntimeFiles(runDir)
+	cleanupRuntimeFiles(ctx, runDir)
 }

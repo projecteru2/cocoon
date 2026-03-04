@@ -15,7 +15,8 @@ import (
 )
 
 // pendingGCGrace is the age after which a pending (incomplete) snapshot
-// record is considered stale and eligible for GC cleanup.
+// record is considered stale and eligible for GC cleanup. 24h accommodates
+// large snapshots on slow storage; snapshots typically complete in under a minute.
 const pendingGCGrace = 24 * time.Hour
 
 // snapshotGCSnapshot is the typed GC snapshot for the snapshot module.

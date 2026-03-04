@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -32,11 +33,13 @@ func ReadPIDFile(path string) (int, error) {
 
 // IsProcessAlive returns true if a process with the given PID currently exists.
 // Uses kill(pid, 0) — no signal is sent, only existence is checked.
+// EPERM means the process exists but we lack permission to signal it.
 func IsProcessAlive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	return syscall.Kill(pid, 0) == nil
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // VerifyProcess checks whether pid is running the expected binary.

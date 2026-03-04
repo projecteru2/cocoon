@@ -2,9 +2,7 @@ package images
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"text/tabwriter"
 	"time"
 
@@ -74,30 +72,19 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	format, _ := cmd.Flags().GetString("format")
-	if format == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(all)
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "TYPE\tNAME\tDIGEST\tSIZE\tCREATED")
-	for _, img := range all {
-		digest := img.ID
-		if len(digest) > digestDisplayLen {
-			digest = digest[:digestDisplayLen]
+	return cmdcore.OutputFormatted(cmd, all, func(w *tabwriter.Writer) {
+		fmt.Fprintln(w, "TYPE\tNAME\tDIGEST\tSIZE\tCREATED") //nolint:errcheck
+		for _, img := range all {
+			digest := img.ID
+			if len(digest) > digestDisplayLen {
+				digest = digest[:digestDisplayLen]
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", //nolint:errcheck
+				img.Type, img.Name, digest,
+				cmdcore.FormatSize(img.Size),
+				img.CreatedAt.Local().Format(time.DateTime))
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			img.Type,
-			img.Name,
-			digest,
-			cmdcore.FormatSize(img.Size),
-			img.CreatedAt.Local().Format(time.DateTime),
-		)
-	}
-	w.Flush() //nolint:errcheck,gosec
-	return nil
+	})
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
@@ -147,9 +134,7 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 		if img == nil {
 			continue
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(img)
+		return cmdcore.OutputJSON(img)
 	}
 	return fmt.Errorf("image %q not found", ref)
 }

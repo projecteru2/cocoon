@@ -75,12 +75,14 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		}
 
 		resumed := false
+		var resumeErr error
 		doResume := func() {
 			if resumed {
 				return
 			}
 			resumed = true
-			if resumeErr := resumeVM(context.WithoutCancel(ctx), hc); resumeErr != nil {
+			resumeErr = resumeVM(context.WithoutCancel(ctx), hc)
+			if resumeErr != nil {
 				logger.Warnf(ctx, "resume VM %s: %v", vmID, resumeErr)
 			}
 		}
@@ -92,6 +94,13 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 
 		if err := utils.SparseCopy(filepath.Join(tmpDir, cowName), cowPath); err != nil {
 			return fmt.Errorf("sparse copy COW: %w", err)
+		}
+
+		// Resume eagerly so we can propagate the error.
+		// The deferred doResume is a no-op when resumed=true.
+		doResume()
+		if resumeErr != nil {
+			return fmt.Errorf("snapshot data captured but resume failed: %w", resumeErr)
 		}
 		return nil
 	}); err != nil {
