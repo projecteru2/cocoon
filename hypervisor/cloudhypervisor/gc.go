@@ -1,0 +1,118 @@
+package cloudhypervisor
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"time"
+
+	"github.com/projecteru2/cocoon/gc"
+	"github.com/projecteru2/cocoon/hypervisor"
+	"github.com/projecteru2/cocoon/types"
+	"github.com/projecteru2/cocoon/utils"
+)
+
+const creatingStateGCGrace = 24 * time.Hour
+
+type chSnapshot struct {
+	blobIDs     map[string]struct{} // union of all VMs' ImageBlobIDs
+	vmIDs       map[string]struct{} // all VM IDs in the DB
+	staleCreate []string            // IDs in stale "creating" state (crash remnants)
+	runDirs     []string            // subdirectory names under CHRunDir
+	logDirs     []string            // subdirectory names under CHLogDir
+}
+
+func (s chSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
+func (s chSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
+
+// GCModule returns the GC module for cross-module blob pinning and orphan cleanup.
+func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
+	return gc.Module[chSnapshot]{
+		Name:   typ,
+		Locker: ch.locker,
+		ReadDB: func(_ context.Context) (chSnapshot, error) {
+			var snap chSnapshot
+			cutoff := time.Now().Add(-creatingStateGCGrace)
+			if err := ch.store.ReadRaw(func(idx *hypervisor.VMIndex) error {
+				snap.blobIDs = make(map[string]struct{})
+				snap.vmIDs = make(map[string]struct{})
+				for id, rec := range idx.VMs {
+					if rec == nil {
+						continue
+					}
+					snap.vmIDs[id] = struct{}{}
+					for hex := range rec.ImageBlobIDs {
+						snap.blobIDs[hex] = struct{}{}
+					}
+					if rec.State == types.VMStateCreating && rec.UpdatedAt.Before(cutoff) {
+						snap.staleCreate = append(snap.staleCreate, id)
+					}
+				}
+				return nil
+			}); err != nil {
+				return snap, err
+			}
+			var err error
+			if snap.runDirs, err = utils.ScanSubdirs(ch.conf.RunDir()); err != nil {
+				return snap, err
+			}
+			if snap.logDirs, err = utils.ScanSubdirs(ch.conf.LogDir()); err != nil {
+				return snap, err
+			}
+			return snap, nil
+		},
+		Resolve: func(snap chSnapshot, _ map[string]any) []string {
+			// "db" is a reserved system subdirectory (stores vms.json/vms.lock).
+			// When RootDir == RunDir, it lives alongside per-VM dirs and must be
+			// excluded from orphan detection.
+			reserved := map[string]struct{}{"db": {}}
+			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
+			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
+			candidates := slices.Concat(runOrphans, logOrphans, snap.staleCreate)
+			slices.Sort(candidates)
+			return slices.Compact(candidates)
+		},
+		Collect: func(ctx context.Context, ids []string) error {
+			var errs []error
+			for _, id := range ids {
+				// Try loading the DB record so we use stored RunDir/LogDir;
+				// for true orphans (no record) fall back to config-derived paths.
+				runDir, logDir := ch.conf.VMRunDir(id), ch.conf.VMLogDir(id)
+				if rec, loadErr := ch.loadRecord(ctx, id); loadErr == nil {
+					runDir, logDir = rec.RunDir, rec.LogDir
+				}
+				if err := removeVMDirs(runDir, logDir); err != nil {
+					errs = append(errs, err)
+				}
+			}
+			// Clean up stale "creating" DB records from this GC snapshot.
+			if err := ch.cleanStalePlaceholders(ctx, ids); err != nil {
+				errs = append(errs, err)
+			}
+			return errors.Join(errs...)
+		},
+	}
+}
+
+// RegisterGC registers the Cloud Hypervisor GC module with the given Orchestrator.
+func (ch *CloudHypervisor) RegisterGC(orch *gc.Orchestrator) {
+	gc.Register(orch, ch.GCModule())
+}
+
+// cleanStalePlaceholders removes selected DB records stuck in stale "creating"
+// state. IDs not found (or no longer stale) are skipped.
+func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	cutoff := time.Now().Add(-creatingStateGCGrace)
+	return ch.store.WriteRaw(func(idx *hypervisor.VMIndex) error {
+		utils.CleanStaleRecords(idx.VMs, idx.Names, ids,
+			func(r *hypervisor.VMRecord) string { return r.Config.Name },
+			func(r *hypervisor.VMRecord) bool {
+				return r.State == types.VMStateCreating && r.UpdatedAt.Before(cutoff)
+			},
+		)
+		return nil
+	})
+}

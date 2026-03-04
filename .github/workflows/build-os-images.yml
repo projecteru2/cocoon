@@ -1,0 +1,156 @@
+name: build-os-images
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "os-image/**"
+  workflow_dispatch:
+    inputs:
+      no-cache:
+        description: "Force rebuild without cache"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed Dockerfiles
+        id: set-matrix
+        run: |
+          # Determine if manual no-cache was requested
+          MANUAL_NO_CACHE="${{ github.event.inputs.no-cache }}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # On manual trigger, build everything
+            declare -A names
+            while IFS= read -r dockerfile; do
+              [[ -z "$dockerfile" ]] && continue
+              name=$(echo "$dockerfile" | cut -d'/' -f2)
+              names[$name]=1
+            done <<< "$(find os-image -name Dockerfile -type f)"
+            # Use all changed files (empty for dispatch = treat all as changed)
+            all_changed=""
+          else
+            BEFORE="${{ github.event.before }}"
+            if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+              declare -A names
+              while IFS= read -r dockerfile; do
+                [[ -z "$dockerfile" ]] && continue
+                name=$(echo "$dockerfile" | cut -d'/' -f2)
+                names[$name]=1
+              done <<< "$(find os-image -name Dockerfile -type f)"
+              all_changed=""
+            else
+              all_changed=$(git diff --name-only "$BEFORE" "${{ github.sha }}" -- 'os-image/' | sort -u)
+              declare -A names
+              for f in $all_changed; do
+                name=$(echo "$f" | cut -d'/' -f2)
+                if [[ -n "$name" ]]; then
+                  names[$name]=1
+                fi
+              done
+            fi
+          fi
+
+          # Build matrix with per-entry no-cache flag
+          matrix_entries=()
+          for name in "${!names[@]}"; do
+            # Check if any non-Dockerfile file changed under os-image/{name}/
+            # i.e. shared files like scripts that affect all tags
+            needs_no_cache="false"
+            if [[ "$MANUAL_NO_CACHE" == "true" ]]; then
+              needs_no_cache="true"
+            elif [[ -n "$all_changed" ]]; then
+              # Files directly under os-image/{name}/ (not in tag subdirs) changed
+              while IFS= read -r f; do
+                [[ -z "$f" ]] && continue
+                # Count path components: os-image/{name}/{file} = 3 parts (not in a tag subdir)
+                depth=$(echo "$f" | awk -F'/' '{print NF}')
+                if [[ "$depth" -eq 3 ]]; then
+                  needs_no_cache="true"
+                  break
+                fi
+              done <<< "$(echo "$all_changed" | grep "^os-image/$name/")"
+            fi
+
+            # Find all Dockerfiles for this name
+            while IFS= read -r dockerfile; do
+              [[ -z "$dockerfile" ]] && continue
+              tag=$(echo "$dockerfile" | cut -d'/' -f3)
+              if [[ -n "$tag" ]]; then
+                matrix_entries+=("{\"name\":\"$name\",\"tag\":\"$tag\",\"no_cache\":\"$needs_no_cache\"}")
+              fi
+            done <<< "$(find "os-image/$name" -name Dockerfile -type f)"
+          done
+
+          if [[ ${#matrix_entries[@]} -eq 0 ]]; then
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+          else
+            json=$(IFS=,; echo "${matrix_entries[*]}")
+            echo "matrix={\"include\":[$json]}" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Generated matrix: $(cat "$GITHUB_OUTPUT")"
+
+  build:
+    needs: detect
+    if: ${{ fromJson(needs.detect.outputs.matrix).include[0] != null }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.name }}
+          tags: |
+            type=raw,value=${{ matrix.tag }}
+            type=raw,value=latest
+            type=sha,prefix=${{ matrix.tag }}-
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: os-image/${{ matrix.name }}
+          file: os-image/${{ matrix.name }}/${{ matrix.tag }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secret-files: |
+            cocoon_overlay=os-image/${{ matrix.name }}/overlay.sh
+            cocoon_network=os-image/${{ matrix.name }}/network.sh
+          no-cache: ${{ matrix.no_cache == 'true' }}
+          cache-from: ${{ matrix.no_cache == 'true' && '' || format('type=gha,scope={0}-{1}', matrix.name, matrix.tag) }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.tag }}

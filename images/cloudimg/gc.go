@@ -1,0 +1,30 @@
+package cloudimg
+
+import (
+	"os"
+
+	"github.com/projecteru2/cocoon/gc"
+	"github.com/projecteru2/cocoon/images"
+	"github.com/projecteru2/cocoon/utils"
+)
+
+// GCModule returns a typed gc.Module for the cloud image backend.
+func (c *CloudImg) GCModule() gc.Module[images.ImageGCSnapshot] {
+	return images.BuildGCModule(images.GCModuleConfig[imageIndex]{
+		Name:     typ,
+		Locker:   c.locker,
+		Store:    c.store,
+		ReadRefs: func(idx *imageIndex) map[string]struct{} { return images.ReferencedDigests(idx.Images) },
+		ScanDisk: func() ([]string, error) { return utils.ScanFileStems(c.conf.BlobsDir(), ".qcow2") },
+		Removers: []func(string) error{
+			func(hex string) error { return os.Remove(c.conf.BlobPath(hex)) },
+		},
+		TempDir: c.conf.TempDir(),
+		DirOnly: false,
+	})
+}
+
+// RegisterGC registers the cloud image GC module with the given Orchestrator.
+func (c *CloudImg) RegisterGC(orch *gc.Orchestrator) {
+	gc.Register(orch, c.GCModule())
+}

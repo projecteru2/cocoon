@@ -1,0 +1,72 @@
+version: 2
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: cocoon-debug
+    binary: cocoon.dbg
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -X github.com/projecteru2/cocoon/version.REVISION={{.Commit}}
+      - -X github.com/projecteru2/cocoon/version.VERSION={{.Env.VERSION}}
+      - -X github.com/projecteru2/cocoon/version.BUILTAT={{.Date}}
+    goos:
+      - linux
+    goarch:
+      - amd64
+    main: .
+
+  - id: cocoon-linux
+    binary: cocoon
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s
+      - -X github.com/projecteru2/cocoon/version.REVISION={{.Commit}}
+      - -X github.com/projecteru2/cocoon/version.VERSION={{.Env.VERSION}}
+      - -X github.com/projecteru2/cocoon/version.BUILTAT={{.Date}}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    main: .
+
+archives:
+  - id: release
+    builds:
+      - cocoon-linux
+    name_template: >-
+      {{- .ProjectName }}_{{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end -}}
+
+  - id: debug
+    builds:
+      - cocoon-debug
+    name_template: >-
+      {{- .ProjectName }}_{{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}_debug
+      {{- if .Arm }}v{{ .Arm }}{{ end -}}
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

@@ -1,0 +1,32 @@
+package hypervisor
+
+import (
+	"context"
+	"errors"
+	"io"
+
+	"github.com/projecteru2/cocoon/gc"
+	"github.com/projecteru2/cocoon/types"
+)
+
+var (
+	ErrNotFound   = errors.New("VM not found")
+	ErrNotRunning = errors.New("VM not running")
+)
+
+// Hypervisor manages VM lifecycle. Implemented by each backend.
+type Hypervisor interface {
+	Type() string
+
+	Create(ctx context.Context, vmID string, vmCfg *types.VMConfig, storage []*types.StorageConfig, network []*types.NetworkConfig, boot *types.BootConfig) (*types.VM, error)
+	Start(ctx context.Context, refs []string) ([]string, error)
+	Stop(ctx context.Context, refs []string) ([]string, error)
+	Inspect(ctx context.Context, ref string) (*types.VM, error)
+	List(context.Context) ([]*types.VM, error)
+	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
+	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
+	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
+	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotCfg *types.SnapshotConfig, networkConfigs []*types.NetworkConfig, snapshot io.Reader) (*types.VM, error)
+
+	RegisterGC(*gc.Orchestrator)
+}
