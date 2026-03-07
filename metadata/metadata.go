@@ -35,6 +35,10 @@ chpasswd:
     - 'root:{{yamlQuote .RootPassword}}'
 ssh_pwauth: true
 disable_root: false
+runcmd:
+  - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - rm -f /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+  - systemctl restart sshd || systemctl restart ssh
 {{- end}}
 {{- if .Networks}}
 write_files:

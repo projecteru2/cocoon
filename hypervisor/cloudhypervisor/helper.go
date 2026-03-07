@@ -102,6 +102,22 @@ func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
 	return vmAPI(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
 }
 
+func removeDevice(ctx context.Context, hc *http.Client, deviceID string) error {
+	body, err := json.Marshal(map[string]string{"id": deviceID})
+	if err != nil {
+		return fmt.Errorf("marshal remove-device request: %w", err)
+	}
+	return vmAPI(ctx, hc, "vm.remove-device", body, http.StatusOK, http.StatusNoContent)
+}
+
+func addNetDevice(ctx context.Context, hc *http.Client, netCfg chNet) error {
+	body, err := json.Marshal(netCfg)
+	if err != nil {
+		return fmt.Errorf("marshal add-net request: %w", err)
+	}
+	return vmAPI(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
+}
+
 func powerButton(ctx context.Context, hc *http.Client) error {
 	return vmAPI(ctx, hc, "vm.power-button", nil)
 }

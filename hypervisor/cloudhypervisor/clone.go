@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,7 +136,14 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 		return nil, fmt.Errorf("launch CH: %w", err)
 	}
 
-	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, directBoot, hadCidataInSnapshot, storageConfigs, vmCfg.CPU); err != nil {
+	// Re-read patched config to get net device IDs for TAP reconnection.
+	patchedCfg, err := parseCHConfig(chConfigPath)
+	if err != nil {
+		ch.abortLaunch(ctx, pid, sockPath, runDir)
+		return nil, fmt.Errorf("re-parse patched config: %w", err)
+	}
+
+	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, directBoot, hadCidataInSnapshot, storageConfigs, patchedCfg.Nets, networkConfigs, vmCfg.CPU); err != nil {
 		return nil, err
 	}
 
@@ -177,6 +185,8 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 	sockPath, runDir string,
 	directBoot, hadCidataInSnapshot bool,
 	storageConfigs []*types.StorageConfig,
+	netDevices []chNet,
+	networkConfigs []*types.NetworkConfig,
 	cpu int,
 ) error {
 	hc := utils.NewSocketHTTPClient(sockPath)
@@ -199,6 +209,21 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 		ch.abortLaunch(ctx, pid, sockPath, runDir)
 		return fmt.Errorf("vm.resume: %w", err)
 	}
+
+	// Reconnect net devices: vm.restore deserializes TAP fds as -1 (stale),
+	// so the virtio-net backend has no valid data-plane fd.
+	// Hot-remove + hot-add forces CH to open fresh TAP fds in the current netns.
+	// Then configure the new NIC inside the guest via console socket.
+	consoleSock := consoleSockPath(runDir)
+	rootPw := ch.conf.DefaultRootPassword
+	if rootPw == "" {
+		rootPw = "cocoon123" // fallback for unset config
+	}
+	if err := reconnectNetDevices(ctx, hc, consoleSock, netDevices, networkConfigs, rootPw); err != nil {
+		ch.abortLaunch(ctx, pid, sockPath, runDir)
+		return fmt.Errorf("reconnect net devices: %w", err)
+	}
+
 	return nil
 }
 
@@ -431,4 +456,101 @@ func macToSerdeBytes(mac string) (string, error) {
 		parts[i] = fmt.Sprintf("%d", b)
 	}
 	return strings.Join(parts, ","), nil
+}
+
+// reconnectNetDevices fixes stale TAP file descriptors after vm.restore.
+//
+// CH's vm.restore deserializes net device FDs as -1 (stale), leaving the
+// virtio-net backend unable to read/write TAP. This function:
+// 1. Hot-removes each net device (freeing the stale fd)
+// 2. Hot-adds it back (CH opens a fresh TAP fd in the current netns)
+// 3. Configures the new guest NIC via console socket (PCI hot-add changes the device name)
+func reconnectNetDevices(ctx context.Context, hc *http.Client, consoleSock string, netDevices []chNet, networkConfigs []*types.NetworkConfig, rootPassword string) error {
+	logger := log.WithFunc("cloudhypervisor.reconnectNetDevices")
+
+	for _, nd := range netDevices {
+		if nd.ID == "" {
+			continue
+		}
+		logger.Infof(ctx, "reconnecting net device %s (tap=%s, mac=%s)", nd.ID, nd.Tap, nd.Mac)
+
+		if err := removeDevice(ctx, hc, nd.ID); err != nil {
+			logger.Warnf(ctx, "remove net device %s: %v", nd.ID, err)
+			continue
+		}
+
+		// Re-add with cleared ID — CH keeps removed IDs in its device tree.
+		// CH will assign a new ID and open a fresh TAP fd.
+		addCfg := nd
+		addCfg.ID = ""
+		if err := addNetDevice(ctx, hc, addCfg); err != nil {
+			return fmt.Errorf("re-add net device (tap=%s): %w", nd.Tap, err)
+		}
+		logger.Infof(ctx, "net device reconnected (tap=%s)", nd.Tap)
+	}
+
+	// Configure the new guest NIC via console socket.
+	// The hot-remove+add changes the PCI address, giving the guest a new device name.
+	// We bring it up and configure IP/routes via the serial console.
+	if len(networkConfigs) > 0 && networkConfigs[0].Network != nil {
+		nc := networkConfigs[0]
+		if err := configureGuestNetworkViaConsole(consoleSock, nc, rootPassword); err != nil {
+			logger.Warnf(ctx, "guest network config via console: %v (SSH/cloud-init will handle it)", err)
+		}
+	}
+
+	return nil
+}
+
+// configureGuestNetworkViaConsole sends IP configuration commands through the
+// serial console socket. After NIC hot-remove+add, the guest has a new unnamed
+// NIC in DOWN state. This function logs in via serial and brings it up with the correct IP.
+func configureGuestNetworkViaConsole(consoleSock string, nc *types.NetworkConfig, rootPassword string) error {
+	conn, err := net.DialTimeout("unix", consoleSock, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("connect to console: %w", err)
+	}
+	defer conn.Close()
+
+	ip := nc.Network.IP
+	prefix := nc.Network.Prefix
+	gw := nc.Network.Gateway
+
+	// Build a single command that finds the DOWN NIC and configures it.
+	configCmd := fmt.Sprintf(
+		`dev=$(ip -o link show | grep -v lo | grep 'state DOWN' | head -1 | awk -F'[ :]+' '{print $2}'); `+
+			`[ -n "$dev" ] && ip link set "$dev" up && ip addr add %s/%d dev "$dev" 2>/dev/null; `+
+			`ip route replace default via %s 2>/dev/null; echo COCOON_NET_OK`,
+		ip, prefix, gw,
+	)
+
+	// The guest was restored from a snapshot. The console could be:
+	// 1. At a login prompt (most common)
+	// 2. At a logged-in shell
+	// 3. Showing boot messages
+	//
+	// Strategy: send login sequence first, then the config command.
+	// If already logged in, "root" is treated as an unknown command (harmless),
+	// password line fails silently, and the config command runs.
+	//
+	// Each step needs enough delay for the serial to process.
+	steps := []struct {
+		data  string
+		delay time.Duration
+	}{
+		{"\r\n", 2 * time.Second},                 // Wake up / get login prompt
+		{"root\r\n", 2 * time.Second},             // Login username
+		{rootPassword + "\r\n", 5 * time.Second},  // Password + wait for MOTD/shell init
+		{configCmd + "\r\n", 1 * time.Second},     // Configure network
+	}
+
+	for _, s := range steps {
+		_ = conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		if _, err := conn.Write([]byte(s.data)); err != nil {
+			return fmt.Errorf("write to console: %w", err)
+		}
+		time.Sleep(s.delay)
+	}
+
+	return nil
 }
