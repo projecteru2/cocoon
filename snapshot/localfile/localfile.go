@@ -24,8 +24,11 @@ import (
 
 const typ = "localfile"
 
-// compile-time interface check.
-var _ snapshot.Snapshot = (*LocalFile)(nil)
+// compile-time interface checks.
+var (
+	_ snapshot.Snapshot = (*LocalFile)(nil)
+	_ snapshot.Direct   = (*LocalFile)(nil)
+)
 
 // LocalFile implements snapshot.Snapshot using the local filesystem.
 type LocalFile struct {
@@ -48,6 +51,39 @@ func New(conf *config.Config) (*LocalFile, error) {
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[snapshot.SnapshotIndex](cfg.IndexFile(), locker)
 	return &LocalFile{conf: cfg, store: store, locker: locker}, nil
+}
+
+// DataDir returns the local data directory and snapshot config for direct file access.
+func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, *types.SnapshotConfig, error) {
+	var (
+		cfg     *types.SnapshotConfig
+		dataDir string
+	)
+	return dataDir, cfg, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
+		id, err := snapshot.ResolveSnapshotRef(idx, ref)
+		if err != nil {
+			return err
+		}
+		rec := idx.Snapshots[id]
+		if rec == nil || rec.Pending {
+			return snapshot.ErrNotFound
+		}
+		blobIDs := make(map[string]struct{}, len(rec.ImageBlobIDs))
+		maps.Copy(blobIDs, rec.ImageBlobIDs)
+		cfg = &types.SnapshotConfig{
+			ID:           rec.ID,
+			Name:         rec.Name,
+			Description:  rec.Description,
+			Image:        rec.Image,
+			ImageBlobIDs: blobIDs,
+			CPU:          rec.CPU,
+			Memory:       rec.Memory,
+			Storage:      rec.Storage,
+			NICs:         rec.NICs,
+		}
+		dataDir = rec.DataDir
+		return nil
+	})
 }
 
 // Create persists a snapshot from the given config and data stream.

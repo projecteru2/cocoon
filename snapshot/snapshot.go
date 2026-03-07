@@ -8,6 +8,12 @@ import (
 	"github.com/projecteru2/cocoon/types"
 )
 
+// Direct is an optional interface for snapshot backends that expose
+// the local data directory for per-file handling (hardlink, reflink, etc.).
+type Direct interface {
+	DataDir(ctx context.Context, ref string) (string, *types.SnapshotConfig, error)
+}
+
 // Snapshot manages snapshot lifecycle and storage.
 type Snapshot interface {
 	Type() string

@@ -22,37 +22,39 @@ import (
 
 // Clone creates a new VM from a snapshot tar stream via vm.restore.
 // Three phases: placeholder record → extract+prepare → launch+finalize.
-func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotCfg *types.SnapshotConfig, networkConfigs []*types.NetworkConfig, snapshot io.Reader) (*types.VM, error) {
-	logger := log.WithFunc("cloudhypervisor.Clone")
-
-	if vmCfg.Image == "" && snapshotCfg.Image != "" {
-		vmCfg.Image = snapshotCfg.Image
+func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (_ *types.VM, err error) {
+	if vmCfg.Image == "" && snapshotConfig.Image != "" {
+		vmCfg.Image = snapshotConfig.Image
 	}
 
 	now := time.Now()
 	runDir := ch.conf.VMRunDir(vmID)
 	logDir := ch.conf.VMLogDir(vmID)
 
-	success := false
 	defer func() {
-		if !success {
+		if err != nil {
 			_ = removeVMDirs(runDir, logDir)
 			ch.rollbackCreate(ctx, vmID, vmCfg.Name)
 		}
 	}()
 
-	// Phase 1: placeholder record so GC won't orphan dirs.
-	if err := ch.reserveVM(ctx, vmID, vmCfg, snapshotCfg.ImageBlobIDs, runDir, logDir); err != nil {
+	if err = ch.reserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
 		return nil, fmt.Errorf("reserve VM record: %w", err)
 	}
-
-	// Phase 2: extract + prepare.
-	if err := utils.EnsureDirs(runDir, logDir); err != nil {
+	if err = utils.EnsureDirs(runDir, logDir); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
-	if err := utils.ExtractTar(runDir, snapshot); err != nil {
+	if err = utils.ExtractTar(runDir, snapshot); err != nil {
 		return nil, fmt.Errorf("extract snapshot: %w", err)
 	}
+
+	return ch.cloneAfterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
+}
+
+// cloneAfterExtract contains all clone logic after snapshot data is in runDir.
+// Shared by Clone (tar stream) and DirectClone (direct file copy).
+func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
+	logger := log.WithFunc("cloudhypervisor.Clone")
 
 	chConfigPath := filepath.Join(runDir, "config.json")
 	chCfg, err := parseCHConfig(chConfigPath)
@@ -119,7 +121,7 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 		bootCfg.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, ch.conf.DNSServers())
 	}
 
-	// Phase 3: launch CH, restore, finalize.
+	// Launch CH, restore, finalize.
 	sockPath := socketPath(runDir)
 	args := []string{"--api-socket", sockPath}
 	ch.saveCmdline(ctx, &hypervisor.VMRecord{RunDir: runDir}, args)
@@ -166,7 +168,6 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
 
-	success = true
 	logger.Infof(ctx, "VM %s cloned from snapshot", vmID)
 	return &info, nil
 }

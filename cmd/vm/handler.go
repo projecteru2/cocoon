@@ -21,6 +21,7 @@ import (
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
 	"github.com/projecteru2/cocoon/network"
+	"github.com/projecteru2/cocoon/snapshot"
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
@@ -75,6 +76,15 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	}
 
 	snapRef := args[0]
+
+	// Try local fast path: skip tar encode/decode entirely.
+	if da, ok := snapBackend.(snapshot.Direct); ok {
+		if dcr, ok := hyper.(hypervisor.Direct); ok {
+			return h.cloneDirect(ctx, cmd, conf, dcr, da, snapRef, logger)
+		}
+	}
+
+	// Fallback: stream path.
 	cfg, stream, err := snapBackend.Restore(ctx, snapRef)
 	if err != nil {
 		return fmt.Errorf("open snapshot %s: %w", snapRef, err)
@@ -86,29 +96,14 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	})
 	defer stop()
 
-	// Build VMConfig with inheritance from snapshot and validation.
-	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
-	if err != nil {
-		return err
-	}
-
-	vmID, err := utils.GenerateID()
-	if err != nil {
-		return fmt.Errorf("generate VM ID: %w", err)
-	}
-	if vmCfg.Name == "" {
-		vmCfg.Name = "cocoon-clone-" + vmID[:8]
-	}
-
-	// NIC count is always inherited from the snapshot — the device tree must match.
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, cfg.NICs, vmCfg)
+	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(cmd, ctx, conf, cfg)
 	if err != nil {
 		return err
 	}
 
 	logger.Infof(ctx, "cloning VM from snapshot %s ...", snapRef)
 
-	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, cfg, networkConfigs, stream)
+	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, networkConfigs, cfg, stream)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
@@ -117,6 +112,79 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
 	printPostCloneHints(vm, networkConfigs)
 	return nil
+}
+
+func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, da snapshot.Direct, snapRef string, logger *log.Fields) error {
+	dataDir, cfg, err := da.DataDir(ctx, snapRef)
+	if err != nil {
+		return fmt.Errorf("open snapshot %s: %w", snapRef, err)
+	}
+
+	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(cmd, ctx, conf, cfg)
+	if err != nil {
+		return err
+	}
+
+	logger.Infof(ctx, "cloning VM from snapshot %s (direct) ...", snapRef)
+
+	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, cfg, dataDir)
+	if cloneErr != nil {
+		rollbackNetwork(ctx, netProvider, vmID)
+		return fmt.Errorf("clone VM: %w", cloneErr)
+	}
+
+	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
+	printPostCloneHints(vm, networkConfigs)
+	return nil
+}
+
+func (h Handler) prepareClone(cmd *cobra.Command, ctx context.Context, conf *config.Config, cfg *types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
+	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
+	if err != nil {
+		return nil, "", nil, nil, err
+	}
+
+	vmID, err := utils.GenerateID()
+	if err != nil {
+		return nil, "", nil, nil, fmt.Errorf("generate VM ID: %w", err)
+	}
+	if vmCfg.Name == "" {
+		vmCfg.Name = "cocoon-clone-" + vmID[:8]
+	}
+
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, cfg.NICs, vmCfg)
+	if err != nil {
+		return nil, "", nil, nil, err
+	}
+
+	return vmCfg, vmID, netProvider, networkConfigs, nil
+}
+
+// restoreDirect attempts the direct restore path. Returns (nil, false) if
+// the backends don't support it, so the caller falls through to the stream path.
+func (h Handler) restoreDirect(ctx context.Context, snapRef, vmRef string, vmCfg *types.VMConfig, snapBackend snapshot.Snapshot, hyper hypervisor.Hypervisor, logger *log.Fields) (error, bool) {
+	da, ok := snapBackend.(snapshot.Direct)
+	if !ok {
+		return nil, false
+	}
+	dcr, ok := hyper.(hypervisor.Direct)
+	if !ok {
+		return nil, false
+	}
+
+	dataDir, _, err := da.DataDir(ctx, snapRef)
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err), true
+	}
+
+	logger.Infof(ctx, "restoring VM %s from snapshot %s (direct) ...", vmRef, snapRef)
+	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, dataDir)
+	if err != nil {
+		return fmt.Errorf("restore: %w", err), true
+	}
+
+	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
+	return nil, true
 }
 
 func (h Handler) Start(cmd *cobra.Command, args []string) error {
@@ -346,7 +414,12 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Open snapshot data stream.
+	// Try local fast path: skip tar encode/decode entirely.
+	if result, done := h.restoreDirect(ctx, snapRef, vmRef, vmCfg, snapBackend, hyper, logger); done {
+		return result
+	}
+
+	// Fallback: stream path.
 	_, stream, err := snapBackend.Restore(ctx, snapRef)
 	if err != nil {
 		return fmt.Errorf("open snapshot: %w", err)

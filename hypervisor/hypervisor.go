@@ -26,8 +26,15 @@ type Hypervisor interface {
 	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
 	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
 	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
-	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotCfg *types.SnapshotConfig, networkConfigs []*types.NetworkConfig, snapshot io.Reader) (*types.VM, error)
+	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error)
 	Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error)
 
 	RegisterGC(*gc.Orchestrator)
+}
+
+// Direct is an optional interface for hypervisors that support
+// clone/restore from a local snapshot directory.
+type Direct interface {
+	DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error)
+	DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error)
 }
