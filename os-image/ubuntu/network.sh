@@ -22,9 +22,13 @@ _dns_servers=""
 for conf_file in /run/net-*.conf; do
     [ -f "$conf_file" ] || continue
 
-    unset DEVICE IPV4ADDR IPV4NETMASK IPV4GATEWAY IPV4DNS0 IPV4DNS1 HOSTNAME
+    unset DEVICE IPV4ADDR IPV4NETMASK IPV4GATEWAY IPV4DNS0 IPV4DNS1 HOSTNAME HWADDR
     . "$conf_file"
     [ -z "$DEVICE" ] || [ -z "$IPV4ADDR" ] && continue
+
+    # Read MAC from sysfs if HWADDR not in conf (older klibc).
+    [ -z "$HWADDR" ] && [ -e "/sys/class/net/${DEVICE}/address" ] && HWADDR=$(cat "/sys/class/net/${DEVICE}/address")
+    [ -z "$HWADDR" ] && continue
 
     # Convert dotted netmask to prefix length.
     prefix=0
@@ -44,9 +48,13 @@ EOF
         esac
     done
 
+    # Use MAC-based matching so the config works regardless of device naming
+    # (eth0, enp0s4, or any name after hot-swap). File name uses MAC without
+    # colons to avoid collisions with old device-name-based files.
+    mac_sanitized=$(echo "$HWADDR" | tr -d ':')
     mkdir -p "${rootmnt}/etc/systemd/network"
     {
-        printf "[Match]\nName=%s\n\n[Network]\nAddress=%s/%d\n" "$DEVICE" "$IPV4ADDR" "$prefix"
+        printf "[Match]\nMACAddress=%s\n\n[Network]\nAddress=%s/%d\n" "$HWADDR" "$IPV4ADDR" "$prefix"
         [ -n "$IPV4GATEWAY" ] && [ "$IPV4GATEWAY" != "0.0.0.0" ] && printf "Gateway=%s\n" "$IPV4GATEWAY"
         [ -n "$IPV4DNS0" ] && [ "$IPV4DNS0" != "0.0.0.0" ] && printf "DNS=%s\n" "$IPV4DNS0"
         [ -n "$IPV4DNS1" ] && [ "$IPV4DNS1" != "0.0.0.0" ] && printf "DNS=%s\n" "$IPV4DNS1"
@@ -54,7 +62,7 @@ EOF
         if [ -z "$IPV4DNS0" ] || [ "$IPV4DNS0" = "0.0.0.0" ]; then
             printf "DNS=8.8.8.8\nDNS=8.8.4.4\n"
         fi
-    } > "${rootmnt}/etc/systemd/network/10-${DEVICE}.network"
+    } > "${rootmnt}/etc/systemd/network/10-${mac_sanitized}.network"
 
     # Collect DNS servers for resolv.conf.
     [ -n "$IPV4DNS0" ] && [ "$IPV4DNS0" != "0.0.0.0" ] && _dns_servers="${_dns_servers} ${IPV4DNS0}"
