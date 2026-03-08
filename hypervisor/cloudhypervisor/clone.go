@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -85,7 +84,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		}
 	}
 
-	stateReplacements := buildStateReplacements(chCfg, storageConfigs, networkConfigs)
+	stateReplacements := buildStateReplacements(chCfg, storageConfigs)
 
 	// Cloudimg: regenerate cidata with clone's identity and network config.
 	storageConfigs, err = ch.ensureCloneCidata(vmID, vmCfg, networkConfigs, storageConfigs, directBoot)
@@ -100,7 +99,6 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	consoleSock := consoleSockPath(runDir)
 	if err = patchCHConfig(chConfigPath, &patchOptions{
 		storageConfigs: patchStorageConfigs,
-		networkConfigs: networkConfigs,
 		consoleSock:    consoleSock,
 		directBoot:     directBoot,
 		cpu:            vmCfg.CPU,
@@ -402,15 +400,11 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 }
 
 // buildStateReplacements builds old→new string mappings for state.json patching.
-// Includes disk paths (informational) and MAC addresses (functional — the guest
-// virtio-net device state has the MAC baked in; without patching, the guest NIC
-// keeps the snapshot's MAC, breaking CNI anti-spoofing and cidata MAC matching).
-//
-// MAC addresses in state.json are serialized by serde as decimal byte arrays
-// (e.g. "4e:08:ba:c1:62:f8" → "78,8,186,193,98,248"), so we convert both old
-// and new MACs to that format for string replacement.
-func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig) map[string]string {
-	m := make(map[string]string, len(chCfg.Disks)+len(chCfg.Nets))
+// Only disk paths need patching (snapshot paths → clone paths).
+// MAC addresses are no longer patched here — hot-swap (vm.remove-device + vm.add-net)
+// replaces the entire virtio-net device with the correct MAC.
+func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig) map[string]string {
+	m := make(map[string]string, len(chCfg.Disks))
 	if len(storageConfigs) == len(chCfg.Disks) {
 		for i, d := range chCfg.Disks {
 			if storageConfigs[i].Path != d.Path {
@@ -418,33 +412,7 @@ func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageCo
 			}
 		}
 	}
-	for i, n := range chCfg.Nets {
-		if i >= len(networkConfigs) {
-			break
-		}
-		if n.Mac != "" && networkConfigs[i].Mac != "" && n.Mac != networkConfigs[i].Mac {
-			oldBytes, err1 := macToSerdeBytes(n.Mac)
-			newBytes, err2 := macToSerdeBytes(networkConfigs[i].Mac)
-			if err1 == nil && err2 == nil {
-				m[oldBytes] = newBytes
-			}
-		}
-	}
 	return m
-}
-
-// macToSerdeBytes converts a colon-separated MAC like "4e:08:ba:c1:62:f8" to
-// the serde JSON byte-array form "78,8,186,193,98,248" used in CH's state.json.
-func macToSerdeBytes(mac string) (string, error) {
-	hw, err := net.ParseMAC(mac)
-	if err != nil {
-		return "", fmt.Errorf("parse MAC %q: %w", mac, err)
-	}
-	parts := make([]string, len(hw))
-	for i, b := range hw {
-		parts[i] = fmt.Sprintf("%d", b)
-	}
-	return strings.Join(parts, ","), nil
 }
 
 // hotSwapNets removes old NICs (carrying stale MAC from snapshot binary state)

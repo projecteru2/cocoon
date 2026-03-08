@@ -124,9 +124,6 @@ func basePatchOpts() *patchOptions {
 			{Path: "/new/layer.erofs", RO: true, Serial: "layer0"},
 			{Path: "/new/cow.raw", RO: false, Serial: "cocoon-cow"},
 		},
-		networkConfigs: []*types.NetworkConfig{
-			{Tap: "new-tap0", Mac: "11:22:33:44:55:66", NumQueues: 8, QueueSize: 512},
-		},
 		consoleSock: "/new/console.sock",
 		directBoot:  true,
 		vmName:      "test-vm",
@@ -221,37 +218,6 @@ func TestPatchCHConfig_UpdatesDiskPaths(t *testing.T) {
 	// Original device IDs preserved.
 	if disk0["id"] != "_disk0" {
 		t.Errorf("disk[0].id changed: got %v", disk0["id"])
-	}
-}
-
-func TestPatchCHConfig_UpdatesNetwork(t *testing.T) {
-	dir := t.TempDir()
-	path := writeCHConfig(t, dir, baseCHConfig())
-
-	opts := basePatchOpts()
-	if err := patchCHConfig(path, opts); err != nil {
-		t.Fatal(err)
-	}
-
-	result := readRawJSON(t, path)
-	net0 := result["net"].([]any)[0].(map[string]any)
-
-	if net0["tap"] != "new-tap0" {
-		t.Errorf("tap: got %v", net0["tap"])
-	}
-	if net0["mac"] != "11:22:33:44:55:66" {
-		t.Errorf("mac: got %v", net0["mac"])
-	}
-	// JSON numbers are float64.
-	if net0["num_queues"] != float64(8) {
-		t.Errorf("num_queues: got %v", net0["num_queues"])
-	}
-	if net0["offload_tso"] != true {
-		t.Errorf("offload_tso: got %v", net0["offload_tso"])
-	}
-	// Device id preserved.
-	if net0["id"] != "_net0" {
-		t.Errorf("id changed: got %v", net0["id"])
 	}
 }
 
@@ -401,22 +367,6 @@ func TestPatchCHConfig_DiskCountMismatch(t *testing.T) {
 		t.Fatal("expected error for disk count mismatch")
 	}
 	if !strings.Contains(err.Error(), "disk count mismatch") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPatchCHConfig_NetCountMismatch(t *testing.T) {
-	dir := t.TempDir()
-	path := writeCHConfig(t, dir, baseCHConfig())
-
-	opts := basePatchOpts()
-	// 2 network configs vs 1 net in config.
-	opts.networkConfigs = append(opts.networkConfigs, &types.NetworkConfig{Tap: "extra"})
-	err := patchCHConfig(path, opts)
-	if err == nil {
-		t.Fatal("expected error for net count mismatch")
-	}
-	if !strings.Contains(err.Error(), "net count mismatch") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -626,47 +576,19 @@ func TestPatchStateJSON_MACAddresses(t *testing.T) {
 	}
 }
 
-func TestMacToSerdeBytes(t *testing.T) {
-	tests := []struct {
-		mac  string
-		want string
-	}{
-		{"4e:08:ba:c1:62:f8", "78,8,186,193,98,248"},
-		{"fe:86:bf:1f:53:17", "254,134,191,31,83,23"},
-		{"00:00:00:00:00:00", "0,0,0,0,0,0"},
-		{"ff:ff:ff:ff:ff:ff", "255,255,255,255,255,255"},
-	}
-	for _, tt := range tests {
-		got, err := macToSerdeBytes(tt.mac)
-		if err != nil {
-			t.Errorf("macToSerdeBytes(%q): %v", tt.mac, err)
-			continue
-		}
-		if got != tt.want {
-			t.Errorf("macToSerdeBytes(%q) = %q, want %q", tt.mac, got, tt.want)
-		}
-	}
-}
-
 func TestBuildStateReplacements(t *testing.T) {
 	chCfg := &chVMConfig{
 		Disks: []chDisk{
 			{Path: "/old/layer.erofs"},
 			{Path: "/old/cow.raw"},
 		},
-		Nets: []chNet{
-			{Mac: "4e:08:ba:c1:62:f8"},
-		},
 	}
 	storageConfigs := []*types.StorageConfig{
 		{Path: "/old/layer.erofs"}, // unchanged
 		{Path: "/new/cow.raw"},     // changed
 	}
-	networkConfigs := []*types.NetworkConfig{
-		{Mac: "fe:86:bf:1f:53:17"}, // changed
-	}
 
-	m := buildStateReplacements(chCfg, storageConfigs, networkConfigs)
+	m := buildStateReplacements(chCfg, storageConfigs)
 
 	// Disk path: only changed one.
 	if m["/old/cow.raw"] != "/new/cow.raw" {
@@ -675,12 +597,8 @@ func TestBuildStateReplacements(t *testing.T) {
 	if _, ok := m["/old/layer.erofs"]; ok {
 		t.Error("unchanged disk path should not be in replacements")
 	}
-
-	// MAC: serde byte format.
-	oldMAC := "78,8,186,193,98,248"   // 4e:08:ba:c1:62:f8
-	newMAC := "254,134,191,31,83,23"  // fe:86:bf:1f:53:17
-	if m[oldMAC] != newMAC {
-		t.Errorf("MAC replacement: got %q→%q, want %q→%q", oldMAC, m[oldMAC], oldMAC, newMAC)
+	if len(m) != 1 {
+		t.Errorf("expected 1 replacement, got %d: %v", len(m), m)
 	}
 }
 

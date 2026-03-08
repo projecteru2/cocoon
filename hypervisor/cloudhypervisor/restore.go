@@ -76,7 +76,6 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
 	if err = patchCHConfig(chConfigPath, &patchOptions{
 		storageConfigs: rec.StorageConfigs,
-		networkConfigs: rec.NetworkConfigs,
 		consoleSock:    consoleSockPath(rec.RunDir),
 		directBoot:     directBoot,
 		cpu:            vmCfg.CPU,

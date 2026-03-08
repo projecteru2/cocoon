@@ -11,7 +11,6 @@ import (
 
 type patchOptions struct {
 	storageConfigs []*types.StorageConfig
-	networkConfigs []*types.NetworkConfig
 	consoleSock    string
 	directBoot     bool
 	cpu            int
@@ -51,38 +50,6 @@ func patchCHConfig(path string, opts *patchOptions) error {
 		raw["disks"] = patched
 	}
 
-	// Network: patch tap/mac/queues/offload, preserving device id, pci_segment, etc.
-	if len(opts.networkConfigs) != len(chCfg.Nets) {
-		return fmt.Errorf("net count mismatch: networkConfigs=%d, CH config=%d",
-			len(opts.networkConfigs), len(chCfg.Nets))
-	}
-	if netRaw, ok := raw["net"]; ok {
-		patched, patchErr := patchRawArray(netRaw, len(opts.networkConfigs), func(i int, elem map[string]json.RawMessage) error {
-			nc := opts.networkConfigs[i]
-			for _, kv := range []struct {
-				k string
-				v any
-			}{
-				{"tap", nc.Tap},
-				{"mac", nc.Mac},
-				{"num_queues", nc.NumQueues},
-				{"queue_size", nc.QueueSize},
-				{"offload_tso", true},
-				{"offload_ufo", true},
-				{"offload_csum", true},
-			} {
-				if setErr := setField(elem, kv.k, kv.v); setErr != nil {
-					return setErr
-				}
-			}
-			return nil
-		})
-		if patchErr != nil {
-			return fmt.Errorf("patch nets: %w", patchErr)
-		}
-		raw["net"] = patched
-	}
-
 	// Serial/console: full replace (snapshot carries stale /dev/pts/N paths).
 	if opts.directBoot {
 		_ = setField(raw, "serial", &chRuntimeFile{Mode: "Off"})
@@ -90,20 +57,6 @@ func patchCHConfig(path string, opts *patchOptions) error {
 	} else {
 		_ = setField(raw, "serial", &chRuntimeFile{Mode: "Socket", Socket: opts.consoleSock})
 		_ = setField(raw, "console", &chRuntimeFile{Mode: "Off"})
-	}
-
-	// Kernel cmdline (OCI direct-boot only): patch only "cmdline", preserving kernel/initramfs.
-	if opts.directBoot && chCfg.Payload != nil {
-		if payloadRaw, ok := raw["payload"]; ok {
-			newCmdline := buildCmdline(opts.storageConfigs, opts.networkConfigs, opts.vmName, opts.dnsServers)
-			patched, patchErr := patchRawObject(payloadRaw, func(obj map[string]json.RawMessage) error {
-				return setField(obj, "cmdline", newCmdline)
-			})
-			if patchErr != nil {
-				return fmt.Errorf("patch payload: %w", patchErr)
-			}
-			raw["payload"] = patched
-		}
 	}
 
 	// CPU: patch only "boot_vcpus", preserving topology, max_phys_bits, etc.
