@@ -2,9 +2,15 @@ package cloudhypervisor
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/projecteru2/cocoon/config"
 	"github.com/projecteru2/cocoon/utils"
+)
+
+const (
+	defaultSocketWaitTimeout    = 5 * time.Second
+	defaultTerminateGracePeriod = 5 * time.Second
 )
 
 // Config holds Cloud Hypervisor specific configuration, embedding the global config.
@@ -52,6 +58,22 @@ func (c *Config) OverlayPath(vmID string) string {
 // CidataPath returns the path for the cloud-init NoCloud cidata disk.
 func (c *Config) CidataPath(vmID string) string {
 	return filepath.Join(c.VMRunDir(vmID), "cidata.img")
+}
+
+// SocketWaitTimeout returns the configured socket wait timeout or the default.
+func (c *Config) SocketWaitTimeout() time.Duration {
+	if c.SocketWaitTimeoutSeconds > 0 {
+		return time.Duration(c.SocketWaitTimeoutSeconds) * time.Second
+	}
+	return defaultSocketWaitTimeout
+}
+
+// TerminateGracePeriod returns the configured SIGTERM→SIGKILL grace period or the default.
+func (c *Config) TerminateGracePeriod() time.Duration {
+	if c.TerminateGracePeriodSeconds > 0 {
+		return time.Duration(c.TerminateGracePeriodSeconds) * time.Second
+	}
+	return defaultTerminateGracePeriod
 }
 
 func (c *Config) dir() string   { return filepath.Join(c.RootDir, "cloudhypervisor") }

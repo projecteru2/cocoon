@@ -60,7 +60,7 @@ func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, *types.Sn
 		dataDir string
 	)
 	return dataDir, cfg, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
-		id, err := snapshot.ResolveSnapshotRef(idx, ref)
+		id, err := idx.Resolve(ref)
 		if err != nil {
 			return err
 		}
@@ -188,7 +188,7 @@ func (lf *LocalFile) List(ctx context.Context) ([]*types.Snapshot, error) {
 func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, error) {
 	var result *types.Snapshot
 	return result, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
-		id, err := snapshot.ResolveSnapshotRef(idx, ref)
+		id, err := idx.Resolve(ref)
 		if err != nil {
 			return err
 		}
@@ -208,7 +208,7 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
 		var resolveErr error
-		ids, resolveErr = utils.ResolveRefs(idx.Snapshots, idx.Names, refs, snapshot.ErrNotFound)
+		ids, resolveErr = idx.ResolveMany(refs)
 		return resolveErr
 	}); err != nil {
 		return nil, err
@@ -247,7 +247,7 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotCo
 		dataDir string
 	)
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
-		id, err := snapshot.ResolveSnapshotRef(idx, ref)
+		id, err := idx.Resolve(ref)
 		if err != nil {
 			return err
 		}

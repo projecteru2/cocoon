@@ -12,7 +12,6 @@ import (
 	"github.com/projecteru2/cocoon/storage"
 	storejson "github.com/projecteru2/cocoon/storage/json"
 	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
 )
 
 const typ = "cloud-hypervisor"
@@ -44,7 +43,7 @@ func (ch *CloudHypervisor) Type() string { return typ }
 func (ch *CloudHypervisor) Inspect(ctx context.Context, ref string) (*types.VM, error) {
 	var result *types.VM
 	return result, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
-		id, err := hypervisor.ResolveVMRef(idx, ref)
+		id, err := idx.Resolve(ref)
 		if err != nil {
 			return err
 		}
@@ -109,7 +108,7 @@ func (ch *CloudHypervisor) resolveRef(ctx context.Context, ref string) (string, 
 	var id string
 	return id, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		var err error
-		id, err = hypervisor.ResolveVMRef(idx, ref)
+		id, err = idx.Resolve(ref)
 		return err
 	})
 }
@@ -120,7 +119,7 @@ func (ch *CloudHypervisor) resolveRefs(ctx context.Context, refs []string) ([]st
 	var ids []string
 	return ids, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
 		var err error
-		ids, err = utils.ResolveRefs(idx.VMs, idx.Names, refs, hypervisor.ErrNotFound)
+		ids, err = idx.ResolveMany(refs)
 		return err
 	})
 }

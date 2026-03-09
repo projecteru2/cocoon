@@ -17,6 +17,13 @@ case "$1" in prereqs) prereqs; exit 0 ;; esac
 # $rootmnt is set by initramfs — points to the mounted root filesystem.
 [ -z "$rootmnt" ] && exit 0
 
+# Set hostname from cocoon.hostname= kernel parameter.
+for _arg in $(cat /proc/cmdline); do
+    case "$_arg" in
+        cocoon.hostname=*) echo "${_arg#cocoon.hostname=}" > "${rootmnt}/etc/hostname" ;;
+    esac
+done
+
 _dns_servers=""
 _has_static=false
 
@@ -26,16 +33,7 @@ for conf_file in /run/net-*.conf; do
     unset DEVICE IPV4ADDR IPV4NETMASK IPV4GATEWAY IPV4DNS0 IPV4DNS1 HOSTNAME HWADDR
     . "$conf_file"
     [ -z "$DEVICE" ] && continue
-
-    # Set hostname even if no IP (DHCP mode with ip=::::hostname:dev:off).
-    if [ -n "$HOSTNAME" ] && [ ! -f "${rootmnt}/etc/cocoon-hostname-set" ]; then
-        echo "$HOSTNAME" > "${rootmnt}/etc/hostname"
-        : > "${rootmnt}/etc/cocoon-hostname-set"
-    fi
-
-    # Treat 0.0.0.0 the same as empty — kernel writes this when ip=::::host::off
-    # is used (hostname-only, no real IP). Must fall through to DHCP fallback.
-    case "$IPV4ADDR" in ""|0.0.0.0) continue ;; esac
+    [ -z "$IPV4ADDR" ] && continue
 
     # Read MAC from sysfs if HWADDR not in conf (older klibc).
     [ -z "$HWADDR" ] && [ -e "/sys/class/net/${DEVICE}/address" ] && HWADDR=$(cat "/sys/class/net/${DEVICE}/address")

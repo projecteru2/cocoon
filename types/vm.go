@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // VMState represents the lifecycle state of a VM from the hypervisor's perspective.
 type VMState string
@@ -21,6 +24,23 @@ type VMConfig struct {
 	Storage int64  `json:"storage"` // COW disk size, bytes
 	Image   string `json:"image"`
 	Network string `json:"network,omitempty"` // CNI conflist name; empty = default
+}
+
+// Validate checks that VMConfig fields are within acceptable ranges.
+func (cfg *VMConfig) Validate() error {
+	if cfg.Name == "" {
+		return fmt.Errorf("VM name cannot be empty")
+	}
+	if cfg.CPU <= 0 {
+		return fmt.Errorf("--cpu must be at least 1, got %d", cfg.CPU)
+	}
+	if cfg.Memory < 512<<20 {
+		return fmt.Errorf("--memory must be at least 512M, got %d", cfg.Memory)
+	}
+	if cfg.Storage < 10<<30 {
+		return fmt.Errorf("--storage must be at least 10G, got %d", cfg.Storage)
+	}
+	return nil
 }
 
 // VM is the runtime record for a VM, persisted by the hypervisor backend.

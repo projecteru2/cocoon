@@ -35,7 +35,12 @@ func (idx *VMIndex) Init() {
 	utils.InitNamedIndex(&idx.VMs, &idx.Names)
 }
 
-// ResolveVMRef resolves a ref (exact ID, name, or ID prefix ≥3 chars) to a full VM ID.
-func ResolveVMRef(idx *VMIndex, ref string) (string, error) {
+// Resolve resolves a ref (exact ID, name, or ID prefix ≥3 chars) to a full VM ID.
+func (idx *VMIndex) Resolve(ref string) (string, error) {
 	return utils.ResolveRef(idx.VMs, idx.Names, ref, ErrNotFound)
+}
+
+// ResolveMany batch-resolves refs to exact VM IDs, deduplicating results.
+func (idx *VMIndex) ResolveMany(refs []string) ([]string, error) {
+	return utils.ResolveRefs(idx.VMs, idx.Names, refs, ErrNotFound)
 }

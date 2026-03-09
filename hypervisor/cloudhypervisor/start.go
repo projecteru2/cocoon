@@ -19,10 +19,6 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
-// socketWaitTimeout is the maximum time to wait for the CH API socket after
-// process start. 5s covers typical VM boot; increase if using slow storage.
-const socketWaitTimeout = 5 * time.Second
-
 // Start launches the Cloud Hypervisor process for each VM ref.
 // Returns the IDs that were successfully started.
 func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, error) {
@@ -111,7 +107,11 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 	if err != nil {
 		log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "create process log: %v", err)
 	} else {
-		defer logFile.Close() //nolint:errcheck
+		defer func() {
+			if closeErr := logFile.Close(); closeErr != nil {
+				log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "close log file: %v", closeErr)
+			}
+		}()
 	}
 
 	cmd := exec.Command(ch.conf.CHBinary, args...) //nolint:gosec
@@ -144,7 +144,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 		return 0, fmt.Errorf("write PID file: %w", err)
 	}
 
-	if err := waitForSocket(ctx, socketPath, pid); err != nil {
+	if err := waitForSocket(ctx, socketPath, pid, ch.conf.SocketWaitTimeout()); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		_ = os.Remove(pidPath)
@@ -158,8 +158,8 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 
 // waitForSocket polls until socketPath is connectable, the process exits, or
 // the timeout/context fires.
-func waitForSocket(ctx context.Context, socketPath string, pid int) error {
-	return utils.WaitFor(ctx, socketWaitTimeout, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
+func waitForSocket(ctx context.Context, socketPath string, pid int, timeout time.Duration) error {
+	return utils.WaitFor(ctx, timeout, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
 		if utils.CheckSocket(socketPath) == nil {
 			return true, nil
 		}

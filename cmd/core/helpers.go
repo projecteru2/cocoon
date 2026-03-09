@@ -164,10 +164,6 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 		vmName = sanitizeVMName(image)
 	}
 
-	if cpu <= 0 {
-		return nil, fmt.Errorf("--cpu must be at least 1")
-	}
-
 	memBytes, err := units.RAMInBytes(memStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid --memory %q: %w", memStr, err)
@@ -177,14 +173,18 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 		return nil, fmt.Errorf("invalid --storage %q: %w", storStr, err)
 	}
 
-	return &types.VMConfig{
+	cfg := &types.VMConfig{
 		Name:    vmName,
 		CPU:     cpu,
 		Memory:  memBytes,
 		Storage: storBytes,
 		Image:   image,
 		Network: network,
-	}, nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // CloneVMConfigFromFlags builds VMConfig for clone commands.
@@ -233,14 +233,18 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 		return nil, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(storBytes), FormatSize(snapCfg.Storage))
 	}
 
-	return &types.VMConfig{
+	cfg := &types.VMConfig{
 		Name:    vmName,
 		CPU:     cpu,
 		Memory:  memBytes,
 		Storage: storBytes,
 		Image:   snapCfg.Image,
 		Network: network,
-	}, nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // RestoreVMConfigFromFlags builds VMConfig for restore commands.

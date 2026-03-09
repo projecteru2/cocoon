@@ -13,13 +13,9 @@ import (
 	"github.com/projecteru2/cocoon/utils"
 )
 
-const (
-	// acpiPollInterval is how often we check if the guest has powered off
-	// after sending an ACPI power-button event.
-	acpiPollInterval = 500 * time.Millisecond
-	// terminateGracePeriod is the SIGTERM→SIGKILL window.
-	terminateGracePeriod = 5 * time.Second
-)
+// acpiPollInterval is how often we check if the guest has powered off
+// after sending an ACPI power-button event.
+const acpiPollInterval = 500 * time.Millisecond
 
 // Stop shuts down the Cloud Hypervisor process for each VM ref.
 // Two modes are used depending on the VM's boot method:
@@ -103,7 +99,7 @@ func (ch *CloudHypervisor) forceTerminate(ctx context.Context, hc *http.Client, 
 	if err := shutdownVM(ctx, hc); err != nil {
 		log.WithFunc("cloudhypervisor.forceTerminate").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)
 	}
-	return utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, terminateGracePeriod)
+	return utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, ch.conf.TerminateGracePeriod())
 }
 
 // isDirectBoot returns true when the VM was started with a direct kernel boot

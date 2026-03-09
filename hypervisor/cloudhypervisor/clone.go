@@ -385,12 +385,14 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	return cmdline.String()
 }
 
-// buildIPParams generates kernel ip= parameters for all NICs with static IPs.
-// If no NIC has a static IP (DHCP mode), emits a hostname-only ip= param so
-// the initramfs still sets /etc/hostname via /run/net-*.conf.
+// buildIPParams generates kernel ip= parameters for all NICs with static IPs
+// and a cocoon.hostname= parameter for the initramfs hostname script.
+// DHCP-only NICs get no ip= param — the initramfs detects the absence of
+// static config and generates DHCP systemd-networkd units per MAC.
 func buildIPParams(networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
-	dns0, dns1 := dnsFromConfig(dnsServers)
 	var params strings.Builder
+	fmt.Fprintf(&params, " cocoon.hostname=%s", vmName)
+	dns0, dns1 := dnsFromConfig(dnsServers)
 	for i, n := range networkConfigs {
 		if n.Network == nil || n.Network.IP == "" {
 			continue
@@ -405,9 +407,6 @@ func buildIPParams(networkConfigs []*types.NetworkConfig, vmName string, dnsServ
 			}
 		}
 		params.WriteString(param)
-	}
-	if params.Len() == 0 {
-		fmt.Fprintf(&params, " ip=::::%s::off", vmName)
 	}
 	return params.String()
 }

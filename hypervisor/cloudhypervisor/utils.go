@@ -29,7 +29,10 @@ func (ch *CloudHypervisor) chBinaryName() string {
 }
 
 func (ch *CloudHypervisor) withRunningVM(rec *hypervisor.VMRecord, fn func(pid int) error) error {
-	pid, _ := utils.ReadPIDFile(pidFile(rec.RunDir))
+	pid, pidErr := utils.ReadPIDFile(pidFile(rec.RunDir))
+	if pidErr != nil {
+		log.WithFunc("cloudhypervisor.withRunningVM").Warnf(context.TODO(), "read PID file: %v", pidErr)
+	}
 	if !utils.VerifyProcessCmdline(pid, ch.chBinaryName(), socketPath(rec.RunDir)) {
 		return hypervisor.ErrNotRunning
 	}
@@ -108,7 +111,7 @@ func (ch *CloudHypervisor) rollbackCreate(ctx context.Context, id, name string) 
 
 // abortLaunch kills a CH process and removes runtime files after a failed launch sequence.
 func (ch *CloudHypervisor) abortLaunch(ctx context.Context, pid int, sockPath, runDir string) {
-	_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), sockPath, terminateGracePeriod)
+	_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), sockPath, ch.conf.TerminateGracePeriod())
 	cleanupRuntimeFiles(ctx, runDir)
 }
 

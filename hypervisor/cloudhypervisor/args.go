@@ -190,67 +190,49 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	return args
 }
 
+// kvBuilder accumulates key=value pairs for CH CLI arguments.
+type kvBuilder []string
+
+func (b *kvBuilder) add(kv string) { *b = append(*b, kv) }
+func (b *kvBuilder) addIf(cond bool, kv string) {
+	if cond {
+		*b = append(*b, kv)
+	}
+}
+func (b kvBuilder) String() string { return strings.Join(b, ",") }
+
 func diskToCLIArg(d chDisk) string {
-	parts := []string{"path=" + d.Path}
-	if d.ReadOnly {
-		parts = append(parts, "readonly=on")
-	}
-	if d.UsePageCache {
-		parts = append(parts, "direct=off")
-	}
-	if d.Sparse {
-		parts = append(parts, "sparse=on")
-	}
-	if d.ImageType != "" {
-		parts = append(parts, "image_type="+strings.ToLower(d.ImageType))
-	}
-	if d.BackingFiles {
-		parts = append(parts, "backing_files=on")
-	}
-	if d.NumQueues > 0 {
-		parts = append(parts, fmt.Sprintf("num_queues=%d", d.NumQueues))
-	}
-	if d.QueueSize > 0 {
-		parts = append(parts, fmt.Sprintf("queue_size=%d", d.QueueSize))
-	}
-	if d.Serial != "" {
-		parts = append(parts, "serial="+d.Serial)
-	}
-	return strings.Join(parts, ",")
+	var b kvBuilder
+	b.add("path=" + d.Path)
+	b.addIf(d.ReadOnly, "readonly=on")
+	b.addIf(d.UsePageCache, "direct=off")
+	b.addIf(d.Sparse, "sparse=on")
+	b.addIf(d.ImageType != "", "image_type="+strings.ToLower(d.ImageType))
+	b.addIf(d.BackingFiles, "backing_files=on")
+	b.addIf(d.NumQueues > 0, fmt.Sprintf("num_queues=%d", d.NumQueues))
+	b.addIf(d.QueueSize > 0, fmt.Sprintf("queue_size=%d", d.QueueSize))
+	b.addIf(d.Serial != "", "serial="+d.Serial)
+	return b.String()
 }
 
 func netToCLIArg(n chNet) string {
-	parts := []string{"tap=" + n.Tap}
-	if n.Mac != "" {
-		parts = append(parts, "mac="+n.Mac)
-	}
-	if n.NumQueues > 0 {
-		parts = append(parts, fmt.Sprintf("num_queues=%d", n.NumQueues))
-	}
-	if n.QueueSize > 0 {
-		parts = append(parts, fmt.Sprintf("queue_size=%d", n.QueueSize))
-	}
-	if n.OffloadTSO {
-		parts = append(parts, "offload_tso=on")
-	}
-	if n.OffloadUFO {
-		parts = append(parts, "offload_ufo=on")
-	}
-	if n.OffloadCsum {
-		parts = append(parts, "offload_csum=on")
-	}
-	return strings.Join(parts, ",")
+	var b kvBuilder
+	b.add("tap=" + n.Tap)
+	b.addIf(n.Mac != "", "mac="+n.Mac)
+	b.addIf(n.NumQueues > 0, fmt.Sprintf("num_queues=%d", n.NumQueues))
+	b.addIf(n.QueueSize > 0, fmt.Sprintf("queue_size=%d", n.QueueSize))
+	b.addIf(n.OffloadTSO, "offload_tso=on")
+	b.addIf(n.OffloadUFO, "offload_ufo=on")
+	b.addIf(n.OffloadCsum, "offload_csum=on")
+	return b.String()
 }
 
 func balloonToCLIArg(b *chBalloon) string {
-	parts := []string{fmt.Sprintf("size=%d", b.Size)}
-	if b.DeflateOnOOM {
-		parts = append(parts, "deflate_on_oom=on")
-	}
-	if b.FreePageReporting {
-		parts = append(parts, "free_page_reporting=on")
-	}
-	return strings.Join(parts, ",")
+	var args kvBuilder
+	args.add(fmt.Sprintf("size=%d", b.Size))
+	args.addIf(b.DeflateOnOOM, "deflate_on_oom=on")
+	args.addIf(b.FreePageReporting, "free_page_reporting=on")
+	return args.String()
 }
 
 func runtimeFiletoCLIArg(c *chRuntimeFile) string {
