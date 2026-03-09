@@ -88,6 +88,7 @@ fi
 
 VM_REC=$(jq ".vms[\"$VM_ID\"]" "$VM_DB")
 VM_NAME=$(echo "$VM_REC" | jq -r '.config.name // "<unnamed>"')
+VM_NETWORK=$(echo "$VM_REC" | jq -r '.config.network // empty')
 VM_STATE=$(echo "$VM_REC" | jq -r '.state // "unknown"')
 RUN_DIR=$(echo "$VM_REC" | jq -r '.run_dir // empty')
 LOG_DIR=$(echo "$VM_REC" | jq -r '.log_dir // empty')
@@ -105,6 +106,7 @@ fi
 
 kv "ID" "$VM_ID"
 kv "Name" "$VM_NAME"
+kv "Network" "${VM_NETWORK:-<default>}"
 kv "State" "$VM_STATE"
 kv "PID" "$VM_PID"
 kv "RunDir" "$RUN_DIR"

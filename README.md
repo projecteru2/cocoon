@@ -167,6 +167,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--memory`  | `1G`             | Memory size (e.g., 512M, 2G)                  |
 | `--storage` | `10G`            | COW disk size (e.g., 10G, 20G)                |
 | `--nics`    | `1`              | Number of network interfaces (0 = no network) |
+| `--network` | empty (default)  | CNI conflist name (empty = first conflist)     |
 
 ### Clone Flags
 
@@ -179,6 +180,7 @@ Applies to `cocoon vm clone`:
 | `--memory`  | empty (inherit)          | Memory size (must be >= snapshot value)                  |
 | `--storage` | empty (inherit)          | COW disk size (must be >= snapshot value)                |
 | `--nics`    | `0` (inherit)            | Number of NICs (must be >= snapshot value)               |
+| `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
 
 ### Snapshot Flags
 
@@ -240,11 +242,12 @@ Guest virtio-net  ←→  TAP (multi-queue)  ←TC redirect→  veth  ←→  CN
 - **Default**: 1 NIC with automatic IP assignment via CNI
 - **No network**: `--nics 0` creates a VM with no network interfaces
 - **Multi-NIC**: `--nics N` creates N interfaces; for cloudimg VMs all NICs are auto-configured via Netplan, for OCI images all NICs are auto-configured via kernel `ip=` parameters
+- **Multi-network**: `--network <name>` selects a specific CNI conflist by name (e.g., `--network macvlan`); omitting uses the first conflist alphabetically. The network name is stored in the VM record for recovery after host reboot. Clone allows `--network` override; restore reuses the existing network.
 - **DNS**: Use `--dns` to set custom DNS servers (comma separated)
 
 ### CNI Configuration
 
-CNI configuration is read from `--cni-conf-dir` (default `/etc/cni/net.d`). A typical bridge config:
+All `.conflist` files in `--cni-conf-dir` (default `/etc/cni/net.d`) are loaded at startup. Use `--network <name>` to select one by its `name` field; omitting defaults to the first file alphabetically. A typical bridge config:
 
 ```json
 {
@@ -341,30 +344,36 @@ After cloning, the guest resumes with new NICs (MAC addresses are handled automa
 # Release balloon memory (the snapshot's memory pages are still cached)
 echo 3 > /proc/sys/vm/drop_caches
 
-# Re-run cloud-init to pick up new network config from cidata
+# Clean old network configs from snapshot and reconfigure via cloud-init
+rm -f /etc/systemd/network/10-*.network
 cloud-init clean --logs --seed --configs network && cloud-init init --local && cloud-init init
 cloud-init modules --mode=config && systemctl restart systemd-networkd
 ```
 
-**OCI VMs** (manual IP reconfiguration — the new IP is printed by `cocoon vm clone`):
+**OCI VMs** (MAC-based systemd-networkd reconfiguration — the new values are printed by `cocoon vm clone`):
 
 ```bash
 # Release balloon memory
 echo 3 > /proc/sys/vm/drop_caches
 
-# Reconfigure network (cocoon vm clone prints a ready-to-paste loop with actual values)
-devs=('eth0' 'eth1')
+# Set hostname
+hostnamectl set-hostname <VM_NAME>
+
+# Clean old network configs from snapshot and write new ones (MAC-based)
+# (cocoon vm clone prints a ready-to-paste loop with actual MAC/IP/GW values)
+rm -f /etc/systemd/network/10-*.network
+macs=('<MAC0>' '<MAC1>')
 addrs=('<NEW_IP0>/<PREFIX>' '<NEW_IP1>/<PREFIX>')
 gws=('<GATEWAY0>' '<GATEWAY1>')
-for i in "${!devs[@]}"; do
-  ip addr flush dev "${devs[$i]}"
-  ip addr add "${addrs[$i]}" dev "${devs[$i]}"
-  ip link set "${devs[$i]}" up
-  [ -n "${gws[$i]}" ] && ip route replace default via "${gws[$i]}"
+for i in "${!macs[@]}"; do
+  f="/etc/systemd/network/10-${macs[$i]//:/}.network"
+  printf '[Match]\nMACAddress=%s\n\n[Network]\nAddress=%s\n' "${macs[$i]}" "${addrs[$i]}" > "$f"
+  [ -n "${gws[$i]}" ] && printf 'Gateway=%s\n' "${gws[$i]}" >> "$f"
 done
+systemctl restart systemd-networkd
 ```
 
-The `cocoon vm clone` command prints these hints with the actual IP addresses after a successful clone.
+The `cocoon vm clone` command prints these hints with the actual values after a successful clone.
 
 ### Restore
 
