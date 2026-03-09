@@ -75,7 +75,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 
 	// withRunningVM verifies the process is alive, then runs the callback.
 	// Inside the callback: pause → CH snapshot → SparseCopy COW → resume.
-	if err := ch.withRunningVM(&rec, func(_ int) error {
+	if err := ch.withRunningVM(ctx, &rec, func(_ int) error {
 		if err := pauseVM(ctx, hc); err != nil {
 			return fmt.Errorf("pause: %w", err)
 		}

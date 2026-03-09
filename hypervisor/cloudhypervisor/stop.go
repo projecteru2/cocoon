@@ -41,7 +41,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	hc := utils.NewSocketHTTPClient(sockPath)
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
 
-	shutdownErr := ch.withRunningVM(&rec, func(pid int) error {
+	shutdownErr := ch.withRunningVM(ctx, &rec, func(pid int) error {
 		if isDirectBoot(rec.BootConfig) {
 			return ch.forceTerminate(ctx, hc, id, sockPath, pid)
 		}

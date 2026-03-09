@@ -77,7 +77,7 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 		if loadErr != nil {
 			return loadErr
 		}
-		if err := ch.withRunningVM(&rec, func(_ int) error {
+		if err := ch.withRunningVM(ctx, &rec, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}

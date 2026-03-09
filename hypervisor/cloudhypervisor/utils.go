@@ -28,10 +28,10 @@ func (ch *CloudHypervisor) chBinaryName() string {
 	return filepath.Base(ch.conf.CHBinary)
 }
 
-func (ch *CloudHypervisor) withRunningVM(rec *hypervisor.VMRecord, fn func(pid int) error) error {
+func (ch *CloudHypervisor) withRunningVM(ctx context.Context, rec *hypervisor.VMRecord, fn func(pid int) error) error {
 	pid, pidErr := utils.ReadPIDFile(pidFile(rec.RunDir))
-	if pidErr != nil {
-		log.WithFunc("cloudhypervisor.withRunningVM").Warnf(context.TODO(), "read PID file: %v", pidErr)
+	if pidErr != nil && !os.IsNotExist(pidErr) {
+		log.WithFunc("cloudhypervisor.withRunningVM").Warnf(ctx, "read PID file: %v", pidErr)
 	}
 	if !utils.VerifyProcessCmdline(pid, ch.chBinaryName(), socketPath(rec.RunDir)) {
 		return hypervisor.ErrNotRunning

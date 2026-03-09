@@ -125,8 +125,6 @@ func (c *CNI) Delete(ctx context.Context, vmIDs []string) ([]string, error) {
 
 // deleteVM cleans up all network resources for a single VM.
 func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
-	logger := log.WithFunc("cni.deleteVM")
-
 	// Collect value-copies of records for this VM.
 	var records []networkRecord
 	if err := c.store.With(ctx, func(idx *networkIndex) error {
@@ -146,23 +144,7 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	// CNI DEL for each NIC — releases IPs from IPAM and removes veth pairs.
 	// Best-effort: log failures but continue. Netns deletion cleans up
 	// devices anyway; CNI DEL is primarily for IPAM bookkeeping.
-	if c.cniConf != nil {
-		for _, rec := range records {
-			cl, lookupErr := c.confListByName(rec.Type)
-			if lookupErr != nil {
-				logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v (continuing)", rec.Type, vmID, rec.IfName, lookupErr)
-				continue
-			}
-			rt := &libcni.RuntimeConf{
-				ContainerID: vmID,
-				NetNS:       nsPath,
-				IfName:      rec.IfName,
-			}
-			if err := c.cniConf.DelNetworkList(ctx, cl, rt); err != nil {
-				logger.Warnf(ctx, "CNI DEL %s/%s: %v (continuing)", vmID, rec.IfName, err)
-			}
-		}
-	}
+	c.delNICs(ctx, vmID, nsPath, records)
 
 	// Remove the named netns (unmount bind-mount + remove file).
 	// deleteNetns retries briefly to handle async fd cleanup after process kill.
@@ -180,6 +162,31 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 		}
 		return nil
 	})
+}
+
+// delNICs performs best-effort CNI DEL for each NIC record.
+// Failures are logged but never returned — netns deletion cleans up
+// devices anyway; CNI DEL is primarily for IPAM bookkeeping.
+func (c *CNI) delNICs(ctx context.Context, vmID, nsPath string, records []networkRecord) {
+	if c.cniConf == nil {
+		return
+	}
+	logger := log.WithFunc("cni.delNICs")
+	for _, rec := range records {
+		cl, err := c.confListByName(rec.Type)
+		if err != nil {
+			logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, err)
+			continue
+		}
+		rt := &libcni.RuntimeConf{
+			ContainerID: vmID,
+			NetNS:       nsPath,
+			IfName:      rec.IfName,
+		}
+		if err := c.cniConf.DelNetworkList(ctx, cl, rt); err != nil {
+			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
+		}
+	}
 }
 
 // confListByName resolves a conflist by name.

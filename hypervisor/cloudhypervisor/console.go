@@ -31,7 +31,7 @@ func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWrit
 	}
 
 	var conn io.ReadWriteCloser
-	if err := ch.withRunningVM(&rec, func(_ int) error {
+	if err := ch.withRunningVM(ctx, &rec, func(_ int) error {
 		// Resolve on demand: query CH API for PTY (OCI) or use deterministic socket (UEFI).
 		path := resolveConsole(ctx, id, socketPath(rec.RunDir),
 			consoleSockPath(rec.RunDir),

@@ -55,7 +55,7 @@ func (ch *CloudHypervisor) prepareRestore(ctx context.Context, vmRef string) (st
 	}
 
 	sockPath := socketPath(rec.RunDir)
-	killErr := ch.withRunningVM(&rec, func(pid int) error {
+	killErr := ch.withRunningVM(ctx, &rec, func(pid int) error {
 		return ch.forceTerminate(ctx, utils.NewSocketHTTPClient(sockPath), vmID, sockPath, pid)
 	})
 	if killErr != nil && !errors.Is(killErr, hypervisor.ErrNotRunning) {

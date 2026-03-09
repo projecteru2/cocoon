@@ -8,9 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/containernetworking/cni/libcni"
-	"github.com/projecteru2/core/log"
-
 	"github.com/projecteru2/cocoon/gc"
 )
 
@@ -68,7 +65,6 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 			return orphans
 		},
 		Collect: func(ctx context.Context, ids []string) error {
-			logger := log.WithFunc("cni.gc.Collect")
 			var errs []error
 			for _, vmID := range ids {
 				// 1. Read CNI records for this VM (lockless — orchestrator holds flock).
@@ -82,24 +78,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 				}
 
 				// 2. CNI DEL per NIC — best-effort IPAM release.
-				if c.cniConf != nil {
-					nsPath := netnsPath(vmID)
-					for _, rec := range records {
-						cl, lookupErr := c.confListByName(rec.Type)
-						if lookupErr != nil {
-							logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, lookupErr)
-							continue
-						}
-						rt := &libcni.RuntimeConf{
-							ContainerID: vmID,
-							NetNS:       nsPath,
-							IfName:      rec.IfName,
-						}
-						if err := c.cniConf.DelNetworkList(ctx, cl, rt); err != nil {
-							logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
-						}
-					}
-				}
+				c.delNICs(ctx, vmID, netnsPath(vmID), records)
 
 				// 3. Remove the named netns (with retry for async kernel fd cleanup).
 				nsName := netnsName(vmID)
