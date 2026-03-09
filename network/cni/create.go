@@ -32,6 +32,9 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 	if err != nil {
 		return nil, err
 	}
+	// Record the resolved name so it's persisted in the VM record.
+	// Ensures recovery uses the exact same conflist even if the default changes.
+	vmCfg.Network = confList.Name
 	logger := log.WithFunc("cni.Config")
 
 	nsName := netnsName(vmID)
