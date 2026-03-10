@@ -150,7 +150,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	// Expand overlay if requested size exceeds the base image's virtual size.
 	if vmCfg.Storage > 0 {
 		if err := qemuExpandImage(ctx, overlayPath, vmCfg.Storage, false); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("expand overlay: %w", err)
 		}
 	}
 

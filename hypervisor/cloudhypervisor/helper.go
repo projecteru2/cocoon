@@ -214,7 +214,10 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 		if targetSize <= fi.Size() {
 			return nil
 		}
-		return os.Truncate(path, targetSize)
+		if err := os.Truncate(path, targetSize); err != nil {
+			return fmt.Errorf("truncate %s to %d: %w", path, targetSize, err)
+		}
+		return nil
 	}
 
 	out, err := exec.CommandContext(ctx, "qemu-img", "info", "--output=json", path).Output() //nolint:gosec
