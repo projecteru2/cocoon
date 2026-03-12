@@ -53,6 +53,27 @@ type Config struct {
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
 }
 
+// Validate checks that all config fields are within acceptable ranges.
+// Should be called once at startup after unmarshalling.
+func (c *Config) Validate() error {
+	if c.RootDir == "" {
+		return fmt.Errorf("root_dir must not be empty")
+	}
+	if c.RunDir == "" {
+		return fmt.Errorf("run_dir must not be empty")
+	}
+	if c.LogDir == "" {
+		return fmt.Errorf("log_dir must not be empty")
+	}
+	if c.StopTimeoutSeconds <= 0 {
+		return fmt.Errorf("stop_timeout_seconds must be > 0, got %d", c.StopTimeoutSeconds)
+	}
+	if _, err := c.DNSServers(); err != nil {
+		return fmt.Errorf("dns: %w", err)
+	}
+	return nil
+}
+
 // DNSServers parses the DNS string into a slice of server addresses.
 // Returns an error if any entry is not a valid IP address.
 func (c *Config) DNSServers() ([]string, error) {

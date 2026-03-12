@@ -437,9 +437,8 @@ cocoon completion fish > ~/.config/fish/completions/cocoon.fish
 make build    # Build cocoon binary (CGO_ENABLED=0)
 make test     # Run tests with race detector and coverage
 make lint     # Run golangci-lint
-make vet      # Run go vet for linux and darwin
 make fmt      # Format code with gofumpt + goimports
-make ci       # Full CI pipeline: fmt-check + vet + lint + test + build
+make all      # Full pipeline: deps + fmt + lint + test + build
 ```
 
 See `make help` for all available targets.

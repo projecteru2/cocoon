@@ -1,6 +1,10 @@
 package vm
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	cmdcore "github.com/projecteru2/cocoon/cmd/core"
+)
 
 // Actions defines VM lifecycle operations.
 type Actions interface {
@@ -68,7 +72,7 @@ func Command(h Actions) *cobra.Command {
 		Short:   "List VMs with status",
 		RunE:    h.List,
 	}
-	listCmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
+	cmdcore.AddFormatFlag(listCmd)
 
 	inspectCmd := &cobra.Command{
 		Use:   "inspect VM",

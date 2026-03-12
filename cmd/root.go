@@ -105,6 +105,9 @@ func initConfig(ctx context.Context) error {
 	if err := viper.Unmarshal(conf); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
+	if err := conf.Validate(); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 
 	return log.SetupLog(ctx, conf.Log, "")
 }

@@ -1,5 +1,4 @@
-.PHONY: all build build-linux test test-race test-short lint vet fmt fmt-check \
-       clean deps install check ci coverage verify help
+.PHONY: all build test lint vet fmt fmt-check deps clean coverage cloc help
 
 REPO_PATH := github.com/projecteru2/cocoon
 REVISION := $(shell git rev-parse HEAD || echo unknown)
@@ -44,15 +43,7 @@ $(GOIMPORTS): | $(LOCALBIN)
 
 # --- Primary targets ---
 
-all: deps lint test build ## Run deps, lint, test, and build
-
-ci: fmt-check vet lint test build ## Run all CI checks
-
-verify: lint fmt-check ## Verify code is lint-clean and formatted
-	@if ! git diff --quiet HEAD; then \
-		git diff; \
-		echo "files are out of date, run 'make fmt' and commit"; exit 1; \
-	fi
+all: deps fmt lint test build ## Full pipeline: deps, fmt, lint, test, build
 
 # --- Dependencies ---
 
@@ -64,22 +55,10 @@ deps: ## Tidy Go modules
 build: ## Build cocoon binary
 	CGO_ENABLED=0 go build -ldflags "$(GO_LDFLAGS)" -o cocoon .
 
-build-linux: ## Cross-compile for linux/amd64
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(GO_LDFLAGS)" -o cocoon-linux-amd64 .
-
-install: ## Install cocoon binary to GOPATH/bin
-	go install -ldflags "$(GO_LDFLAGS)" .
-
 # --- Testing ---
 
 test: vet ## Run tests with race detection and coverage
 	go test -race -timeout 120s -count=1 -cover -coverprofile=coverage.out ./...
-
-test-race: ## Run tests with race detector only
-	go test -race -timeout 120s -count=1 ./...
-
-test-short: ## Run short tests (skip long-running tests)
-	go test -short ./...
 
 coverage: test ## Generate and display coverage report
 	go tool cover -func=coverage.out
@@ -103,8 +82,6 @@ fmt: gofumpt goimports ## Format code with gofumpt and goimports
 fmt-check: gofumpt goimports ## Check formatting (fails if files need formatting)
 	@test -z "$$($(GOFMT) -l .)" || { echo "Files need formatting (gofumpt):"; $(GOFMT) -l .; exit 1; }
 	@test -z "$$($(GOIMPORTS) -l .)" || { echo "Files need formatting (goimports):"; $(GOIMPORTS) -l .; exit 1; }
-
-check: vet lint test ## Run vet, lint, and test
 
 # --- Maintenance ---
 

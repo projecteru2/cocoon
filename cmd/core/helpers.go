@@ -311,6 +311,11 @@ func OutputJSON(v any) error {
 	return enc.Encode(v)
 }
 
+// AddFormatFlag registers the --format / -o flag on a command.
+func AddFormatFlag(cmd *cobra.Command) {
+	cmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
+}
+
 // OutputFormatted checks --format flag: "json" → JSON, otherwise calls tableFn.
 func OutputFormatted(cmd *cobra.Command, data any, tableFn func(w *tabwriter.Writer)) error {
 	format, _ := cmd.Flags().GetString("format")

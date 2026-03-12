@@ -1,6 +1,10 @@
 package snapshot
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	cmdcore "github.com/projecteru2/cocoon/cmd/core"
+)
 
 // Actions defines snapshot management operations.
 type Actions interface {
@@ -32,7 +36,7 @@ func Command(h Actions) *cobra.Command {
 		Short:   "List all snapshots",
 		RunE:    h.List,
 	}
-	listCmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
+	cmdcore.AddFormatFlag(listCmd)
 	listCmd.Flags().String("vm", "", "only show snapshots belonging to this VM")
 
 	inspectCmd := &cobra.Command{

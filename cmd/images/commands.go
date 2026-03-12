@@ -1,6 +1,10 @@
 package images
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	cmdcore "github.com/projecteru2/cocoon/cmd/core"
+)
 
 // Actions defines image management operations.
 type Actions interface {
@@ -23,7 +27,7 @@ func Command(h Actions) *cobra.Command {
 		Short:   "List locally stored images (all backends)",
 		RunE:    h.List,
 	}
-	listCmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
+	cmdcore.AddFormatFlag(listCmd)
 
 	importCmd := &cobra.Command{
 		Use:   "import NAME",
