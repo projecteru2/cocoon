@@ -116,7 +116,7 @@ func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDis
 		// cloudimg qcow2 overlay
 		d.ImageType = "Qcow2"
 		d.BackingFiles = !storageConfig.RO
-		d.IoUring = !storageConfig.RO
+		d.IoUring = !storageConfig.RO && runtime.GOARCH != "arm64"
 	case storageConfig.RO:
 		// OCI EROFS layer: readonly, leverage host page cache
 		d.ImageType = "Raw"
@@ -125,7 +125,7 @@ func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDis
 		// OCI COW raw: writable, leverage host page cache, sparse
 		d.ImageType = "Raw"
 		d.DirectIO = &noDirectIO
-		d.IoUring = true
+		d.IoUring = runtime.GOARCH != "arm64"
 		d.Sparse = true
 	}
 	return d
