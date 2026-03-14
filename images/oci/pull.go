@@ -2,6 +2,7 @@ package oci
 
 import (
 	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -182,6 +183,8 @@ func collectBootHexes(idx *imageIndex) map[string]struct{} {
 
 // moveBootFile renames a boot artifact (kernel or initrd) to its shared path,
 // creating the boot directory if needed. No-op if src is empty or already in place.
+// On arm64, if the kernel is gzip-compressed it is automatically decompressed
+// because Cloud Hypervisor on aarch64 requires an uncompressed Image.
 func moveBootFile(src, dst, bootDir string, layerIdx int, name string) error {
 	if src == "" || src == dst {
 		return nil
@@ -192,7 +195,58 @@ func moveBootFile(src, dst, bootDir string, layerIdx int, name string) error {
 	if err := os.Rename(src, dst); err != nil {
 		return fmt.Errorf("move layer %d %s: %w", layerIdx, name, err)
 	}
+	if name == "kernel" && runtime.GOARCH == "arm64" {
+		if err := decompressKernelIfGzip(dst); err != nil {
+			return fmt.Errorf("decompress layer %d kernel: %w", layerIdx, err)
+		}
+	}
 	return nil
+}
+
+// decompressKernelIfGzip checks whether the file at path starts with the gzip
+// magic bytes (0x1f 0x8b) and, if so, replaces it with the decompressed content.
+// Cloud Hypervisor on aarch64 requires an uncompressed ARM64 boot Image.
+func decompressKernelIfGzip(path string) error {
+	f, err := os.Open(path) //nolint:gosec // trusted internal path
+	if err != nil {
+		return err
+	}
+	defer f.Close() //nolint:errcheck
+
+	// Check gzip magic bytes.
+	var magic [2]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		return nil // too short to be gzip, leave as-is
+	}
+	if magic[0] != 0x1f || magic[1] != 0x8b {
+		return nil // not gzip
+	}
+
+	// Rewind and decompress.
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("gzip open: %w", err)
+	}
+	defer gz.Close() //nolint:errcheck
+
+	tmp := path + ".decompressed"
+	out, err := os.Create(tmp) //nolint:gosec // same directory as original
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, gz); err != nil { //nolint:gosec // trusted kernel data
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("gzip decompress: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // commitAndRecord moves artifacts to shared image paths and records the image entry.
