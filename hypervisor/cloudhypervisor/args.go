@@ -101,8 +101,6 @@ func networkConfigToNet(nc *types.NetworkConfig) chNet {
 }
 
 func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDisk {
-	noDirectIO := false // use page cache, not direct I/O
-
 	d := chDisk{
 		Path:      storageConfig.Path,
 		ReadOnly:  storageConfig.RO,
@@ -111,19 +109,22 @@ func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDis
 		QueueSize: defaultDiskQueueSize,
 	}
 
+	// Writable disks use O_DIRECT to bypass host page cache, avoiding
+	// fdatasync storms on guest flush. Readonly disks keep page cache
+	// for shared base image benefit (DirectIO defaults to false).
+	d.DirectIO = !storageConfig.RO
+
 	switch {
 	case filepath.Ext(storageConfig.Path) == ".qcow2":
-		// cloudimg qcow2 overlay
+		// cloudimg qcow2 overlay: CH has its own L2/refcount LRU cache.
 		d.ImageType = "Qcow2"
 		d.BackingFiles = !storageConfig.RO
 	case storageConfig.RO:
-		// OCI EROFS layer: readonly, leverage host page cache
+		// OCI EROFS layer: readonly, host page cache shared across VMs.
 		d.ImageType = "Raw"
-		d.DirectIO = &noDirectIO
 	default:
-		// OCI COW raw: writable, leverage host page cache, sparse
+		// OCI COW raw: writable sparse disk.
 		d.ImageType = "Raw"
-		d.DirectIO = &noDirectIO
 		d.Sparse = true
 	}
 
@@ -218,7 +219,7 @@ func diskToCLIArg(d chDisk) string {
 	var b kvBuilder
 	b.add("path=" + d.Path)
 	b.addIf(d.ReadOnly, "readonly=on")
-	b.addIf(d.DirectIO != nil && !*d.DirectIO, "direct=off")
+	b.addIf(d.DirectIO, "direct=on")
 	b.addIf(d.Sparse, "sparse=on")
 	b.addIf(d.ImageType != "", "image_type="+strings.ToLower(d.ImageType))
 	b.addIf(d.BackingFiles, "backing_files=on")
