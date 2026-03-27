@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	cmdcore "github.com/projecteru2/cocoon/cmd/core"
+	cmddaemon "github.com/projecteru2/cocoon/cmd/daemon"
 	cmdimages "github.com/projecteru2/cocoon/cmd/images"
 	cmdothers "github.com/projecteru2/cocoon/cmd/others"
 	cmdsnapshot "github.com/projecteru2/cocoon/cmd/snapshot"
@@ -74,6 +75,7 @@ var (
 		cmd.AddCommand(cmdimages.Command(cmdimages.Handler{BaseHandler: base}))
 		cmd.AddCommand(cmdvm.Command(cmdvm.Handler{BaseHandler: base}))
 		cmd.AddCommand(cmdsnapshot.Command(cmdsnapshot.Handler{BaseHandler: base}))
+		cmd.AddCommand(cmddaemon.Command(cmddaemon.Handler{BaseHandler: base}))
 		for _, c := range cmdothers.Commands(cmdothers.Handler{BaseHandler: base}) {
 			cmd.AddCommand(c)
 		}
