@@ -5,8 +5,8 @@ type VMCreateParams struct {
 	Image   string // image reference (OCI tag or cloudimg URL)
 	Name    string // VM name (optional, auto-generated if empty)
 	CPU     int
-	Memory  int64  // bytes (already parsed from "1G" etc.)
-	Storage int64  // bytes
+	Memory  int64 // bytes (already parsed from "1G" etc.)
+	Storage int64 // bytes
 	NICs    int
 	Network string // CNI conflist name
 }
