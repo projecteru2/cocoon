@@ -336,7 +336,7 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	memoryMB := int(params.Memory >> 20)  //nolint:mnd
+	memoryMB := int(params.Memory >> 20)   //nolint:mnd
 	cowSizeGB := int(params.Storage >> 30) //nolint:mnd
 	balloon := params.Balloon
 	if balloon == 0 {

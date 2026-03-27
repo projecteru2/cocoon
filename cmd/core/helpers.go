@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/service"
 	"github.com/projecteru2/cocoon/hypervisor"
 	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
 	imagebackend "github.com/projecteru2/cocoon/images"
@@ -21,6 +20,7 @@ import (
 	"github.com/projecteru2/cocoon/images/oci"
 	"github.com/projecteru2/cocoon/network"
 	"github.com/projecteru2/cocoon/network/cni"
+	"github.com/projecteru2/cocoon/service"
 	"github.com/projecteru2/cocoon/snapshot"
 	"github.com/projecteru2/cocoon/snapshot/localfile"
 	"github.com/projecteru2/cocoon/types"
