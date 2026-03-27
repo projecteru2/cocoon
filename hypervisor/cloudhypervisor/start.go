@@ -151,8 +151,11 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 		return 0, err
 	}
 
-	// Release the process handle: CH is fully detached from Go runtime.
-	_ = cmd.Process.Release()
+	// Reap the child process asynchronously to prevent zombies.
+	// In CLI mode init adopts the orphan, but in daemon mode the
+	// long-lived parent must wait() or the child becomes a zombie
+	// that blocks IsProcessAlive checks during stop/delete.
+	go cmd.Wait() //nolint:errcheck
 	return pid, nil
 }
 
