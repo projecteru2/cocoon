@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - "os-image/**"
+      - "!os-image/windows/**"
   workflow_dispatch:
     inputs:
       no-cache:

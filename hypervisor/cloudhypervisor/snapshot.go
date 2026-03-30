@@ -116,7 +116,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 
 	// For cloudimg VMs, include cidata.img (per-VM cloud-init disk).
 	// cidata is read-only and static, so it can be copied outside the pause window.
-	if !isDirectBoot(rec.BootConfig) {
+	if !directBoot && !rec.Config.Windows {
 		cidataSrc := ch.conf.CidataPath(vmID)
 		if _, statErr := os.Stat(cidataSrc); statErr == nil {
 			if cpErr := utils.SparseCopy(filepath.Join(tmpDir, cidataFile), cidataSrc); cpErr != nil {
@@ -155,6 +155,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		Memory:  rec.Config.Memory,
 		Storage: rec.Config.Storage,
 		NICs:    len(rec.NetworkConfigs),
+		Windows: rec.Config.Windows,
 	}
 	if rec.ImageBlobIDs != nil {
 		cfg.ImageBlobIDs = make(map[string]struct{}, len(rec.ImageBlobIDs))

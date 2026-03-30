@@ -484,9 +484,9 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	}
 
 	if boot.KernelPath != "" {
-		printRunOCI(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB)
+		printRunOCI(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB, vmCfg.Windows)
 	} else {
-		printRunCloudimg(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB)
+		printRunCloudimg(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB, vmCfg.Windows)
 	}
 	return nil
 }
@@ -523,6 +523,9 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	storageConfigs, bootCfg, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if vmCfg.Windows && bootCfg.KernelPath != "" {
+		return nil, nil, nil, fmt.Errorf("--windows requires cloudimg (UEFI boot), got OCI direct boot image")
 	}
 	cmdcore.EnsureFirmwarePath(conf, bootCfg)
 
@@ -589,6 +592,16 @@ func batchVMCmd(ctx context.Context, name, pastTense string, fn func(context.Con
 // printPostCloneHints outputs commands the user should run inside the guest
 // after a clone to reconfigure network and release balloon memory.
 func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
+	if vm.Config.Windows {
+		fmt.Println()
+		fmt.Println("Windows clone: NICs hot-swapped with new MAC addresses.")
+		fmt.Println("  DHCP networks: no action needed.")
+		fmt.Println("  Static IP: configure via SAC serial console (cocoon vm console):")
+		fmt.Println("    https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/windows.md")
+		fmt.Println()
+		return
+	}
+
 	isCloudimg := slices.ContainsFunc(vm.StorageConfigs, func(sc *types.StorageConfig) bool {
 		return strings.HasSuffix(sc.Path, ".qcow2")
 	})
@@ -705,7 +718,7 @@ func printBashArray(name string, nics []nicHint, field func(nicHint) string) {
 	fmt.Println(")")
 }
 
-func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int, windows bool) {
 	if cowPath == "" {
 		cowPath = fmt.Sprintf("cow-%s.raw", vmName)
 	}
@@ -735,10 +748,10 @@ func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName,
 	}
 	fmt.Printf(" \\\n")
 	fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
-	printCommonCHArgs(cpu, maxCPU, memory, balloon)
+	printCommonCHArgs(cpu, maxCPU, memory, balloon, windows)
 }
 
-func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int) {
+func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int, windows bool) {
 	if cowPath == "" {
 		cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
 	}
@@ -758,7 +771,7 @@ func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vm
 	fmt.Printf("  --disk \\\n")
 	diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu)
 	fmt.Printf("    \"%s\" \\\n", diskArgs[0])
-	printCommonCHArgs(cpu, maxCPU, memory, balloon)
+	printCommonCHArgs(cpu, maxCPU, memory, balloon, windows)
 }
 
 // vmIPs extracts a comma-separated IP string from a VM's NetworkConfigs.
@@ -778,8 +791,12 @@ func vmIPs(vm *types.VM) string {
 // printCommonCHArgs outputs CH args for manual debugging.
 // --serial tty outputs to the current terminal for interactive debugging,
 // which intentionally differs from the automated path (Console: Pty / Serial: Socket).
-func printCommonCHArgs(cpu, maxCPU, memory, balloon int) {
-	fmt.Printf("  --cpus boot=%d,max=%d \\\n", cpu, maxCPU)
+func printCommonCHArgs(cpu, maxCPU, memory, balloon int, windows bool) {
+	cpuExtra := ""
+	if windows {
+		cpuExtra = ",kvm_hyperv=on"
+	}
+	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", cpu, maxCPU, cpuExtra)
 	fmt.Printf("  --memory size=%dM \\\n", memory)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
 	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", balloon)

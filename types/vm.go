@@ -26,6 +26,7 @@ type VMConfig struct {
 	Storage int64  `json:"storage"` // COW disk size, bytes
 	Image   string `json:"image"`
 	Network string `json:"network,omitempty"` // CNI conflist name; empty = default
+	Windows bool   `json:"windows,omitempty"` // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
 }
 
 // Validate checks that VMConfig fields are within acceptable ranges.

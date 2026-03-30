@@ -40,8 +40,9 @@ type chPayload struct {
 }
 
 type chCPUs struct {
-	BootVCPUs int `json:"boot_vcpus"`
-	MaxVCPUs  int `json:"max_vcpus"`
+	BootVCPUs int  `json:"boot_vcpus"`
+	MaxVCPUs  int  `json:"max_vcpus"`
+	KVMHyperV bool `json:"kvm_hyperv,omitempty"`
 }
 
 type chMemory struct {
@@ -50,17 +51,22 @@ type chMemory struct {
 }
 
 type chDisk struct {
-	ID            string `json:"id,omitempty"`
-	Path          string `json:"path"`
-	ReadOnly      bool   `json:"readonly,omitempty"`
-	DirectIO      bool   `json:"direct,omitempty"`
-	Sparse        bool   `json:"sparse,omitempty"`
-	ImageType     string `json:"image_type,omitempty"`
-	BackingFiles  bool   `json:"backing_files,omitempty"`
-	NumQueues     int    `json:"num_queues,omitempty"`
-	QueueSize     int    `json:"queue_size,omitempty"`
-	QueueAffinity string `json:"queue_affinity,omitempty"`
-	Serial        string `json:"serial,omitempty"`
+	ID            string            `json:"id,omitempty"`
+	Path          string            `json:"path"`
+	ReadOnly      bool              `json:"readonly,omitempty"`
+	DirectIO      bool              `json:"direct,omitempty"`
+	Sparse        bool              `json:"sparse,omitempty"`
+	ImageType     string            `json:"image_type,omitempty"`
+	BackingFiles  bool              `json:"backing_files,omitempty"`
+	NumQueues     int               `json:"num_queues,omitempty"`
+	QueueSize     int               `json:"queue_size,omitempty"`
+	QueueAffinity []chQueueAffinity `json:"queue_affinity,omitempty"`
+	Serial        string            `json:"serial,omitempty"`
+}
+
+type chQueueAffinity struct {
+	QueueIndex int   `json:"queue_index"`
+	HostCPUs   []int `json:"host_cpus"`
 }
 
 type chBalloon struct {

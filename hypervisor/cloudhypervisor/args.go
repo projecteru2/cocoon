@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/projecteru2/core/log"
@@ -38,7 +39,7 @@ func buildVMConfig(ctx context.Context, rec *hypervisor.VMRecord, consoleSockPat
 	}
 
 	cfg := &chVMConfig{
-		CPUs:     chCPUs{BootVCPUs: cpu, MaxVCPUs: maxVCPUs},
+		CPUs:     chCPUs{BootVCPUs: cpu, MaxVCPUs: maxVCPUs, KVMHyperV: rec.Config.Windows},
 		Memory:   chMemory{Size: mem, HugePages: utils.DetectHugePages()},
 		RNG:      chRNG{Src: "/dev/urandom"},
 		Watchdog: true,
@@ -132,11 +133,10 @@ func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount int) chDis
 	// cross-core cache bouncing on writable disks. Skip for readonly
 	// disks where IO is low and fully served by page cache.
 	if cpuCount > 1 && !storageConfig.RO {
-		parts := make([]string, cpuCount)
-		for i := range parts {
-			parts[i] = fmt.Sprintf("%d@[%d]", i, i)
+		d.QueueAffinity = make([]chQueueAffinity, cpuCount)
+		for i := range d.QueueAffinity {
+			d.QueueAffinity[i] = chQueueAffinity{QueueIndex: i, HostCPUs: []int{i}}
 		}
-		d.QueueAffinity = "[" + strings.Join(parts, ",") + "]"
 	}
 	return d
 }
@@ -157,7 +157,11 @@ func DebugDiskCLIArgs(storageConfigs []*types.StorageConfig, cpuCount int) []str
 func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	args := []string{"--api-socket", socketPath}
 
-	args = append(args, "--cpus", fmt.Sprintf("boot=%d,max=%d", cfg.CPUs.BootVCPUs, cfg.CPUs.MaxVCPUs))
+	var cpuKV kvBuilder
+	cpuKV.add(fmt.Sprintf("boot=%d", cfg.CPUs.BootVCPUs))
+	cpuKV.add(fmt.Sprintf("max=%d", cfg.CPUs.MaxVCPUs))
+	cpuKV.addIf(cfg.CPUs.KVMHyperV, "kvm_hyperv=on")
+	args = append(args, "--cpus", cpuKV.String())
 
 	mem := fmt.Sprintf("size=%d", cfg.Memory.Size)
 	if cfg.Memory.HugePages {
@@ -235,7 +239,9 @@ func diskToCLIArg(d chDisk) string {
 	b.addIf(d.BackingFiles, "backing_files=on")
 	b.addIf(d.NumQueues > 0, fmt.Sprintf("num_queues=%d", d.NumQueues))
 	b.addIf(d.QueueSize > 0, fmt.Sprintf("queue_size=%d", d.QueueSize))
-	b.addIf(d.QueueAffinity != "", "queue_affinity="+d.QueueAffinity)
+	if len(d.QueueAffinity) > 0 {
+		b.add("queue_affinity=" + queueAffinityToCLI(d.QueueAffinity))
+	}
 	b.addIf(d.Serial != "", "serial="+d.Serial)
 	return b.String()
 }
@@ -271,6 +277,20 @@ func runtimeFiletoCLIArg(c *chRuntimeFile) string {
 	default:
 		return strings.ToLower(c.Mode) // "off", "null", "pty"
 	}
+}
+
+// queueAffinityToCLI converts structured queue affinity to CH CLI format.
+// e.g. []chQueueAffinity{{0,[0]},{1,[1]}} → "[0@[0],1@[1]]"
+func queueAffinityToCLI(qa []chQueueAffinity) string {
+	parts := make([]string, len(qa))
+	for i, a := range qa {
+		cpus := make([]string, len(a.HostCPUs))
+		for j, c := range a.HostCPUs {
+			cpus[j] = strconv.Itoa(c)
+		}
+		parts[i] = fmt.Sprintf("%d@[%s]", a.QueueIndex, strings.Join(cpus, ","))
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 // isCidataDisk reports whether a storage config is the cloud-init cidata disk.

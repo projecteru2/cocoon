@@ -29,7 +29,7 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 
 - Linux with KVM (x86_64 or aarch64)
 - Root access (sudo)
-- [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v51.0+
+- [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v51.0+ (v50.2 for Windows VMs — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 - `qemu-img` (from qemu-utils, for cloud images)
 - UEFI firmware (`CLOUDHV.fd`, for cloud images)
 - CNI plugins (`bridge`, `host-local`, `loopback`)
@@ -168,6 +168,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--storage` | `10G`            | COW disk size (e.g., 10G, 20G)                |
 | `--nics`    | `1`              | Number of network interfaces (0 = no network) |
 | `--network` | empty (default)  | CNI conflist name (empty = first conflist)     |
+| `--windows` | `false`          | Windows guest (UEFI boot, kvm_hyperv=on, no cidata) |
 
 ### Clone Flags
 
@@ -275,6 +276,35 @@ Cloudimg VMs receive a NoCloud cidata disk (FAT12 with `CIDATA` volume label) co
 - **user-data write_files**: fallback `/etc/systemd/network/15-cocoon-id*.network` files matching current MAC (`MACAddress=`), used when netplan PERM-MAC matching cannot apply
 
 The cidata disk is **automatically excluded on subsequent boots** — after the first successful start, the VM record is marked as `first_booted` and the cidata disk is no longer attached, preventing cloud-init from re-running.
+
+## Windows Support
+
+Cocoon supports Windows guests via the `--windows` flag:
+
+```bash
+cocoon vm run --windows --name win11 --cpu 2 --memory 4G --storage 40G <cloudimg-url>
+```
+
+The `--windows` flag:
+- Forces UEFI firmware boot (cloudimg path)
+- Enables Hyper-V enlightenments (`kvm_hyperv=on`)
+- Skips cloud-init cidata disk generation (Windows does not use cloud-init)
+
+### Requirements
+
+- Cloud Hypervisor **v50.2** (v51.x has a Windows regression — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- virtio-win **0.1.240** drivers pre-installed in the image (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+
+### Image Preparation
+
+Windows images must be prepared manually — Microsoft licensing prohibits automated distribution of Windows disk images. See [`os-image/windows/`](os-image/windows/) for the complete build guide and `autounattend.xml` for unattended installation.
+
+### Post-Clone Networking
+
+- **DHCP networks**: no action needed, Windows DHCP client auto-configures
+- **Static IP**: configure via SAC serial console (`cocoon vm console`)
+
+For more details, see the [Cloud Hypervisor Windows documentation](https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/windows.md).
 
 ## VM Lifecycle
 

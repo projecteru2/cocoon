@@ -94,7 +94,8 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 
 	// vm.restore requires config/state device tree equality.
 	// If snapshot had no cidata disk, patch only snapshot disks and hotplug cidata later.
-	patchStorageConfigs := restorePatchStorageConfigs(storageConfigs, directBoot, hadCidataInSnapshot)
+	// Windows VMs never have cidata, so skip the trim entirely.
+	patchStorageConfigs := restorePatchStorageConfigs(storageConfigs, directBoot, vmCfg.Windows || hadCidataInSnapshot)
 
 	consoleSock := consoleSockPath(runDir)
 	if err = patchCHConfig(chConfigPath, &patchOptions{
@@ -138,7 +139,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("launch CH: %w", err)
 	}
 
-	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, directBoot, hadCidataInSnapshot, storageConfigs, networkConfigs, chCfg, vmCfg.CPU); err != nil {
+	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, directBoot, vmCfg.Windows, hadCidataInSnapshot, storageConfigs, networkConfigs, chCfg, vmCfg.CPU); err != nil {
 		return nil, err
 	}
 
@@ -179,7 +180,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 	ctx context.Context,
 	pid int,
 	sockPath, runDir string,
-	directBoot, hadCidataInSnapshot bool,
+	directBoot, windows, hadCidataInSnapshot bool,
 	storageConfigs []*types.StorageConfig,
 	networkConfigs []*types.NetworkConfig,
 	snapshotCfg *chVMConfig,
@@ -203,7 +204,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 		return fmt.Errorf("hot-swap NICs: %w", err)
 	}
 
-	if !directBoot && !hadCidataInSnapshot {
+	if !directBoot && !windows && !hadCidataInSnapshot {
 		if len(storageConfigs) == 0 {
 			return fmt.Errorf("vm.add-disk (cidata): missing storage config")
 		}
@@ -219,7 +220,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 }
 
 func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, storageConfigs []*types.StorageConfig, directBoot bool) ([]*types.StorageConfig, error) {
-	if directBoot {
+	if directBoot || vmCfg.Windows {
 		return storageConfigs, nil
 	}
 	if err := ch.generateCidata(vmID, vmCfg, networkConfigs); err != nil {

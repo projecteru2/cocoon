@@ -156,6 +156,13 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		}
 	}
 
+	// Windows: no cloud-init cidata disk.
+	if vmCfg.Windows {
+		return []*types.StorageConfig{
+			{Path: overlayPath, RO: false},
+		}, nil
+	}
+
 	// Generate cloud-init cidata disk.
 	if err := ch.generateCidata(vmID, vmCfg, networkConfigs); err != nil {
 		return nil, err
