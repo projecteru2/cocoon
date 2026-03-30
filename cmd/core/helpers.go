@@ -199,6 +199,9 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 	memStr, _ := cmd.Flags().GetString("memory")
 	storStr, _ := cmd.Flags().GetString("storage")
 	network, _ := cmd.Flags().GetString("network")
+	if network == "" {
+		network = snapCfg.Network
+	}
 
 	if cpu == 0 {
 		cpu = snapCfg.CPU
