@@ -85,9 +85,15 @@
         <SynchronousCommand wcm:action="add"><Order>18</Order><CommandLine>powershell -Command "Rename-Computer -NewName 'COCOON-VM' -Force"</CommandLine></SynchronousCommand>
         <!-- V10: Silent install virtio-win guest tools (all drivers + balloon service) -->
         <SynchronousCommand wcm:action="add"><Order>19</Order><CommandLine>cmd /c "if exist D:\virtio-win-gt-x64.msi (msiexec /i D:\virtio-win-gt-x64.msi /qn /norestart) else if exist E:\virtio-win-gt-x64.msi (msiexec /i E:\virtio-win-gt-x64.msi /qn /norestart)"</CommandLine></SynchronousCommand>
-        <!-- V10: Speed up ACPI shutdown for Cocoon stop (reduce service kill timeout to 5s) -->
-        <SynchronousCommand wcm:action="add"><Order>20</Order><CommandLine>reg add "HKLM\SYSTEM\CurrentControlSet\Control" /v WaitToKillServiceTimeout /t REG_SZ /d 5000 /f</CommandLine></SynchronousCommand>
-        <SynchronousCommand wcm:action="add"><Order>21</Order><CommandLine>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v DisableShutdownNamedPipeCheck /t REG_DWORD /d 1 /f</CommandLine></SynchronousCommand>
+        <!-- V10: Set ACPI power button action to "Shut down" (default may be Sleep/Do nothing) -->
+        <SynchronousCommand wcm:action="add"><Order>20</Order><CommandLine>powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS PBUTTONACTION 3</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add"><Order>21</Order><CommandLine>powercfg /setdcvalueindex SCHEME_CURRENT SUB_BUTTONS PBUTTONACTION 3</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add"><Order>22</Order><CommandLine>powercfg /setactive SCHEME_CURRENT</CommandLine></SynchronousCommand>
+        <!-- V10: Speed up shutdown for Cocoon stop via SSH/WinRM -->
+        <SynchronousCommand wcm:action="add"><Order>23</Order><CommandLine>reg add "HKLM\SYSTEM\CurrentControlSet\Control" /v WaitToKillServiceTimeout /t REG_SZ /d 5000 /f</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add"><Order>24</Order><CommandLine>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v DisableShutdownNamedPipeCheck /t REG_DWORD /d 1 /f</CommandLine></SynchronousCommand>
+        <!-- V10: Allow shutdown without logged-on user (required for SSH/WinRM remote shutdown) -->
+        <SynchronousCommand wcm:action="add"><Order>25</Order><CommandLine>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v shutdownwithoutlogon /t REG_DWORD /d 1 /f</CommandLine></SynchronousCommand>
       </FirstLogonCommands>
     </component>
   </settings>

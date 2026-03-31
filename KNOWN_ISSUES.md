@@ -90,3 +90,22 @@ virtio-win 0.1.271+ network drivers are incompatible with Cloud Hypervisor due t
 0.1.285 introduced commit `50e7db9` ("indicate driver error on unexpected CX behavior") with zero-tolerance on control queue errors. Root cause is a CH bug — correct fix is to return `VIRTIO_NET_OK` for unsupported commands instead of `VIRTIO_NET_ERR`. No upstream PR exists yet.
 
 **Recommendation**: use virtio-win **0.1.240** for Windows VMs on Cloud Hypervisor.
+
+## Windows VM does not respond to ACPI power-button
+
+Cloud Hypervisor uses a GED (Generic Event Device, `ACPI0013`) to deliver power-button notifications on its hardware-reduced ACPI platform. While this mechanism works correctly for Linux guests, Windows guests do not respond to the `vm.power-button` API call — no power-button event appears in the Windows event log (`Event ID 109`).
+
+Architecturally, the signal chain (`GED interrupt → _EVT() AML → Notify(\_SB_.PWRB, 0x80)`) should work — Windows has supported hardware-reduced ACPI since Windows 8, and the `PNP0C0C` power button device has an inbox driver. The root cause of the failure is under investigation.
+
+**Consequence**: `cocoon vm stop` always times out on Windows VMs (default 30s), then falls back to `vm.shutdown` → SIGTERM → SIGKILL.
+
+**Workaround**: shut down Windows guests via SSH or WinRM before stopping:
+
+```bash
+ssh cocoon@<vm-ip> "shutdown /s /t 0"
+cocoon vm stop <vm>
+```
+
+Or use `cocoon vm stop --force` to skip the ACPI timeout and immediately kill the process.
+
+The Windows image's `autounattend.xml` includes defensive power-button configuration (`PBUTTONACTION=3`) and shutdown optimization (`WaitToKillServiceTimeout=5000`, `shutdownwithoutlogon=1`) in case future CH versions fix the GED delivery issue.

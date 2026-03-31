@@ -318,7 +318,8 @@ For more details, see the [Cloud Hypervisor Windows documentation](https://githu
 
 ### Shutdown Behavior
 
-- **UEFI VMs (cloudimg/Windows)**: ACPI power-button → poll for graceful exit → timeout (default 30s, configurable via `stop_timeout_seconds` in config or `--timeout` flag) → SIGTERM → 5s → SIGKILL
+- **UEFI VMs (cloudimg)**: ACPI power-button → poll for graceful exit → timeout (default 30s, configurable via `stop_timeout_seconds` in config or `--timeout` flag) → SIGTERM → 5s → SIGKILL
+- **Windows VMs**: ACPI power-button is not recognized by the guest (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)); use `ssh shutdown /s /t 0` before stopping, or `--force` to skip the ACPI timeout
 - **Direct-boot VMs (OCI)**: `vm.shutdown` API → SIGTERM → 5s → SIGKILL (no ACPI support)
 - **Force stop** (`--force`): skip ACPI, immediate `vm.shutdown` → SIGTERM → SIGKILL
 - PID ownership is verified before sending signals to prevent killing unrelated processes

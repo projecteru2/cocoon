@@ -136,9 +136,13 @@ Get-NetFirewallProfile | Select-Object Name, Enabled          # All: False
 # --- Hibernate (should be off) ---
 powercfg /a | Select-String "Hibernate"                       # "Hibernation has not been enabled"
 
+# --- ACPI power button action (must be "Shut down" = 3) ---
+powercfg /query SCHEME_CURRENT SUB_BUTTONS PBUTTONACTION | Select-String "Current.*Setting"  # 0x00000003
+
 # --- Shutdown optimization ---
 (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control').WaitToKillServiceTimeout      # 5000
 (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').DisableShutdownNamedPipeCheck  # 1
+(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').shutdownwithoutlogon           # 1
 
 # --- Hostname ---
 hostname                                                       # COCOON-VM
@@ -211,7 +215,9 @@ The included [`autounattend.xml`](autounattend.xml) automates the entire Windows
 | 14-17 | **WinRM** | Enable PS Remoting, allow unencrypted + Basic auth, firewall on port 5985 |
 | 18    | **Hostname** | Force rename (specialize `ComputerName` unreliable on 25H2) |
 | 19    | **virtio-win guest tools** | Silent install `virtio-win-gt-x64.msi` from CD-ROM (D: or E:) -- installs complete driver suite + balloon service |
-| 20-21 | **ACPI shutdown optimization** | Reduce `WaitToKillServiceTimeout` to 5s, disable shutdown named pipe check -- speeds up `cocoon vm stop` response to ACPI power-button |
+| 20-22 | **ACPI power button = shut down** | Set power button action to "Shut down" for AC/DC power schemes -- defensive config in case future CH versions fix GED delivery (currently ACPI power-button does not reach Windows, see [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md)) |
+| 23-24 | **Shutdown optimization** | Reduce `WaitToKillServiceTimeout` to 5s, disable shutdown named pipe check -- speeds up `shutdown /s /t 0` via SSH/WinRM |
+| 25    | **Shutdown without logon** | Allow remote shutdown when no user is logged in (required for SSH/WinRM `shutdown /s /t 0`) |
 
 ## Post-Clone Networking
 
