@@ -4,7 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -31,14 +32,7 @@ const (
 func CreateFAT12(w io.Writer, label string, files map[string][]byte) error {
 	b := newFAT12Builder(label)
 
-	// Sort keys for deterministic output.
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(files)) {
 		if err := b.addFile(name, files[name]); err != nil {
 			return err
 		}
@@ -316,10 +310,7 @@ func makeLFNEntries(name string, shortName [11]byte) [][]byte {
 		entries[i] = entry
 	}
 
-	// Reverse: highest sequence first on disk.
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
-	}
+	slices.Reverse(entries)
 	return entries
 }
 

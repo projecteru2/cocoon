@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -47,11 +48,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 		},
 		Resolve: func(snap cniSnapshot, others map[string]any) []string {
 			active := gc.Collect(others, gc.VMIDs)
-			// Orphan = (DB VM IDs ∪ netns VM IDs) − active VM IDs.
-			candidates := make(map[string]struct{}, len(snap.dbVMIDs)+len(snap.netnsNames))
-			for id := range snap.dbVMIDs {
-				candidates[id] = struct{}{}
-			}
+			candidates := maps.Clone(snap.dbVMIDs)
 			for _, name := range snap.netnsNames {
 				candidates[name] = struct{}{}
 			}

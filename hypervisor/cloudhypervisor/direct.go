@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
@@ -17,27 +16,16 @@ import (
 // Files are handled per-type: hardlink for memory-range-*, reflink/copy for
 // the COW disk, plain copy for small metadata, and cidata is regenerated.
 func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (_ *types.VM, err error) {
-	if vmCfg.Image == "" && snapshotConfig.Image != "" {
-		vmCfg.Image = snapshotConfig.Image
+	runDir, logDir, now, cleanup, err := ch.cloneSetup(ctx, vmID, vmCfg, snapshotConfig)
+	if err != nil {
+		return nil, err
 	}
-
-	now := time.Now()
-	runDir := ch.conf.VMRunDir(vmID)
-	logDir := ch.conf.VMLogDir(vmID)
-
 	defer func() {
 		if err != nil {
-			_ = removeVMDirs(runDir, logDir)
-			ch.rollbackCreate(ctx, vmID, vmCfg.Name)
+			cleanup()
 		}
 	}()
 
-	if err = ch.reserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
-		return nil, fmt.Errorf("reserve VM record: %w", err)
-	}
-	if err = utils.EnsureDirs(runDir, logDir); err != nil {
-		return nil, fmt.Errorf("ensure dirs: %w", err)
-	}
 	if err = cloneSnapshotFiles(runDir, srcDir); err != nil {
 		return nil, fmt.Errorf("clone snapshot files: %w", err)
 	}

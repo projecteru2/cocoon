@@ -17,6 +17,32 @@ With our [CH fork][ch-fork] and [firmware fork][fw-fork], all previously known W
 
 If using **upstream** (unpatched) Cloud Hypervisor, use v50.2 + virtio-win 0.1.240 + SSH shutdown workaround. See [KNOWN_ISSUES.md](../../KNOWN_ISSUES.md).
 
+### Installing patched binaries
+
+Download pre-built binaries from our forks' GitHub Releases and replace the originals:
+
+```bash
+# Cloud Hypervisor (patched for Windows: DISCARD fix + virtio-net ctrl_queue fix)
+curl -fsSL -o /usr/local/bin/cloud-hypervisor \
+  "$(gh api repos/CMGS/cloud-hypervisor/releases --jq '.[0].assets[0].browser_download_url')"
+chmod +x /usr/local/bin/cloud-hypervisor
+
+# CLOUDHV.fd firmware (patched for ACPI power-button shutdown on Windows)
+curl -fsSL -o /var/lib/cocoon/firmware/CLOUDHV.fd \
+  "$(gh api repos/CMGS/rust-hypervisor-firmware/releases --jq '.[0].assets[0].browser_download_url')"
+```
+
+Or download manually from the Releases pages:
+- Cloud Hypervisor: https://github.com/CMGS/cloud-hypervisor/releases
+- Firmware: https://github.com/CMGS/rust-hypervisor-firmware/releases
+
+Verify installation:
+
+```bash
+cloud-hypervisor --version   # should show patched build
+file /var/lib/cocoon/firmware/CLOUDHV.fd  # ELF 64-bit binary
+```
+
 [ch-fork]: https://github.com/CMGS/cloud-hypervisor/tree/dev
 [fw-fork]: https://github.com/CMGS/rust-hypervisor-firmware/tree/dev
 [ch-7849]: https://github.com/cloud-hypervisor/cloud-hypervisor/issues/7849

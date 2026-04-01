@@ -1,7 +1,6 @@
 package cloudhypervisor
 
 import (
-	"archive/tar"
 	"context"
 	"fmt"
 	"io"
@@ -15,30 +14,6 @@ import (
 	"github.com/projecteru2/cocoon/types"
 	"github.com/projecteru2/cocoon/utils"
 )
-
-// snapshotReader wraps io.PipeReader so that Close waits for the background
-// goroutine to finish streaming, then synchronously removes tmpDir.
-// streamErr captures the goroutine's error so Close can surface it even
-// after all data has been read (PipeReader.Close always returns nil).
-type snapshotReader struct {
-	*io.PipeReader
-	done   <-chan error
-	tmpDir string // cleaned up synchronously in Close, not by the goroutine
-}
-
-func (r *snapshotReader) Close() error {
-	err := r.PipeReader.Close()
-	if streamErr := <-r.done; streamErr != nil {
-		err = streamErr
-	}
-	// Synchronous cleanup: goroutine has finished all I/O at this point,
-	// so RemoveAll runs in the caller's stack — no race with process exit.
-	if r.tmpDir != "" {
-		os.RemoveAll(r.tmpDir) //nolint:errcheck,gosec
-		r.tmpDir = ""          // prevent double-remove
-	}
-	return err
-}
 
 // Snapshot pauses the VM, captures its full state (CPU, memory, devices via CH
 // snapshot API, plus the COW disk via sparse copy), resumes the VM, and returns
@@ -163,29 +138,5 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		maps.Copy(cfg.ImageBlobIDs, rec.ImageBlobIDs)
 	}
 
-	// Stream tmpDir as tar via io.Pipe. The goroutine handles streaming only;
-	// tmpDir cleanup is done synchronously in snapshotReader.Close() after the
-	// goroutine signals completion — no race with process exit.
-	pr, pw := io.Pipe()
-	done := make(chan error, 1)
-	go func() {
-		var streamErr error
-		defer func() {
-			if streamErr != nil {
-				pw.CloseWithError(streamErr) //nolint:errcheck,gosec
-			} else {
-				pw.Close() //nolint:errcheck,gosec
-			}
-			done <- streamErr
-		}()
-
-		tw := tar.NewWriter(pw)
-
-		streamErr = utils.TarDir(tw, tmpDir)
-		if closeErr := tw.Close(); streamErr == nil {
-			streamErr = closeErr
-		}
-	}()
-
-	return cfg, &snapshotReader{PipeReader: pr, done: done, tmpDir: tmpDir}, nil
+	return cfg, utils.TarDirStreamWithRemove(tmpDir), nil
 }

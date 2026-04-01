@@ -213,26 +213,6 @@ func (h Handler) Start(cmd *cobra.Command, args []string) error {
 	return batchVMCmd(ctx, "start", "started", hyper.Start, args)
 }
 
-// recoverNetwork recreates the network namespace and TC redirect for VMs
-// whose netns was lost (e.g. after host reboot). Best-effort: failures are
-// logged but do not block start — hyper.Start will report the real error.
-func (h Handler) recoverNetwork(ctx context.Context, hyper hypervisor.Hypervisor, net network.Network, refs []string) {
-	logger := log.WithFunc("cmd.recoverNetwork")
-	for _, ref := range refs {
-		vm, err := hyper.Inspect(ctx, ref)
-		if err != nil || vm == nil || len(vm.NetworkConfigs) == 0 {
-			continue
-		}
-		if net.Verify(ctx, vm.ID) == nil {
-			continue // netns exists, no recovery needed
-		}
-		logger.Warnf(ctx, "netns missing for VM %s, recovering network", vm.ID)
-		if _, recoverErr := net.Config(ctx, vm.ID, len(vm.NetworkConfigs), &vm.Config, vm.NetworkConfigs...); recoverErr != nil {
-			logger.Warnf(ctx, "recover network for VM %s: %v (start will fail)", vm.ID, recoverErr)
-		}
-	}
-}
-
 func (h Handler) Stop(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {
@@ -498,12 +478,28 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		balloon = memoryMB / 2 //nolint:mnd
 	}
 
-	if boot.KernelPath != "" {
-		printRunOCI(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB, vmCfg.Windows)
-	} else {
-		printRunCloudimg(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB, vmCfg.Windows)
-	}
+	printDebugRun(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB, vmCfg.Windows, boot.KernelPath != "")
 	return nil
+}
+
+// recoverNetwork recreates the network namespace and TC redirect for VMs
+// whose netns was lost (e.g. after host reboot). Best-effort: failures are
+// logged but do not block start — hyper.Start will report the real error.
+func (h Handler) recoverNetwork(ctx context.Context, hyper hypervisor.Hypervisor, net network.Network, refs []string) {
+	logger := log.WithFunc("cmd.recoverNetwork")
+	for _, ref := range refs {
+		vm, err := hyper.Inspect(ctx, ref)
+		if err != nil || vm == nil || len(vm.NetworkConfigs) == 0 {
+			continue
+		}
+		if net.Verify(ctx, vm.ID) == nil {
+			continue // netns exists, no recovery needed
+		}
+		logger.Warnf(ctx, "netns missing for VM %s, recovering network", vm.ID)
+		if _, recoverErr := net.Config(ctx, vm.ID, len(vm.NetworkConfigs), &vm.Config, vm.NetworkConfigs...); recoverErr != nil {
+			logger.Warnf(ctx, "recover network for VM %s: %v (start will fail)", vm.ID, recoverErr)
+		}
+	}
 }
 
 // initHyper is the shared init for methods that only need the hypervisor.
@@ -733,59 +729,57 @@ func printBashArray(name string, nics []nicHint, field func(nicHint) string) {
 	fmt.Println(")")
 }
 
-func printRunOCI(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int, windows bool) {
-	if cowPath == "" {
-		cowPath = fmt.Sprintf("cow-%s.raw", vmName)
+func printDebugRun(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int, windows, directBoot bool) {
+	if directBoot {
+		if cowPath == "" {
+			cowPath = fmt.Sprintf("cow-%s.raw", vmName)
+		}
+
+		debugConfigs := append(append([]*types.StorageConfig(nil), configs...),
+			&types.StorageConfig{Path: cowPath, RO: false, Serial: cloudhypervisor.CowSerial})
+		diskArgs := cloudhypervisor.DebugDiskCLIArgs(debugConfigs, cpu)
+
+		cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
+		cmdline := fmt.Sprintf(
+			"console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
+			cocoonLayers, cloudhypervisor.CowSerial)
+
+		fmt.Println("# Prepare COW disk")
+		fmt.Printf("truncate -s %dG %s\n", cowSize, cowPath)
+		fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", cowPath)
+		fmt.Println()
+
+		fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", vmName, image)
+		fmt.Printf("%s \\\n", chBin)
+		fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
+		fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
+		fmt.Printf("  --disk")
+		for _, d := range diskArgs {
+			fmt.Printf(" \\\n    \"%s\"", d)
+		}
+		fmt.Printf(" \\\n")
+		fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
+	} else {
+		if cowPath == "" {
+			cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
+		}
+
+		basePath := configs[0].Path
+
+		fmt.Println("# Prepare COW overlay")
+		fmt.Printf("qemu-img create -f qcow2 -F qcow2 -b %s %s\n", basePath, cowPath)
+		if cowSize > 0 {
+			fmt.Printf("qemu-img resize %s %dG\n", cowPath, cowSize)
+		}
+		fmt.Println()
+
+		fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmName, image)
+		fmt.Printf("%s \\\n", chBin)
+		fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
+		fmt.Printf("  --disk \\\n")
+		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu)
+		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
-
-	debugConfigs := append(append([]*types.StorageConfig(nil), configs...),
-		&types.StorageConfig{Path: cowPath, RO: false, Serial: cloudhypervisor.CowSerial})
-	diskArgs := cloudhypervisor.DebugDiskCLIArgs(debugConfigs, cpu)
-
-	cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
-
-	cmdline := fmt.Sprintf(
-		"console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
-		cocoonLayers, cloudhypervisor.CowSerial)
-
-	fmt.Println("# Prepare COW disk")
-	fmt.Printf("truncate -s %dG %s\n", cowSize, cowPath)
-	fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", cowPath)
-	fmt.Println()
-
-	fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", vmName, image)
-	fmt.Printf("%s \\\n", chBin)
-	fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
-	fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
-	fmt.Printf("  --disk")
-	for _, d := range diskArgs {
-		fmt.Printf(" \\\n    \"%s\"", d)
-	}
-	fmt.Printf(" \\\n")
-	fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
-	printCommonCHArgs(cpu, maxCPU, memory, balloon, windows)
-}
-
-func printRunCloudimg(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize int, windows bool) {
-	if cowPath == "" {
-		cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
-	}
-
-	basePath := configs[0].Path
-
-	fmt.Println("# Prepare COW overlay")
-	fmt.Printf("qemu-img create -f qcow2 -F qcow2 -b %s %s\n", basePath, cowPath)
-	if cowSize > 0 {
-		fmt.Printf("qemu-img resize %s %dG\n", cowPath, cowSize)
-	}
-	fmt.Println()
-
-	fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmName, image)
-	fmt.Printf("%s \\\n", chBin)
-	fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
-	fmt.Printf("  --disk \\\n")
-	diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu)
-	fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	printCommonCHArgs(cpu, maxCPU, memory, balloon, windows)
 }
 

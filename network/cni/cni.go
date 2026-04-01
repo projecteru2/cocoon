@@ -3,6 +3,7 @@ package cni
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -200,12 +201,7 @@ func (c *CNI) confListByName(name string) (*libcni.NetworkConfigList, error) {
 	}
 	cl, ok := c.confLists[name]
 	if !ok {
-		names := make([]string, 0, len(c.confLists))
-		for n := range c.confLists {
-			names = append(names, n)
-		}
-		slices.Sort(names)
-		return nil, fmt.Errorf("conflist %q not found (available: %s)", name, strings.Join(names, ", "))
+		return nil, fmt.Errorf("conflist %q not found (available: %s)", name, strings.Join(slices.Sorted(maps.Keys(c.confLists)), ", "))
 	}
 	return cl, nil
 }

@@ -21,16 +21,19 @@ type patchOptions struct {
 // unknown fields that CH adds internally (platform, cpus.topology, etc.).
 // Uses a dual-parse approach: typed struct for reading/validation, raw JSON map for writing.
 func patchCHConfig(path string, opts *patchOptions) error {
-	// Typed parse — for reading values and validation.
-	chCfg, err := parseCHConfig(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
-		return err
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// Raw parse — preserves all fields including ones not in chVMConfig.
-	raw, err := parseRawConfig(path)
-	if err != nil {
-		return err
+	var chCfg chVMConfig
+	if e := json.Unmarshal(data, &chCfg); e != nil {
+		return fmt.Errorf("decode %s: %w", path, e)
+	}
+
+	var raw map[string]json.RawMessage
+	if e := json.Unmarshal(data, &raw); e != nil {
+		return fmt.Errorf("decode raw %s: %w", path, e)
 	}
 
 	// Disk paths: patch only "path" in each element, preserving pci_segment, id, etc.
@@ -86,11 +89,11 @@ func patchCHConfig(path string, opts *patchOptions) error {
 		}
 	}
 
-	data, err := json.Marshal(raw)
+	out, err := json.Marshal(raw)
 	if err != nil {
 		return fmt.Errorf("marshal patched config: %w", err)
 	}
-	return os.WriteFile(path, data, 0o600) //nolint:gosec
+	return os.WriteFile(path, out, 0o600) //nolint:gosec
 }
 
 // patchBalloonRaw handles the balloon device in the raw config map.
@@ -142,19 +145,6 @@ func patchStateJSON(path string, replacements map[string]string) error {
 }
 
 // --- Raw JSON helpers ---
-
-// parseRawConfig reads a JSON file into a raw map, preserving all fields.
-func parseRawConfig(path string) (map[string]json.RawMessage, error) {
-	data, err := os.ReadFile(path) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", path, err)
-	}
-	return raw, nil
-}
 
 // setField marshals value and stores it in obj[key].
 func setField(obj map[string]json.RawMessage, key string, value any) error {

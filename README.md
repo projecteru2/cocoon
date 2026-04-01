@@ -43,8 +43,8 @@ Download pre-built binaries from [GitHub Releases](https://github.com/projecteru
 
 ```bash
 # Linux amd64
-curl -fsSL -o cocoon https://github.com/projecteru2/cocoon/releases/download/v0.2.2/cocoon_0.2.2_Linux_x86_64.tar.gz
-tar -xzf cocoon_0.2.2_Linux_x86_64.tar.gz
+curl -fsSL -o cocoon.tar.gz https://github.com/projecteru2/cocoon/releases/download/v0.2.4/cocoon_0.2.4_Linux_x86_64.tar.gz
+tar -xzf cocoon.tar.gz
 install -m 0755 cocoon /usr/local/bin/
 
 # Or use go install

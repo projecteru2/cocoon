@@ -23,32 +23,45 @@ import (
 // Clone creates a new VM from a snapshot tar stream via vm.restore.
 // Three phases: placeholder record → extract+prepare → launch+finalize.
 func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (_ *types.VM, err error) {
-	if vmCfg.Image == "" && snapshotConfig.Image != "" {
-		vmCfg.Image = snapshotConfig.Image
+	runDir, logDir, now, cleanup, err := ch.cloneSetup(ctx, vmID, vmCfg, snapshotConfig)
+	if err != nil {
+		return nil, err
 	}
-
-	now := time.Now()
-	runDir := ch.conf.VMRunDir(vmID)
-	logDir := ch.conf.VMLogDir(vmID)
-
 	defer func() {
 		if err != nil {
-			_ = removeVMDirs(runDir, logDir)
-			ch.rollbackCreate(ctx, vmID, vmCfg.Name)
+			cleanup()
 		}
 	}()
 
-	if err = ch.reserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
-		return nil, fmt.Errorf("reserve VM record: %w", err)
-	}
-	if err = utils.EnsureDirs(runDir, logDir); err != nil {
-		return nil, fmt.Errorf("ensure dirs: %w", err)
-	}
 	if err = utils.ExtractTar(runDir, snapshot); err != nil {
 		return nil, fmt.Errorf("extract snapshot: %w", err)
 	}
 
 	return ch.cloneAfterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
+}
+
+func (ch *CloudHypervisor) cloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
+	if vmCfg.Image == "" && snapshotConfig.Image != "" {
+		vmCfg.Image = snapshotConfig.Image
+	}
+
+	now = time.Now()
+	runDir = ch.conf.VMRunDir(vmID)
+	logDir = ch.conf.VMLogDir(vmID)
+
+	cleanup = func() {
+		_ = removeVMDirs(runDir, logDir)
+		ch.rollbackCreate(ctx, vmID, vmCfg.Name)
+	}
+
+	if err = ch.reserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
+		return "", "", time.Time{}, nil, fmt.Errorf("reserve VM record: %w", err)
+	}
+	if err = utils.EnsureDirs(runDir, logDir); err != nil {
+		cleanup()
+		return "", "", time.Time{}, nil, fmt.Errorf("ensure dirs: %w", err)
+	}
+	return runDir, logDir, now, cleanup, nil
 }
 
 // cloneAfterExtract contains all clone logic after snapshot data is in runDir.
@@ -310,19 +323,16 @@ func verifyBaseFiles(storageConfigs []*types.StorageConfig, boot *types.BootConf
 	if boot == nil {
 		return nil
 	}
-	if boot.KernelPath != "" {
-		if _, err := os.Stat(boot.KernelPath); err != nil {
-			return fmt.Errorf("kernel %s: %w", boot.KernelPath, err)
+	for _, check := range []struct{ name, path string }{
+		{"kernel", boot.KernelPath},
+		{"initrd", boot.InitrdPath},
+		{"firmware", boot.FirmwarePath},
+	} {
+		if check.path == "" {
+			continue
 		}
-	}
-	if boot.InitrdPath != "" {
-		if _, err := os.Stat(boot.InitrdPath); err != nil {
-			return fmt.Errorf("initrd %s: %w", boot.InitrdPath, err)
-		}
-	}
-	if boot.FirmwarePath != "" {
-		if _, err := os.Stat(boot.FirmwarePath); err != nil {
-			return fmt.Errorf("firmware %s: %w", boot.FirmwarePath, err)
+		if _, err := os.Stat(check.path); err != nil {
+			return fmt.Errorf("%s %s: %w", check.name, check.path, err)
 		}
 	}
 	return nil
@@ -372,7 +382,13 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 func buildIPParams(networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
 	var params strings.Builder
 	fmt.Fprintf(&params, " cocoon.hostname=%s", vmName)
-	dns0, dns1 := dnsFromConfig(dnsServers)
+	var dns0, dns1 string
+	if len(dnsServers) > 0 {
+		dns0 = dnsServers[0]
+	}
+	if len(dnsServers) > 1 {
+		dns1 = dnsServers[1]
+	}
 	for i, n := range networkConfigs {
 		if n.Network == nil || n.Network.IP == "" {
 			continue
@@ -435,16 +451,4 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 func prefixToNetmask(prefix int) string {
 	mask := net.CIDRMask(prefix, 32)
 	return net.IP(mask).String()
-}
-
-// dnsFromConfig returns the first two DNS servers for kernel ip= param.
-func dnsFromConfig(servers []string) (string, string) {
-	dns0, dns1 := "", ""
-	if len(servers) > 0 {
-		dns0 = servers[0]
-	}
-	if len(servers) > 1 {
-		dns1 = servers[1]
-	}
-	return dns0, dns1
 }

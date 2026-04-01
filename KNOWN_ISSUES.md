@@ -121,3 +121,7 @@ cocoon vm stop <vm>
 Or use `cocoon vm stop --force` to skip the ACPI timeout and immediately kill the process.
 
 The Windows image's `autounattend.xml` includes defensive power-button configuration (`PBUTTONACTION=3`) and shutdown optimization (`WaitToKillServiceTimeout=5000`, `shutdownwithoutlogon=1`) which remain useful for environments not using our firmware fork.
+
+## Installing patched binaries for Windows
+
+See [`os-image/windows/`](os-image/windows/) for download and installation instructions.

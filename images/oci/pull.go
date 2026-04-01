@@ -195,6 +195,21 @@ func moveBootFile(src, dst, bootDir string, layerIdx int, name string) error {
 	return nil
 }
 
+func bootFilesPresent(results []pullLayerResult) (hasKernel, hasInitrd bool) {
+	for i := range results {
+		if results[i].kernelPath != "" {
+			hasKernel = true
+		}
+		if results[i].initrdPath != "" {
+			hasInitrd = true
+		}
+		if hasKernel && hasInitrd {
+			return
+		}
+	}
+	return
+}
+
 // commitAndRecord moves artifacts to shared image paths and records the image entry.
 // Must be called under flock (inside idx.Update).
 func commitAndRecord(conf *Config, idx *imageIndex, ref string, manifestDigest images.Digest, results []pullLayerResult) error {
@@ -203,20 +218,6 @@ func commitAndRecord(conf *Config, idx *imageIndex, ref string, manifestDigest i
 		kernelLayer  images.Digest
 		initrdLayer  images.Digest
 	)
-
-	// Validate boot files exist before moving any artifacts to shared conf.
-	hasKernel, hasInitrd := false, false
-	for i := range results {
-		if results[i].kernelPath != "" {
-			hasKernel = true
-		}
-		if results[i].initrdPath != "" {
-			hasInitrd = true
-		}
-	}
-	if !hasKernel || !hasInitrd {
-		return fmt.Errorf("image %s missing boot files (vmlinuz/initrd.img)", ref)
-	}
 
 	for i := range results {
 		r := &results[i]
@@ -305,15 +306,7 @@ func commitAndRecord(conf *Config, idx *imageIndex, ref string, manifestDigest i
 func healCachedBootFiles(ctx context.Context, conf *Config, layers []v1.Layer, results []pullLayerResult, workDir string) {
 	logger := log.WithFunc("oci.healCachedBootFiles")
 
-	var hasKernel, hasInitrd bool
-	for i := range results {
-		if results[i].kernelPath != "" {
-			hasKernel = true
-		}
-		if results[i].initrdPath != "" {
-			hasInitrd = true
-		}
-	}
+	hasKernel, hasInitrd := bootFilesPresent(results)
 	if hasKernel && hasInitrd {
 		return
 	}

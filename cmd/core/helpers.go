@@ -80,13 +80,9 @@ func InitBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Imag
 
 // InitImageBackends initializes only image backends (no hypervisor needed).
 func InitImageBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Images, error) {
-	ociStore, err := oci.New(ctx, conf)
+	ociStore, cloudimgStore, err := InitImageBackendsForPull(ctx, conf)
 	if err != nil {
-		return nil, fmt.Errorf("init oci backend: %w", err)
-	}
-	cloudimgStore, err := cloudimg.New(ctx, conf)
-	if err != nil {
-		return nil, fmt.Errorf("init cloudimg backend: %w", err)
+		return nil, err
 	}
 	return []imagebackend.Images{ociStore, cloudimgStore}, nil
 }
@@ -195,48 +191,14 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 // against the snapshot minimums (clone resources must be >= snapshot's).
 func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
-	cpu, _ := cmd.Flags().GetInt("cpu")
-	memStr, _ := cmd.Flags().GetString("memory")
-	storStr, _ := cmd.Flags().GetString("storage")
 	network, _ := cmd.Flags().GetString("network")
 	if network == "" {
 		network = snapCfg.Network
 	}
 
-	if cpu == 0 {
-		cpu = snapCfg.CPU
-	}
-
-	var memBytes int64
-	if memStr == "" {
-		memBytes = snapCfg.Memory
-	} else {
-		var err error
-		memBytes, err = units.RAMInBytes(memStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --memory %q: %w", memStr, err)
-		}
-	}
-
-	var storBytes int64
-	if storStr == "" {
-		storBytes = snapCfg.Storage
-	} else {
-		var err error
-		storBytes, err = units.RAMInBytes(storStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --storage %q: %w", storStr, err)
-		}
-	}
-
-	if cpu < snapCfg.CPU {
-		return nil, fmt.Errorf("--cpu %d below snapshot minimum %d", cpu, snapCfg.CPU)
-	}
-	if memBytes < snapCfg.Memory {
-		return nil, fmt.Errorf("--memory %s below snapshot minimum %s", FormatSize(memBytes), FormatSize(snapCfg.Memory))
-	}
-	if storBytes < snapCfg.Storage {
-		return nil, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(storBytes), FormatSize(snapCfg.Storage))
+	cpu, memBytes, storBytes, err := mergeResourceFlags(cmd, snapCfg.CPU, snapCfg.Memory, snapCfg.Storage, snapCfg)
+	if err != nil {
+		return nil, err
 	}
 
 	cfg := &types.VMConfig{
@@ -258,39 +220,15 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 // Keeps VM's current values by default; CLI flags override.
 // Validates that final values are >= snapshot minimums.
 func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg *types.SnapshotConfig) (*types.VMConfig, error) {
-	cpu, _ := cmd.Flags().GetInt("cpu")
-	memStr, _ := cmd.Flags().GetString("memory")
-	storStr, _ := cmd.Flags().GetString("storage")
-
 	result := vm.Config // value copy — keep current VM values
 
-	if cpu > 0 {
-		result.CPU = cpu
+	cpu, memBytes, storBytes, err := mergeResourceFlags(cmd, result.CPU, result.Memory, result.Storage, snapCfg)
+	if err != nil {
+		return nil, err
 	}
-	if memStr != "" {
-		memBytes, err := units.RAMInBytes(memStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --memory %q: %w", memStr, err)
-		}
-		result.Memory = memBytes
-	}
-	if storStr != "" {
-		storBytes, err := units.RAMInBytes(storStr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid --storage %q: %w", storStr, err)
-		}
-		result.Storage = storBytes
-	}
-
-	if result.CPU < snapCfg.CPU {
-		return nil, fmt.Errorf("--cpu %d below snapshot minimum %d", result.CPU, snapCfg.CPU)
-	}
-	if result.Memory < snapCfg.Memory {
-		return nil, fmt.Errorf("--memory %s below snapshot minimum %s", FormatSize(result.Memory), FormatSize(snapCfg.Memory))
-	}
-	if result.Storage < snapCfg.Storage {
-		return nil, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(result.Storage), FormatSize(snapCfg.Storage))
-	}
+	result.CPU = cpu
+	result.Memory = memBytes
+	result.Storage = storBytes
 
 	return &result, nil
 }
@@ -377,4 +315,39 @@ func sanitizeVMName(image string) string {
 		n = n[:63]
 	}
 	return n
+}
+
+func mergeResourceFlags(cmd *cobra.Command, cpu int, memory, storage int64, snapCfg *types.SnapshotConfig) (int, int64, int64, error) {
+	cpuFlag, _ := cmd.Flags().GetInt("cpu")
+	memStr, _ := cmd.Flags().GetString("memory")
+	storStr, _ := cmd.Flags().GetString("storage")
+
+	if cpuFlag > 0 {
+		cpu = cpuFlag
+	}
+	if memStr != "" {
+		v, err := units.RAMInBytes(memStr)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("invalid --memory %q: %w", memStr, err)
+		}
+		memory = v
+	}
+	if storStr != "" {
+		v, err := units.RAMInBytes(storStr)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("invalid --storage %q: %w", storStr, err)
+		}
+		storage = v
+	}
+
+	if cpu < snapCfg.CPU {
+		return 0, 0, 0, fmt.Errorf("--cpu %d below snapshot minimum %d", cpu, snapCfg.CPU)
+	}
+	if memory < snapCfg.Memory {
+		return 0, 0, 0, fmt.Errorf("--memory %s below snapshot minimum %s", FormatSize(memory), FormatSize(snapCfg.Memory))
+	}
+	if storage < snapCfg.Storage {
+		return 0, 0, 0, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(storage), FormatSize(snapCfg.Storage))
+	}
+	return cpu, memory, storage, nil
 }

@@ -1,13 +1,11 @@
 package localfile
 
 import (
-	"archive/tar"
 	"context"
 	"fmt"
 	"io"
 	"maps"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -52,26 +50,6 @@ func New(conf *config.Config) (*LocalFile, error) {
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[snapshot.SnapshotIndex](cfg.IndexFile(), locker)
 	return &LocalFile{conf: cfg, store: store, locker: locker}, nil
-}
-
-// snapshotRecordToConfig builds a detached SnapshotConfig from a record,
-// deep-copying ImageBlobIDs so the caller can use it after the lock is released.
-func snapshotRecordToConfig(rec *snapshot.SnapshotRecord) *types.SnapshotConfig {
-	blobIDs := make(map[string]struct{}, len(rec.ImageBlobIDs))
-	maps.Copy(blobIDs, rec.ImageBlobIDs)
-	return &types.SnapshotConfig{
-		ID:           rec.ID,
-		Name:         rec.Name,
-		Description:  rec.Description,
-		Image:        rec.Image,
-		ImageBlobIDs: blobIDs,
-		CPU:          rec.CPU,
-		Memory:       rec.Memory,
-		Storage:      rec.Storage,
-		NICs:         rec.NICs,
-		Network:      rec.Network,
-		Windows:      rec.Windows,
-	}
 }
 
 // DataDir returns the local data directory and snapshot config for direct file access.
@@ -267,30 +245,7 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotCo
 		return nil, nil, err
 	}
 
-	// Stream the data directory as a tar archive via io.Pipe.
-	// Use tarStreamReader so Close() waits for the goroutine to finish
-	// and surfaces any streaming error.
-	pr, pw := io.Pipe()
-	done := make(chan error, 1)
-	go func() {
-		var streamErr error
-		defer func() {
-			if streamErr != nil {
-				pw.CloseWithError(streamErr) //nolint:errcheck,gosec
-			} else {
-				pw.Close() //nolint:errcheck,gosec
-			}
-			done <- streamErr
-		}()
-
-		tw := tar.NewWriter(pw)
-		streamErr = utils.TarDir(tw, dataDir)
-		if closeErr := tw.Close(); streamErr == nil {
-			streamErr = closeErr
-		}
-	}()
-
-	return cfg, &tarStreamReader{PipeReader: pr, done: done}, nil
+	return cfg, utils.TarDirStream(dataDir, nil), nil
 }
 
 // RegisterGC registers the snapshot GC module with the orchestrator.
@@ -298,22 +253,22 @@ func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker))
 }
 
-// tarStreamReader wraps io.PipeReader so that Close waits for the background
-// goroutine to finish streaming, surfacing any error from the tar writer.
-// Close is idempotent: concurrent or repeated calls are safe.
-type tarStreamReader struct {
-	*io.PipeReader
-	done <-chan error
-	once sync.Once
-	err  error
-}
-
-func (r *tarStreamReader) Close() error {
-	r.once.Do(func() {
-		r.err = r.PipeReader.Close()
-		if streamErr := <-r.done; streamErr != nil {
-			r.err = streamErr
-		}
-	})
-	return r.err
+// snapshotRecordToConfig builds a detached SnapshotConfig from a record,
+// deep-copying ImageBlobIDs so the caller can use it after the lock is released.
+func snapshotRecordToConfig(rec *snapshot.SnapshotRecord) *types.SnapshotConfig {
+	blobIDs := make(map[string]struct{}, len(rec.ImageBlobIDs))
+	maps.Copy(blobIDs, rec.ImageBlobIDs)
+	return &types.SnapshotConfig{
+		ID:           rec.ID,
+		Name:         rec.Name,
+		Description:  rec.Description,
+		Image:        rec.Image,
+		ImageBlobIDs: blobIDs,
+		CPU:          rec.CPU,
+		Memory:       rec.Memory,
+		Storage:      rec.Storage,
+		NICs:         rec.NICs,
+		Network:      rec.Network,
+		Windows:      rec.Windows,
+	}
 }
