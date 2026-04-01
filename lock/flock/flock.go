@@ -7,7 +7,7 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/projecteru2/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock"
 )
 
 const retryDelay = 100 * time.Millisecond

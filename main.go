@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/projecteru2/cocoon/cmd"
+	"github.com/cocoonstack/cocoon/cmd"
 )
 
 func main() {

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/lock"
-	"github.com/projecteru2/cocoon/lock/flock"
-	"github.com/projecteru2/cocoon/storage"
-	storejson "github.com/projecteru2/cocoon/storage/json"
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/storage"
+	storejson "github.com/cocoonstack/cocoon/storage/json"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 const typ = "cloud-hypervisor"

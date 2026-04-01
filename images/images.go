@@ -3,9 +3,9 @@ package images
 import (
 	"context"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/progress"
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/progress"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 type Images interface {

@@ -29,7 +29,7 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 
 - Linux with KVM (x86_64 or aarch64)
 - Root access (sudo)
-- [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v51.0+ (for Windows VMs, use our [CH fork](https://github.com/CMGS/cloud-hypervisor/tree/dev) and [firmware fork](https://github.com/CMGS/rust-hypervisor-firmware/tree/dev) for full compatibility — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v51.0+ (for Windows VMs, use our [CH fork](https://github.com/cocoonstack/cloud-hypervisor/tree/dev) and [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) for full compatibility — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 - `qemu-img` (from qemu-utils, for cloud images)
 - UEFI firmware (`CLOUDHV.fd`, for cloud images)
 - CNI plugins (`bridge`, `host-local`, `loopback`)
@@ -39,22 +39,22 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 
 ### GitHub Releases
 
-Download pre-built binaries from [GitHub Releases](https://github.com/projecteru2/cocoon/releases):
+Download pre-built binaries from [GitHub Releases](https://github.com/cocoonstack/cocoon/releases):
 
 ```bash
 # Linux amd64
-curl -fsSL -o cocoon.tar.gz https://github.com/projecteru2/cocoon/releases/download/v0.2.4/cocoon_0.2.4_Linux_x86_64.tar.gz
+curl -fsSL -o cocoon.tar.gz https://github.com/cocoonstack/cocoon/releases/download/v0.2.4/cocoon_0.2.4_Linux_x86_64.tar.gz
 tar -xzf cocoon.tar.gz
 install -m 0755 cocoon /usr/local/bin/
 
 # Or use go install
-go install github.com/projecteru2/cocoon@latest
+go install github.com/cocoonstack/cocoon@latest
 ```
 
 ### Build from source
 
 ```bash
-git clone https://github.com/projecteru2/cocoon.git
+git clone https://github.com/cocoonstack/cocoon.git
 cd cocoon
 make build
 ```
@@ -67,7 +67,7 @@ Cocoon ships a diagnostic script that checks your environment and can auto-insta
 
 ```bash
 # Get script
-curl -fsSL -o cocoon-check https://raw.githubusercontent.com/projecteru2/cocoon/refs/heads/master/doctor/check.sh
+curl -fsSL -o cocoon-check https://raw.githubusercontent.com/cocoonstack/cocoon/refs/heads/master/doctor/check.sh
 install -m 0755 cocoon-check /usr/local/bin/
 
 # Check only — reports PASS/FAIL for each requirement
@@ -92,13 +92,13 @@ The `--upgrade` flag downloads and installs:
 sudo cocoon-check --upgrade
 
 # Pull an OCI VM image
-cocoon image pull ghcr.io/projecteru2/cocoon/ubuntu:24.04
+cocoon image pull ghcr.io/cocoonstack/cocoon/ubuntu:24.04
 
 # Or pull a cloud image from URL
 cocoon image pull https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
 
 # Create and start a VM
-cocoon vm run --name my-vm --cpu 2 --memory 1G ghcr.io/projecteru2/cocoon/ubuntu:24.04
+cocoon vm run --name my-vm --cpu 2 --memory 1G ghcr.io/cocoonstack/cocoon/ubuntu:24.04
 
 # Attach interactive console
 cocoon vm console my-vm
@@ -292,8 +292,8 @@ The `--windows` flag:
 
 ### Requirements
 
-- Cloud Hypervisor **v51+** with our [CH fork](https://github.com/CMGS/cloud-hypervisor/tree/dev) (includes DISCARD fix, virtio-net ctrl_queue fix, and upstream patches — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
-- UEFI firmware from our [firmware fork](https://github.com/CMGS/rust-hypervisor-firmware/tree/dev) (includes ResetSystem fix for ACPI power-button — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- Cloud Hypervisor **v51+** with our [CH fork](https://github.com/cocoonstack/cloud-hypervisor/tree/dev) (includes DISCARD fix, virtio-net ctrl_queue fix, and upstream patches — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- UEFI firmware from our [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) (includes ResetSystem fix for ACPI power-button — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 - virtio-win **0.1.285** drivers pre-installed in the image (0.1.240 also works; newer versions are supported with our CH fork)
 
 ### Image Preparation
@@ -320,7 +320,7 @@ For more details, see the [Cloud Hypervisor Windows documentation](https://githu
 ### Shutdown Behavior
 
 - **UEFI VMs (cloudimg)**: ACPI power-button → poll for graceful exit → timeout (default 30s, configurable via `stop_timeout_seconds` in config or `--timeout` flag) → SIGTERM → 5s → SIGKILL
-- **Windows VMs**: ACPI power-button works with our [firmware fork](https://github.com/CMGS/rust-hypervisor-firmware/tree/dev) (~13.5s shutdown); with upstream firmware, use `ssh shutdown /s /t 0` before stopping, or `--force` to skip the ACPI timeout (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- **Windows VMs**: ACPI power-button works with our [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) (~13.5s shutdown); with upstream firmware, use `ssh shutdown /s /t 0` before stopping, or `--force` to skip the ACPI timeout (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 - **Direct-boot VMs (OCI)**: `vm.shutdown` API → SIGTERM → 5s → SIGKILL (no ACPI support)
 - **Force stop** (`--force`): skip ACPI, immediate `vm.shutdown` → SIGTERM → SIGKILL
 - PID ownership is verified before sending signals to prevent killing unrelated processes
@@ -452,8 +452,8 @@ This ensures blobs referenced by running VMs or saved snapshots are never delete
 Pre-built OCI VM images (Ubuntu 22.04, 24.04) are published to GHCR and auto-built by GitHub Actions when `os-image/` changes:
 
 ```bash
-cocoon image pull ghcr.io/projecteru2/cocoon/ubuntu:24.04
-cocoon image pull ghcr.io/projecteru2/cocoon/ubuntu:22.04
+cocoon image pull ghcr.io/cocoonstack/cocoon/ubuntu:24.04
+cocoon image pull ghcr.io/cocoonstack/cocoon/ubuntu:22.04
 ```
 
 These images include kernel, initramfs, and a systemd-based rootfs with an overlayfs boot script.

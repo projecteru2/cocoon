@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/lock"
-	"github.com/projecteru2/cocoon/snapshot"
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/snapshot"
+	"github.com/cocoonstack/cocoon/storage"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // pendingGCGrace is the age after which a pending (incomplete) snapshot

@@ -1,6 +1,6 @@
 .PHONY: all build test lint vet fmt fmt-check deps clean coverage cloc help
 
-REPO_PATH := github.com/projecteru2/cocoon
+REPO_PATH := github.com/cocoonstack/cocoon
 REVISION := $(shell git rev-parse HEAD || echo unknown)
 BUILTAT := $(shell date +%Y-%m-%dT%H:%M:%S)
 VERSION := $(shell git describe --tags $(shell git rev-list --tags --max-count=1) 2>/dev/null || echo dev)
@@ -77,7 +77,7 @@ lint: golangci-lint ## Run golangci-lint for all target platforms
 
 fmt: gofumpt goimports ## Format code with gofumpt and goimports
 	$(GOFMT) -l -w .
-	$(GOIMPORTS) -l -w --local 'github.com/projecteru2/cocoon' .
+	$(GOIMPORTS) -l -w --local 'github.com/cocoonstack/cocoon' .
 
 fmt-check: gofumpt goimports ## Check formatting (fails if files need formatting)
 	@test -z "$$($(GOFMT) -l .)" || { echo "Files need formatting (gofumpt):"; $(GOFMT) -l .; exit 1; }

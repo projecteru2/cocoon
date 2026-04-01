@@ -1,8 +1,8 @@
 package hypervisor
 
 import (
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // VMRecord is the persisted record for a single VM.

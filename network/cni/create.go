@@ -9,9 +9,9 @@ import (
 	current "github.com/containernetworking/cni/pkg/types/100"
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/network"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/network"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 const defaultQueueSize = 256

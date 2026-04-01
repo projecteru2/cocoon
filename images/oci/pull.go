@@ -19,11 +19,11 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/progress"
-	ociProgress "github.com/projecteru2/cocoon/progress/oci"
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/images"
+	"github.com/cocoonstack/cocoon/progress"
+	ociProgress "github.com/cocoonstack/cocoon/progress/oci"
+	"github.com/cocoonstack/cocoon/storage"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // pullLayerResult holds the output of processing a single layer.

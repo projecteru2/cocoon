@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/snapshot"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/snapshot"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // helpers

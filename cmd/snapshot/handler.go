@@ -11,9 +11,9 @@ import (
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 
-	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	"github.com/projecteru2/cocoon/snapshot"
-	"github.com/projecteru2/cocoon/types"
+	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
+	"github.com/cocoonstack/cocoon/snapshot"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 // Handler implements Actions.

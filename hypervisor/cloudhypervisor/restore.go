@@ -11,9 +11,9 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // Restore reverts a running VM to a previous snapshot's state.

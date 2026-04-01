@@ -1,4 +1,4 @@
-module github.com/projecteru2/cocoon
+module github.com/cocoonstack/cocoon
 
 go 1.25.6
 

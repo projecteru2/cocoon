@@ -12,12 +12,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	cmdimages "github.com/projecteru2/cocoon/cmd/images"
-	cmdothers "github.com/projecteru2/cocoon/cmd/others"
-	cmdsnapshot "github.com/projecteru2/cocoon/cmd/snapshot"
-	cmdvm "github.com/projecteru2/cocoon/cmd/vm"
-	"github.com/projecteru2/cocoon/config"
+	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
+	cmdimages "github.com/cocoonstack/cocoon/cmd/images"
+	cmdothers "github.com/cocoonstack/cocoon/cmd/others"
+	cmdsnapshot "github.com/cocoonstack/cocoon/cmd/snapshot"
+	cmdvm "github.com/cocoonstack/cocoon/cmd/vm"
+	"github.com/cocoonstack/cocoon/config"
 )
 
 var (

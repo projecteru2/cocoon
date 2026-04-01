@@ -1,7 +1,7 @@
 package cni
 
 import (
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 // networkRecord is one NIC's persisted network state.

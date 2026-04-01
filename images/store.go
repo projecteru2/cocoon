@@ -1,10 +1,10 @@
 package images
 
 import (
-	"github.com/projecteru2/cocoon/lock"
-	"github.com/projecteru2/cocoon/lock/flock"
-	"github.com/projecteru2/cocoon/storage"
-	storejson "github.com/projecteru2/cocoon/storage/json"
+	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/storage"
+	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
 // NewStore creates a JSON-backed Store and returns it alongside the locker.

@@ -4,10 +4,10 @@ import (
 	"context"
 	"slices"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/lock"
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/storage"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // ImageGCSnapshot is the unified GC snapshot for image backends.

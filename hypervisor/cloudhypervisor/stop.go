@@ -8,9 +8,9 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // acpiPollInterval is how often we check if the guest has powered off

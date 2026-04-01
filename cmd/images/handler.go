@@ -9,14 +9,14 @@ import (
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 
-	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/images/cloudimg"
-	"github.com/projecteru2/cocoon/images/oci"
-	"github.com/projecteru2/cocoon/progress"
-	cloudimgProgress "github.com/projecteru2/cocoon/progress/cloudimg"
-	ociProgress "github.com/projecteru2/cocoon/progress/oci"
-	"github.com/projecteru2/cocoon/types"
+	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/images/cloudimg"
+	"github.com/cocoonstack/cocoon/images/oci"
+	"github.com/cocoonstack/cocoon/progress"
+	cloudimgProgress "github.com/cocoonstack/cocoon/progress/cloudimg"
+	ociProgress "github.com/cocoonstack/cocoon/progress/oci"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 // digestDisplayLen = len("sha256:") + 12 hex digits for compact display.

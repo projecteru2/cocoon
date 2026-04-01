@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 // helpers

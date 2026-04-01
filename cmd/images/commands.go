@@ -3,7 +3,7 @@ package images
 import (
 	"github.com/spf13/cobra"
 
-	cmdcore "github.com/projecteru2/cocoon/cmd/core"
+	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 )
 
 // Actions defines image management operations.

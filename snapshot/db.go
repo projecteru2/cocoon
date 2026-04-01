@@ -3,8 +3,8 @@ package snapshot
 import (
 	"errors"
 
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 var ErrNotFound = errors.New("snapshot not found")

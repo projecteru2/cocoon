@@ -6,8 +6,8 @@ Build guide for Windows 11 25H2 on Cloud Hypervisor. Unlike the [Cloud Hyperviso
 
 | Component        | Version      | Notes                                                                    |
 |------------------|--------------|--------------------------------------------------------------------------|
-| Cloud Hypervisor | **v51+**     | Use [CMGS/cloud-hypervisor `dev`][ch-fork] for full Windows support      |
-| Firmware         | **patched**  | Use [CMGS/rust-hypervisor-firmware `dev`][fw-fork] for ACPI shutdown     |
+| Cloud Hypervisor | **v51+**     | Use [cocoonstack/cloud-hypervisor `dev`][ch-fork] for full Windows support      |
+| Firmware         | **patched**  | Use [cocoonstack/rust-hypervisor-firmware `dev`][fw-fork] for ACPI shutdown     |
 | virtio-win       | **0.1.285**  | Latest stable; 0.1.240 also works on upstream CH without patches         |
 
 With our [CH fork][ch-fork] and [firmware fork][fw-fork], all previously known Windows issues are resolved:
@@ -19,32 +19,28 @@ If using **upstream** (unpatched) Cloud Hypervisor, use v50.2 + virtio-win 0.1.2
 
 ### Installing patched binaries
 
-Download pre-built binaries from our forks' GitHub Releases and replace the originals:
+Download pre-built binaries from our forks and replace the originals:
 
 ```bash
-# Cloud Hypervisor (patched for Windows: DISCARD fix + virtio-net ctrl_queue fix)
+# Cloud Hypervisor (patched: DISCARD fix + virtio-net ctrl_queue fix)
 curl -fsSL -o /usr/local/bin/cloud-hypervisor \
-  "$(gh api repos/CMGS/cloud-hypervisor/releases --jq '.[0].assets[0].browser_download_url')"
+  https://github.com/cocoonstack/cloud-hypervisor/releases/download/dev/cloud-hypervisor
 chmod +x /usr/local/bin/cloud-hypervisor
 
-# CLOUDHV.fd firmware (patched for ACPI power-button shutdown on Windows)
+# CLOUDHV.fd firmware (patched: ACPI power-button / ResetSystem fix)
 curl -fsSL -o /var/lib/cocoon/firmware/CLOUDHV.fd \
-  "$(gh api repos/CMGS/rust-hypervisor-firmware/releases --jq '.[0].assets[0].browser_download_url')"
+  https://github.com/cocoonstack/rust-hypervisor-firmware/releases/download/dev/hypervisor-fw
 ```
 
-Or download manually from the Releases pages:
-- Cloud Hypervisor: https://github.com/CMGS/cloud-hypervisor/releases
-- Firmware: https://github.com/CMGS/rust-hypervisor-firmware/releases
-
-Verify installation:
+These URLs are stable — they always point to the latest `dev` branch build. Verify:
 
 ```bash
-cloud-hypervisor --version   # should show patched build
-file /var/lib/cocoon/firmware/CLOUDHV.fd  # ELF 64-bit binary
+cloud-hypervisor --version
+file /var/lib/cocoon/firmware/CLOUDHV.fd
 ```
 
-[ch-fork]: https://github.com/CMGS/cloud-hypervisor/tree/dev
-[fw-fork]: https://github.com/CMGS/rust-hypervisor-firmware/tree/dev
+[ch-fork]: https://github.com/cocoonstack/cloud-hypervisor/tree/dev
+[fw-fork]: https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev
 [ch-7849]: https://github.com/cloud-hypervisor/cloud-hypervisor/issues/7849
 [ch-7925]: https://github.com/cloud-hypervisor/cloud-hypervisor/issues/7925
 [ch-7936]: https://github.com/cloud-hypervisor/cloud-hypervisor/pull/7936

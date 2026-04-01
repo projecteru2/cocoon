@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 // Direct is an optional interface for snapshot backends that expose

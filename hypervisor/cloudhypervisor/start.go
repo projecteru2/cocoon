@@ -14,9 +14,9 @@ import (
 	"github.com/projecteru2/core/log"
 	"github.com/vishvananda/netns"
 
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // Start launches the Cloud Hypervisor process for each VM ref.

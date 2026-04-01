@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/metadata"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/metadata"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // CowSerial is the well-known virtio serial for the COW disk attached to OCI VMs.

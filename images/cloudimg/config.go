@@ -3,8 +3,8 @@ package cloudimg
 import (
 	"path/filepath"
 
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/images"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/images"
 )
 
 // Config holds cloud image backend specific configuration, embedding the shared BaseConfig.

@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/projecteru2/cocoon/gc"
+	"github.com/cocoonstack/cocoon/gc"
 )
 
 type cniSnapshot struct {

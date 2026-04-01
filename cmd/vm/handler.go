@@ -15,15 +15,15 @@ import (
 	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 
-	cmdcore "github.com/projecteru2/cocoon/cmd/core"
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/console"
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/hypervisor/cloudhypervisor"
-	"github.com/projecteru2/cocoon/network"
-	"github.com/projecteru2/cocoon/snapshot"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/console"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/hypervisor/cloudhypervisor"
+	"github.com/cocoonstack/cocoon/network"
+	"github.com/cocoonstack/cocoon/snapshot"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 type Handler struct {

@@ -15,11 +15,11 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/progress"
-	cloudimgProgress "github.com/projecteru2/cocoon/progress/cloudimg"
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/images"
+	"github.com/cocoonstack/cocoon/progress"
+	cloudimgProgress "github.com/cocoonstack/cocoon/progress/cloudimg"
+	"github.com/cocoonstack/cocoon/storage"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 const (

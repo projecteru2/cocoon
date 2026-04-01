@@ -10,9 +10,9 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -X github.com/projecteru2/cocoon/version.REVISION={{.Commit}}
-      - -X github.com/projecteru2/cocoon/version.VERSION={{.Env.VERSION}}
-      - -X github.com/projecteru2/cocoon/version.BUILTAT={{.Date}}
+      - -X github.com/cocoonstack/cocoon/version.REVISION={{.Commit}}
+      - -X github.com/cocoonstack/cocoon/version.VERSION={{.Env.VERSION}}
+      - -X github.com/cocoonstack/cocoon/version.BUILTAT={{.Date}}
     goos:
       - linux
     goarch:
@@ -25,9 +25,9 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s
-      - -X github.com/projecteru2/cocoon/version.REVISION={{.Commit}}
-      - -X github.com/projecteru2/cocoon/version.VERSION={{.Env.VERSION}}
-      - -X github.com/projecteru2/cocoon/version.BUILTAT={{.Date}}
+      - -X github.com/cocoonstack/cocoon/version.REVISION={{.Commit}}
+      - -X github.com/cocoonstack/cocoon/version.VERSION={{.Env.VERSION}}
+      - -X github.com/cocoonstack/cocoon/version.BUILTAT={{.Date}}
     goos:
       - linux
     goarch:

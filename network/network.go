@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 var (

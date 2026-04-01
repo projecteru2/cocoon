@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 type patchOptions struct {

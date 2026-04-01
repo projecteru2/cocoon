@@ -1,6 +1,6 @@
 # Cocoon OS Images
 
-Pre-built OS images are hosted on [GitHub Container Registry](https://github.com/orgs/projecteru2/packages?repo_name=cocoon).
+Pre-built OS images are hosted on [GitHub Container Registry](https://github.com/orgs/cocoonstack/packages?repo_name=cocoon).
 
 ## Available Images
 
@@ -10,12 +10,12 @@ Multi-arch (`linux/amd64`, `linux/arm64`).
 
 | Image | Tag | IMAGE_NAME |
 |-------|-----|------------|
-| Ubuntu 22.04 (Jammy) | `22.04` | `ghcr.io/projecteru2/cocoon/ubuntu:22.04` |
-| Ubuntu 24.04 (Noble) | `24.04` | `ghcr.io/projecteru2/cocoon/ubuntu:24.04` |
-| Ubuntu 24.04 + Chrome | `24.04-chrome` | `ghcr.io/projecteru2/cocoon/ubuntu:24.04-chrome` |
-| Ubuntu 24.04 + Xfce | `24.04-xface` | `ghcr.io/projecteru2/cocoon/ubuntu:24.04-xface` |
-| Ubuntu 24.04 + ZeroClaw | `24.04-zeroclaw` | `ghcr.io/projecteru2/cocoon/ubuntu:24.04-zeroclaw` |
-| Ubuntu 24.04 + PicoClaw | `24.04-picoclaw` | `ghcr.io/projecteru2/cocoon/ubuntu:24.04-picoclaw` |
+| Ubuntu 22.04 (Jammy) | `22.04` | `ghcr.io/cocoonstack/cocoon/ubuntu:22.04` |
+| Ubuntu 24.04 (Noble) | `24.04` | `ghcr.io/cocoonstack/cocoon/ubuntu:24.04` |
+| Ubuntu 24.04 + Chrome | `24.04-chrome` | `ghcr.io/cocoonstack/cocoon/ubuntu:24.04-chrome` |
+| Ubuntu 24.04 + Xfce | `24.04-xface` | `ghcr.io/cocoonstack/cocoon/ubuntu:24.04-xface` |
+| Ubuntu 24.04 + ZeroClaw | `24.04-zeroclaw` | `ghcr.io/cocoonstack/cocoon/ubuntu:24.04-zeroclaw` |
+| Ubuntu 24.04 + PicoClaw | `24.04-picoclaw` | `ghcr.io/cocoonstack/cocoon/ubuntu:24.04-picoclaw` |
 
 ### Android (Redroid)
 
@@ -23,7 +23,7 @@ Multi-arch (`linux/amd64`, `linux/arm64`).
 
 | Image | Tag | IMAGE_NAME |
 |-------|-----|------------|
-| Android 14 | `14.0` | `ghcr.io/projecteru2/cocoon/android:14.0` |
+| Android 14 | `14.0` | `ghcr.io/cocoonstack/cocoon/android:14.0` |
 
 Access via `adb connect <vm-ip>:5555` or `scrcpy -s <vm-ip>:5555 --no-audio`.
 
@@ -32,13 +32,13 @@ Access via `adb connect <vm-ip>:5555` or `scrcpy -s <vm-ip>:5555 --no-audio`.
 ### Ubuntu
 
 ```bash
-IMAGE_NAME="ghcr.io/projecteru2/cocoon/ubuntu:24.04" bash start.sh
+IMAGE_NAME="ghcr.io/cocoonstack/cocoon/ubuntu:24.04" bash start.sh
 ```
 
 ### Android
 
 ```bash
-IMAGE_NAME="ghcr.io/projecteru2/cocoon/android:14.0" bash start.sh
+IMAGE_NAME="ghcr.io/cocoonstack/cocoon/android:14.0" bash start.sh
 ```
 
 ## Prerequisites
@@ -59,4 +59,4 @@ IMAGE_NAME="ghcr.io/projecteru2/cocoon/android:14.0" bash start.sh
 
 Visit the GitHub Packages page for the full list of images and tags:
 
-https://github.com/orgs/projecteru2/packages?repo_name=cocoon
+https://github.com/orgs/cocoonstack/packages?repo_name=cocoon

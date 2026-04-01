@@ -3,9 +3,9 @@ package oci
 import (
 	"path/filepath"
 
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/images"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // Config holds OCI image backend specific configuration, embedding the shared BaseConfig.

@@ -3,7 +3,7 @@ package gc
 import (
 	"context"
 
-	"github.com/projecteru2/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock"
 )
 
 // runner is the internal interface Orchestrator uses to hold heterogeneous

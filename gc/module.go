@@ -3,7 +3,7 @@ package gc
 import (
 	"context"
 
-	"github.com/projecteru2/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock"
 )
 
 // Module[S] describes a typed storage module that participates in GC.

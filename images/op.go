@@ -3,8 +3,8 @@ package images
 import (
 	"context"
 
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/types"
+	"github.com/cocoonstack/cocoon/storage"
+	"github.com/cocoonstack/cocoon/types"
 )
 
 // Ops bundles the store and callbacks shared by Inspect/List/Delete.

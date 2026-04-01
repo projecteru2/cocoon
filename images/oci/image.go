@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"github.com/projecteru2/cocoon/images"
+	"github.com/cocoonstack/cocoon/images"
 )
 
 // imageIndex is the top-level structure of the OCI images.json file.

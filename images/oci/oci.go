@@ -9,13 +9,13 @@ import (
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/lock"
-	"github.com/projecteru2/cocoon/progress"
-	"github.com/projecteru2/cocoon/storage"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/images"
+	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/progress"
+	"github.com/cocoonstack/cocoon/storage"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 const (

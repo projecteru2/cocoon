@@ -77,7 +77,7 @@ Cocoon detects when CNI returns no IP allocation and automatically configures th
 
 Cloud Hypervisor v51.x had a regression ([#7849](https://github.com/cloud-hypervisor/cloud-hypervisor/issues/7849)) that caused Windows to BSOD (`DRIVER_IRQL_NOT_LESS_OR_EQUAL` in `viostor.sys`) when DISCARD/WRITE_ZEROES features were advertised with default-zero config values, violating virtio spec v1.2.
 
-**Fix**: the DISCARD fix is included in our Cloud Hypervisor fork ([CMGS/cloud-hypervisor `dev` branch](https://github.com/CMGS/cloud-hypervisor/tree/dev)). Upstream has also merged it ([PR #7936](https://github.com/cloud-hypervisor/cloud-hypervisor/pull/7936)). Cloud Hypervisor **v51** now works correctly with Windows VMs.
+**Fix**: the DISCARD fix is included in our Cloud Hypervisor fork ([cocoonstack/cloud-hypervisor `dev` branch](https://github.com/cocoonstack/cloud-hypervisor/tree/dev)). Upstream has also merged it ([PR #7936](https://github.com/cloud-hypervisor/cloud-hypervisor/pull/7936)). Cloud Hypervisor **v51** now works correctly with Windows VMs.
 
 **Previous recommendation** (no longer needed): use Cloud Hypervisor v50.2 for Windows VMs.
 
@@ -95,7 +95,7 @@ virtio-win 0.1.271+ network drivers were incompatible with Cloud Hypervisor due 
 
 0.1.285 introduced commit `50e7db9` ("indicate driver error on unexpected CX behavior") with zero-tolerance on control queue errors. Root cause was a CH bug — the correct fix is to return `VIRTIO_NET_OK` for unsupported commands and to report the correct `used_len`.
 
-**Fix**: our Cloud Hypervisor fork includes ctrl_queue command tolerance (from [@liuw](https://github.com/liuw)) plus the `used_len` fix. See [CMGS/cloud-hypervisor `fix/virtio-net-ctrl-queue` branch](https://github.com/CMGS/cloud-hypervisor/tree/fix/virtio-net-ctrl-queue) (also merged into the [`dev` branch](https://github.com/CMGS/cloud-hypervisor/tree/dev)). virtio-win **0.1.285** now works. No upstream PR exists yet.
+**Fix**: our Cloud Hypervisor fork includes ctrl_queue command tolerance (from [@liuw](https://github.com/liuw)) plus the `used_len` fix. See [cocoonstack/cloud-hypervisor `fix/virtio-net-ctrl-queue` branch](https://github.com/cocoonstack/cloud-hypervisor/tree/fix/virtio-net-ctrl-queue) (also merged into the [`dev` branch](https://github.com/cocoonstack/cloud-hypervisor/tree/dev)). virtio-win **0.1.285** now works. No upstream PR exists yet.
 
 **Previous recommendation** (no longer needed): use virtio-win 0.1.240 for Windows VMs on Cloud Hypervisor.
 
@@ -107,7 +107,7 @@ Cloud Hypervisor uses a GED (Generic Event Device, `ACPI0013`) to deliver power-
 
 **Root cause**: the EFI `ResetSystem` runtime service in [rust-hypervisor-firmware](https://github.com/cloud-hypervisor/rust-hypervisor-firmware) was a no-op. When Windows attempted a graceful shutdown via the UEFI reset path, nothing happened. Tracked in [cloud-hypervisor/rust-hypervisor-firmware#422](https://github.com/cloud-hypervisor/rust-hypervisor-firmware/issues/422) and [cloud-hypervisor/cloud-hypervisor#7929](https://github.com/cloud-hypervisor/cloud-hypervisor/issues/7929).
 
-**Fix**: our firmware fork ([CMGS/rust-hypervisor-firmware `dev` branch](https://github.com/CMGS/rust-hypervisor-firmware/tree/dev), also [`fix/reset-system` branch](https://github.com/CMGS/rust-hypervisor-firmware/tree/fix/reset-system)) implements `ResetSystem` properly. Upstream PR: [cloud-hypervisor/rust-hypervisor-firmware#423](https://github.com/cloud-hypervisor/rust-hypervisor-firmware/pull/423). With this fix, the ACPI power-button works for Windows guests, and `cocoon vm stop` completes in ~13.5 seconds.
+**Fix**: our firmware fork ([cocoonstack/rust-hypervisor-firmware `dev` branch](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev), also [`fix/reset-system` branch](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/fix/reset-system)) implements `ResetSystem` properly. Upstream PR: [cloud-hypervisor/rust-hypervisor-firmware#423](https://github.com/cloud-hypervisor/rust-hypervisor-firmware/pull/423). With this fix, the ACPI power-button works for Windows guests, and `cocoon vm stop` completes in ~13.5 seconds.
 
 **Previous consequence** (no longer applies with our firmware fork): `cocoon vm stop` always timed out on Windows VMs (default 30s), then fell back to `vm.shutdown` → SIGTERM → SIGKILL.
 

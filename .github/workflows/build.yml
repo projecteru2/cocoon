@@ -37,9 +37,9 @@ jobs:
           VERSION=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || echo dev)
           REVISION=$(git rev-parse HEAD)
           BUILTAT=$(date +%Y-%m-%dT%H:%M:%S)
-          LDFLAGS="-s -X github.com/projecteru2/cocoon/version.VERSION=${VERSION} \
-                   -X github.com/projecteru2/cocoon/version.REVISION=${REVISION} \
-                   -X github.com/projecteru2/cocoon/version.BUILTAT=${BUILTAT}"
+          LDFLAGS="-s -X github.com/cocoonstack/cocoon/version.VERSION=${VERSION} \
+                   -X github.com/cocoonstack/cocoon/version.REVISION=${REVISION} \
+                   -X github.com/cocoonstack/cocoon/version.BUILTAT=${BUILTAT}"
           go build -ldflags "${LDFLAGS}" -o cocoon-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload binary artifact

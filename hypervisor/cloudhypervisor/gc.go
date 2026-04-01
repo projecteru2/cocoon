@@ -6,10 +6,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/hypervisor"
-	"github.com/projecteru2/cocoon/types"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 const creatingStateGCGrace = 24 * time.Hour

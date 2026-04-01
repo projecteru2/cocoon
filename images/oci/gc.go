@@ -3,9 +3,9 @@ package oci
 import (
 	"os"
 
-	"github.com/projecteru2/cocoon/gc"
-	"github.com/projecteru2/cocoon/images"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/images"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // GCModule returns a typed gc.Module for the OCI backend.

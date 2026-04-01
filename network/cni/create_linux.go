@@ -13,7 +13,7 @@ import (
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // createNetns creates a named network namespace at /run/netns/{name}.

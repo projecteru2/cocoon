@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/projecteru2/cocoon/config"
-	"github.com/projecteru2/cocoon/utils"
+	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 const (
