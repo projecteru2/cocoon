@@ -72,7 +72,7 @@ func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool
 	if err != nil {
 		return nil, err
 	}
-	return forEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
+	return ch.forEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
 		rec, loadErr := ch.loadRecord(ctx, id)
 		if loadErr != nil {
 			return loadErr

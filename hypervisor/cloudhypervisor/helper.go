@@ -148,12 +148,13 @@ func blobHexFromPath(path string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// forEachVM runs fn for each ID, collects successes, and logs failures.
+// forEachVM runs fn for each ID concurrently (bounded by PoolSize),
+// collects successes, and logs failures.
 // All IDs are attempted (best-effort); errors are logged and collected.
 // The returned succeeded slice is always valid, even when err != nil.
-func forEachVM(ctx context.Context, ids []string, op string, fn func(context.Context, string) error) ([]string, error) {
+func (ch *CloudHypervisor) forEachVM(ctx context.Context, ids []string, op string, fn func(context.Context, string) error) ([]string, error) {
 	logger := log.WithFunc("cloudhypervisor." + op)
-	result := utils.ForEach(ctx, ids, fn)
+	result := utils.ForEach(ctx, ids, fn, ch.conf.PoolSize)
 	for _, err := range result.Errors {
 		logger.Warnf(ctx, "%s: %v", op, err)
 	}

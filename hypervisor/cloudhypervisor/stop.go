@@ -28,7 +28,7 @@ func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	return forEachVM(ctx, ids, "Stop", ch.stopOne)
+	return ch.forEachVM(ctx, ids, "Stop", ch.stopOne)
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
