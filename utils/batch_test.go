@@ -9,7 +9,7 @@ import (
 )
 
 func TestForEach_AllSucceed(t *testing.T) {
-	result := ForEach(context.Background(), []string{"a", "b", "c"}, func(_ context.Context, _ string) error {
+	result := ForEach(t.Context(), []string{"a", "b", "c"}, func(_ context.Context, _ string) error {
 		return nil
 	})
 
@@ -25,7 +25,7 @@ func TestForEach_AllSucceed(t *testing.T) {
 }
 
 func TestForEach_AllFail(t *testing.T) {
-	result := ForEach(context.Background(), []string{"x", "y"}, func(_ context.Context, id string) error {
+	result := ForEach(t.Context(), []string{"x", "y"}, func(_ context.Context, id string) error {
 		return fmt.Errorf("fail %s", id)
 	})
 
@@ -41,7 +41,7 @@ func TestForEach_AllFail(t *testing.T) {
 }
 
 func TestForEach_PartialFailure(t *testing.T) {
-	result := ForEach(context.Background(), []string{"ok", "fail", "ok2"}, func(_ context.Context, id string) error {
+	result := ForEach(t.Context(), []string{"ok", "fail", "ok2"}, func(_ context.Context, id string) error {
 		if id == "fail" {
 			return fmt.Errorf("error on %s", id)
 		}
@@ -57,7 +57,7 @@ func TestForEach_PartialFailure(t *testing.T) {
 }
 
 func TestForEach_EmptyIDs(t *testing.T) {
-	result := ForEach(context.Background(), nil, func(_ context.Context, _ string) error {
+	result := ForEach(t.Context(), nil, func(_ context.Context, _ string) error {
 		t.Fatal("should not be called")
 		return nil
 	})
@@ -78,7 +78,7 @@ func TestBatchResult_Err_NilForNoErrors(t *testing.T) {
 }
 
 func TestForEach_SingleID(t *testing.T) {
-	result := ForEach(context.Background(), []string{"only"}, func(_ context.Context, id string) error {
+	result := ForEach(t.Context(), []string{"only"}, func(_ context.Context, id string) error {
 		if id != "only" {
 			t.Errorf("unexpected id: %s", id)
 		}
@@ -93,7 +93,7 @@ func TestForEach_Concurrent(t *testing.T) {
 	var peak atomic.Int32
 	var cur atomic.Int32
 
-	result := ForEach(context.Background(), []string{"a", "b", "c", "d", "e"}, func(_ context.Context, _ string) error {
+	result := ForEach(t.Context(), []string{"a", "b", "c", "d", "e"}, func(_ context.Context, _ string) error {
 		n := cur.Add(1)
 		for {
 			old := peak.Load()
@@ -118,7 +118,7 @@ func TestForEach_WithConcurrencyLimit(t *testing.T) {
 	var peak atomic.Int32
 	var cur atomic.Int32
 
-	result := ForEach(context.Background(), []string{"a", "b", "c", "d", "e"}, func(_ context.Context, _ string) error {
+	result := ForEach(t.Context(), []string{"a", "b", "c", "d", "e"}, func(_ context.Context, _ string) error {
 		n := cur.Add(1)
 		for {
 			old := peak.Load()
@@ -143,7 +143,7 @@ func TestForEach_WithConcurrencyLimit(t *testing.T) {
 }
 
 func TestForEach_IntItems(t *testing.T) {
-	result := ForEach(context.Background(), []int{1, 2, 3}, func(_ context.Context, n int) error {
+	result := ForEach(t.Context(), []int{1, 2, 3}, func(_ context.Context, n int) error {
 		if n == 2 {
 			return fmt.Errorf("bad number")
 		}
@@ -159,7 +159,7 @@ func TestForEach_IntItems(t *testing.T) {
 }
 
 func TestMap_AllSucceed(t *testing.T) {
-	results, err := Map(context.Background(), []int{1, 2, 3}, func(_ context.Context, _ int, n int) (string, error) {
+	results, err := Map(t.Context(), []int{1, 2, 3}, func(_ context.Context, _ int, n int) (string, error) {
 		return fmt.Sprintf("v%d", n), nil
 	})
 	if err != nil {
@@ -177,7 +177,7 @@ func TestMap_AllSucceed(t *testing.T) {
 }
 
 func TestMap_FailFast(t *testing.T) {
-	results, err := Map(context.Background(), []int{1, 2, 3}, func(_ context.Context, _ int, n int) (string, error) {
+	results, err := Map(t.Context(), []int{1, 2, 3}, func(_ context.Context, _ int, n int) (string, error) {
 		if n == 2 {
 			return "", fmt.Errorf("fail on %d", n)
 		}
@@ -193,7 +193,7 @@ func TestMap_FailFast(t *testing.T) {
 }
 
 func TestMap_Empty(t *testing.T) {
-	results, err := Map(context.Background(), []int{}, func(_ context.Context, _ int, _ int) (string, error) {
+	results, err := Map(t.Context(), []int{}, func(_ context.Context, _ int, _ int) (string, error) {
 		t.Fatal("should not be called")
 		return "", nil
 	})
@@ -206,7 +206,7 @@ func TestMap_Empty(t *testing.T) {
 }
 
 func TestMap_PreservesOrder(t *testing.T) {
-	results, err := Map(context.Background(), []int{10, 20, 30, 40, 50}, func(_ context.Context, _ int, n int) (int, error) {
+	results, err := Map(t.Context(), []int{10, 20, 30, 40, 50}, func(_ context.Context, _ int, n int) (int, error) {
 		time.Sleep(time.Duration(50-n) * time.Millisecond) // reverse completion order
 		return n * 2, nil
 	})
@@ -225,7 +225,7 @@ func TestMap_WithConcurrencyLimit(t *testing.T) {
 	var peak atomic.Int32
 	var cur atomic.Int32
 
-	results, err := Map(context.Background(), []int{1, 2, 3, 4, 5}, func(_ context.Context, _ int, n int) (int, error) {
+	results, err := Map(t.Context(), []int{1, 2, 3, 4, 5}, func(_ context.Context, _ int, n int) (int, error) {
 		c := cur.Add(1)
 		for {
 			old := peak.Load()
@@ -250,7 +250,7 @@ func TestMap_WithConcurrencyLimit(t *testing.T) {
 
 func TestMap_IndexPassedCorrectly(t *testing.T) {
 	items := []string{"a", "b", "c"}
-	results, err := Map(context.Background(), items, func(_ context.Context, idx int, item string) (string, error) {
+	results, err := Map(t.Context(), items, func(_ context.Context, idx int, item string) (string, error) {
 		return fmt.Sprintf("%d:%s", idx, item), nil
 	})
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 )
 
 func TestWaitFor_ImmediateSuccess(t *testing.T) {
-	err := WaitFor(context.Background(), time.Second, 10*time.Millisecond, func() (bool, error) {
+	err := WaitFor(t.Context(), time.Second, 10*time.Millisecond, func() (bool, error) {
 		return true, nil
 	})
 	if err != nil {
@@ -19,7 +19,7 @@ func TestWaitFor_ImmediateSuccess(t *testing.T) {
 
 func TestWaitFor_EventualSuccess(t *testing.T) {
 	calls := 0
-	err := WaitFor(context.Background(), time.Second, 10*time.Millisecond, func() (bool, error) {
+	err := WaitFor(t.Context(), time.Second, 10*time.Millisecond, func() (bool, error) {
 		calls++
 		return calls >= 3, nil
 	})
@@ -32,7 +32,7 @@ func TestWaitFor_EventualSuccess(t *testing.T) {
 }
 
 func TestWaitFor_Timeout(t *testing.T) {
-	err := WaitFor(context.Background(), 100*time.Millisecond, 10*time.Millisecond, func() (bool, error) {
+	err := WaitFor(t.Context(), 100*time.Millisecond, 10*time.Millisecond, func() (bool, error) {
 		return false, nil
 	})
 	if err == nil {
@@ -45,7 +45,7 @@ func TestWaitFor_Timeout(t *testing.T) {
 
 func TestWaitFor_CheckError(t *testing.T) {
 	sentinel := errors.New("check failed")
-	err := WaitFor(context.Background(), time.Second, 10*time.Millisecond, func() (bool, error) {
+	err := WaitFor(t.Context(), time.Second, 10*time.Millisecond, func() (bool, error) {
 		return false, sentinel
 	})
 	if !errors.Is(err, sentinel) {

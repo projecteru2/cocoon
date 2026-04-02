@@ -84,7 +84,7 @@ func TestDoAPI_Success_GET(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body, err := DoAPI(context.Background(), srv.Client(), http.MethodGet, srv.URL+"/test", nil, http.StatusOK)
+	body, err := DoAPI(t.Context(), srv.Client(), http.MethodGet, srv.URL+"/test", nil, http.StatusOK)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestDoAPI_Success_PUT_NoContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body, err := DoAPI(context.Background(), srv.Client(), http.MethodPut, srv.URL+"/shutdown", nil, http.StatusNoContent)
+	body, err := DoAPI(t.Context(), srv.Client(), http.MethodPut, srv.URL+"/shutdown", nil, http.StatusNoContent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestDoAPI_PUT_WithBody_SetsContentType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := DoAPI(context.Background(), srv.Client(), http.MethodPut, srv.URL+"/test", []byte(`{"key":"val"}`), http.StatusNoContent)
+	_, err := DoAPI(t.Context(), srv.Client(), http.MethodPut, srv.URL+"/test", []byte(`{"key":"val"}`), http.StatusNoContent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestDoAPI_GET_NoContentType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := DoAPI(context.Background(), srv.Client(), http.MethodGet, srv.URL+"/test", nil, http.StatusOK)
+	_, err := DoAPI(t.Context(), srv.Client(), http.MethodGet, srv.URL+"/test", nil, http.StatusOK)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestDoAPI_StatusMismatch_ReturnsAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := DoAPI(context.Background(), srv.Client(), http.MethodGet, srv.URL+"/test", nil, http.StatusOK)
+	_, err := DoAPI(t.Context(), srv.Client(), http.MethodGet, srv.URL+"/test", nil, http.StatusOK)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -172,7 +172,7 @@ func TestDoAPI_StatusMismatch_ReturnsAPIError(t *testing.T) {
 
 func TestDoAPI_ConnectionError(t *testing.T) {
 	hc := &http.Client{Timeout: 100 * time.Millisecond}
-	_, err := DoAPI(context.Background(), hc, http.MethodGet, "http://127.0.0.1:1/nope", nil, http.StatusOK)
+	_, err := DoAPI(t.Context(), hc, http.MethodGet, "http://127.0.0.1:1/nope", nil, http.StatusOK)
 	if err == nil {
 		t.Fatal("expected connection error")
 	}
@@ -184,7 +184,7 @@ func TestDoAPI_ConnectionError(t *testing.T) {
 }
 
 func TestDoAPI_InvalidURL(t *testing.T) {
-	_, err := DoAPI(context.Background(), http.DefaultClient, http.MethodGet, "://bad", nil, http.StatusOK)
+	_, err := DoAPI(t.Context(), http.DefaultClient, http.MethodGet, "://bad", nil, http.StatusOK)
 	if err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
@@ -245,7 +245,7 @@ func TestCheckSocket_NotSocket(t *testing.T) {
 
 func TestDoWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 	calls := 0
-	result, err := DoWithRetry(context.Background(), func() (string, error) {
+	result, err := DoWithRetry(t.Context(), func() (string, error) {
 		calls++
 		return "ok", nil
 	})
@@ -262,7 +262,7 @@ func TestDoWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 
 func TestDoWithRetry_SuccessAfterRetries(t *testing.T) {
 	calls := 0
-	result, err := DoWithRetry(context.Background(), func() (int, error) {
+	result, err := DoWithRetry(t.Context(), func() (int, error) {
 		calls++
 		if calls < 3 {
 			return 0, fmt.Errorf("transient error") // non-APIError → retryable
@@ -282,7 +282,7 @@ func TestDoWithRetry_SuccessAfterRetries(t *testing.T) {
 
 func TestDoWithRetry_ExhaustedRetries(t *testing.T) {
 	calls := 0
-	_, err := DoWithRetry(context.Background(), func() (string, error) {
+	_, err := DoWithRetry(t.Context(), func() (string, error) {
 		calls++
 		return "", fmt.Errorf("always fails")
 	})
@@ -297,7 +297,7 @@ func TestDoWithRetry_ExhaustedRetries(t *testing.T) {
 
 func TestDoWithRetry_NonRetryableError_StopsImmediately(t *testing.T) {
 	calls := 0
-	_, err := DoWithRetry(context.Background(), func() (string, error) {
+	_, err := DoWithRetry(t.Context(), func() (string, error) {
 		calls++
 		return "", &APIError{Code: 404, Message: "not found"}
 	})
@@ -315,7 +315,7 @@ func TestDoWithRetry_NonRetryableError_StopsImmediately(t *testing.T) {
 
 func TestDoWithRetry_RetryableAPIError(t *testing.T) {
 	calls := 0
-	_, err := DoWithRetry(context.Background(), func() (string, error) {
+	_, err := DoWithRetry(t.Context(), func() (string, error) {
 		calls++
 		if calls < 3 {
 			return "", &APIError{Code: 500, Message: "server error"}
@@ -332,7 +332,7 @@ func TestDoWithRetry_RetryableAPIError(t *testing.T) {
 
 func TestDoWithRetry_429_IsRetryable(t *testing.T) {
 	calls := 0
-	_, err := DoWithRetry(context.Background(), func() (string, error) {
+	_, err := DoWithRetry(t.Context(), func() (string, error) {
 		calls++
 		if calls == 1 {
 			return "", &APIError{Code: 429, Message: "rate limited"}

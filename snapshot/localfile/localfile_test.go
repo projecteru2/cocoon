@@ -3,7 +3,6 @@ package localfile
 import (
 	"archive/tar"
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -85,7 +84,7 @@ func TestNew_NilConfig(t *testing.T) {
 
 func TestCreate(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{
 		"cow.raw":    []byte("disk data"),
@@ -120,7 +119,7 @@ func TestCreate(t *testing.T) {
 
 func TestCreate_NoName(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t)}, stream)
@@ -134,7 +133,7 @@ func TestCreate_NoName(t *testing.T) {
 
 func TestCreate_DuplicateName(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	cfg := &types.SnapshotConfig{ID: testID(t), Name: "dup"}
 
@@ -156,7 +155,7 @@ func TestCreate_DuplicateName(t *testing.T) {
 
 func TestCreate_InvalidStream(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "bad"}, strings.NewReader("not gzip"))
 	if err == nil {
@@ -168,7 +167,7 @@ func TestCreate_InvalidStream(t *testing.T) {
 
 func TestList_Empty(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	result, err := lf.List(ctx)
 	if err != nil {
@@ -181,7 +180,7 @@ func TestList_Empty(t *testing.T) {
 
 func TestList(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for _, name := range []string{"s1", "s2", "s3"} {
 		stream := makeTarGz(t, map[string][]byte{"f.txt": []byte(name)})
@@ -213,7 +212,7 @@ func TestList(t *testing.T) {
 
 func TestInspect_ByID(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "byid", Description: "desc"}, stream)
@@ -238,7 +237,7 @@ func TestInspect_ByID(t *testing.T) {
 
 func TestInspect_ByName(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "byname"}, stream)
@@ -257,7 +256,7 @@ func TestInspect_ByName(t *testing.T) {
 
 func TestInspect_ByPrefix(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "pfx"}, stream)
@@ -278,7 +277,7 @@ func TestInspect_ByPrefix(t *testing.T) {
 
 func TestInspect_NotFound(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := lf.Inspect(ctx, "nonexistent")
 	if err == nil {
@@ -293,7 +292,7 @@ func TestInspect_NotFound(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "del"}, stream)
@@ -328,7 +327,7 @@ func TestDelete(t *testing.T) {
 
 func TestDelete_ByID(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "delid"}, stream)
@@ -347,7 +346,7 @@ func TestDelete_ByID(t *testing.T) {
 
 func TestDelete_Multiple(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var ids []string
 	for _, name := range []string{"m1", "m2", "m3"} {
@@ -376,7 +375,7 @@ func TestDelete_Multiple(t *testing.T) {
 
 func TestDelete_DuplicateRefs(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "dedup"}, stream)
@@ -396,7 +395,7 @@ func TestDelete_DuplicateRefs(t *testing.T) {
 
 func TestDelete_NotFound(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := lf.Delete(ctx, []string{"nonexistent"})
 	if err == nil {
@@ -408,7 +407,7 @@ func TestDelete_NotFound(t *testing.T) {
 
 func TestCreate_Inspect_Fields(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"cow.raw": []byte("data")})
 	cfg := &types.SnapshotConfig{
@@ -445,7 +444,7 @@ func TestCreate_Inspect_Fields(t *testing.T) {
 
 func TestDelete_RecreateName(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream1 := makeTarGz(t, map[string][]byte{"f.txt": []byte("v1")})
 	_, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "reuse"}, stream1)
@@ -476,7 +475,7 @@ func TestDelete_RecreateName(t *testing.T) {
 
 func TestDataDir(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"cow.raw": []byte("disk")})
 	cfg := &types.SnapshotConfig{
@@ -513,7 +512,7 @@ func TestDataDir(t *testing.T) {
 
 func TestDataDir_NotFound(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _, err := lf.DataDir(ctx, "nonexistent")
 	if err == nil {
@@ -526,7 +525,7 @@ func TestDataDir_NotFound(t *testing.T) {
 
 func TestDataDir_ImageBlobIDsIsolation(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	cfg := &types.SnapshotConfig{
@@ -563,7 +562,7 @@ func TestDataDir_ImageBlobIDsIsolation(t *testing.T) {
 
 func TestRestore_ConfigRoundtrip(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"cow.raw": []byte("disk")})
 	cfg := &types.SnapshotConfig{
@@ -617,7 +616,7 @@ func TestRestore_ConfigRoundtrip(t *testing.T) {
 
 func TestRestore_DataStream(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wantContent := []byte("hello snapshot data")
 	stream := makeTarGz(t, map[string][]byte{"state.json": wantContent})
@@ -660,7 +659,7 @@ func TestRestore_DataStream(t *testing.T) {
 
 func TestRestore_CloseWaitsForGoroutine(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "cw"}, stream)
@@ -684,7 +683,7 @@ func TestRestore_CloseWaitsForGoroutine(t *testing.T) {
 
 func TestRestore_DoubleCloseNoPanic(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: "dc"}, stream)
@@ -705,7 +704,7 @@ func TestRestore_DoubleCloseNoPanic(t *testing.T) {
 
 func TestRestore_ImageBlobIDsIsolation(t *testing.T) {
 	lf := newTestLF(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stream := makeTarGz(t, map[string][]byte{"f.txt": []byte("x")})
 	cfg := &types.SnapshotConfig{

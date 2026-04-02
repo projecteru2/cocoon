@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -275,7 +274,7 @@ func TestRemoveMatching_Basic(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "remove.tmp"), []byte("r"), 0o644) //nolint:errcheck
 	os.WriteFile(filepath.Join(dir, "also.tmp"), []byte("r2"), 0o644)  //nolint:errcheck
 
-	errs := RemoveMatching(context.Background(), dir, func(e os.DirEntry) bool {
+	errs := RemoveMatching(t.Context(), dir, func(e os.DirEntry) bool {
 		return filepath.Ext(e.Name()) == ".tmp"
 	})
 	if len(errs) != 0 {
@@ -293,7 +292,7 @@ func TestRemoveMatching_Basic(t *testing.T) {
 }
 
 func TestRemoveMatching_NonexistentDir(t *testing.T) {
-	errs := RemoveMatching(context.Background(), "/nonexistent/dir", func(_ os.DirEntry) bool {
+	errs := RemoveMatching(t.Context(), "/nonexistent/dir", func(_ os.DirEntry) bool {
 		return true
 	})
 	if len(errs) != 0 {
@@ -305,7 +304,7 @@ func TestRemoveMatching_NoMatches(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "file.txt"), []byte("x"), 0o644) //nolint:errcheck
 
-	errs := RemoveMatching(context.Background(), dir, func(_ os.DirEntry) bool {
+	errs := RemoveMatching(t.Context(), dir, func(_ os.DirEntry) bool {
 		return false
 	})
 	if len(errs) != 0 {
@@ -327,7 +326,7 @@ func TestRemoveMatching_RemoveAllError(t *testing.T) {
 	os.Chmod(sub, 0o444)                       //nolint:errcheck
 	t.Cleanup(func() { os.Chmod(sub, 0o755) }) //nolint:errcheck
 
-	errs := RemoveMatching(context.Background(), dir, func(e os.DirEntry) bool {
+	errs := RemoveMatching(t.Context(), dir, func(e os.DirEntry) bool {
 		return e.Name() == "protected"
 	})
 	// On some systems RemoveAll may succeed even without write, so just verify no panic.
@@ -340,7 +339,7 @@ func TestRemoveMatching_RemovesSubdirs(t *testing.T) {
 	os.Mkdir(sub, 0o755)                                              //nolint:errcheck
 	os.WriteFile(filepath.Join(sub, "inner.txt"), []byte("x"), 0o644) //nolint:errcheck
 
-	errs := RemoveMatching(context.Background(), dir, func(e os.DirEntry) bool {
+	errs := RemoveMatching(t.Context(), dir, func(e os.DirEntry) bool {
 		return e.IsDir()
 	})
 	if len(errs) != 0 {
