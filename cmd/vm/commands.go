@@ -129,6 +129,7 @@ func Command(h Actions) *cobra.Command {
 	}
 	statusCmd.Flags().IntP("interval", "n", 5, "poll interval in seconds") //nolint:mnd
 	statusCmd.Flags().Bool("event", false, "event stream mode (append changes instead of refreshing)")
+	statusCmd.Flags().String("format", "", "output format: json (event mode only)")
 
 	vmCmd.AddCommand(
 		createCmd,

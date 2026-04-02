@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -283,8 +284,14 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
 
+	format, _ := cmd.Flags().GetString("format")
+
 	if eventMode {
-		statusEventLoop(ctx, hyper, args, watchCh, ticker.C)
+		if format == "json" {
+			statusEventLoopJSON(ctx, hyper, args, watchCh, ticker.C)
+		} else {
+			statusEventLoop(ctx, hyper, args, watchCh, ticker.C)
+		}
 	} else {
 		isTTY := term.IsTerminal(os.Stdout.Fd())
 		statusRefreshLoop(ctx, hyper, args, watchCh, ticker.C, isTTY)
@@ -361,6 +368,42 @@ func statusEventLoop(ctx context.Context, hyper hypervisor.Hypervisor, filters [
 			}
 		}
 		_ = w.Flush()
+		prev = curr
+	})
+}
+
+// vmEvent is a JSON-serializable VM state change event for machine consumption.
+type vmEvent struct {
+	Event string   `json:"event"` // ADDED, MODIFIED, DELETED
+	VM    types.VM `json:"vm"`
+}
+
+func statusEventLoopJSON(ctx context.Context, hyper hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
+	enc := json.NewEncoder(os.Stdout)
+	prev := map[string]*types.VM{}
+	runLoop(ctx, watchCh, tick, func() {
+		vms := listAndFilter(ctx, hyper, filters)
+		curr := make(map[string]*types.VM, len(vms))
+		for _, vm := range vms {
+			// Reconcile state (check process liveness) before emitting.
+			vm.State = types.VMState(cmdcore.ReconcileState(vm))
+			curr[vm.ID] = vm
+		}
+
+		for id, vm := range curr {
+			old, existed := prev[id]
+			switch {
+			case !existed:
+				_ = enc.Encode(vmEvent{Event: "ADDED", VM: *vm})
+			case takeSnapshot(old) != takeSnapshot(vm):
+				_ = enc.Encode(vmEvent{Event: "MODIFIED", VM: *vm})
+			}
+		}
+		for id, vm := range prev {
+			if _, exists := curr[id]; !exists {
+				_ = enc.Encode(vmEvent{Event: "DELETED", VM: *vm})
+			}
+		}
 		prev = curr
 	})
 }
