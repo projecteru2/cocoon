@@ -29,5 +29,13 @@ type Snapshot interface {
 	// Restore restores a snapshot by ID or name, returning the snapshot config and a data stream.
 	Restore(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
 
+	// Export streams the snapshot as a gzip-compressed tar archive.
+	// The archive includes a snapshot.json metadata entry followed by data files.
+	Export(ctx context.Context, ref string) (io.ReadCloser, error)
+	// Import reads a gzip-compressed tar archive (with snapshot.json metadata),
+	// stores the snapshot, and returns the new snapshot ID.
+	// Name and description override values from snapshot.json if non-empty.
+	Import(ctx context.Context, r io.Reader, name, description string) (string, error)
+
 	RegisterGC(*gc.Orchestrator)
 }

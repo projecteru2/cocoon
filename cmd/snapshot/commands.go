@@ -12,6 +12,8 @@ type Actions interface {
 	List(cmd *cobra.Command, args []string) error
 	Inspect(cmd *cobra.Command, args []string) error
 	RM(cmd *cobra.Command, args []string) error
+	Export(cmd *cobra.Command, args []string) error
+	Import(cmd *cobra.Command, args []string) error
 }
 
 // Command builds the "snapshot" parent command with all subcommands.
@@ -53,6 +55,23 @@ func Command(h Actions) *cobra.Command {
 		RunE:  h.RM,
 	}
 
-	snapshotCmd.AddCommand(saveCmd, listCmd, inspectCmd, rmCmd)
+	exportCmd := &cobra.Command{
+		Use:   "export SNAPSHOT",
+		Short: "Export a snapshot to a portable archive file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.Export,
+	}
+	exportCmd.Flags().StringP("output", "o", "", "output file path (default: <name-or-id>.tar.gz)")
+
+	importCmd := &cobra.Command{
+		Use:   "import FILE",
+		Short: "Import a snapshot from a portable archive file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.Import,
+	}
+	importCmd.Flags().String("name", "", "override snapshot name")
+	importCmd.Flags().String("description", "", "override snapshot description")
+
+	snapshotCmd.AddCommand(saveCmd, listCmd, inspectCmd, rmCmd, exportCmd, importCmd)
 	return snapshotCmd
 }

@@ -26,3 +26,9 @@ type Snapshot struct {
 	SnapshotConfig
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// SnapshotExport is the envelope written as snapshot.json inside an export archive.
+type SnapshotExport struct {
+	Version int            `json:"version"`
+	Config  SnapshotConfig `json:"config"`
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"slices"
 	"text/tabwriter"
 	"time"
@@ -157,6 +159,97 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("inspect: %w", err)
 	}
 	return cmdcore.OutputJSON(s)
+}
+
+func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	logger := log.WithFunc("cmd.snapshot.export")
+	snapBackend, err := cmdcore.InitSnapshot(conf)
+	if err != nil {
+		return err
+	}
+
+	ref := args[0]
+	output, _ := cmd.Flags().GetString("output")
+
+	// Derive default output filename from snapshot name or ID.
+	if output == "" {
+		snap, inspectErr := snapBackend.Inspect(ctx, ref)
+		if inspectErr != nil {
+			return fmt.Errorf("inspect: %w", inspectErr)
+		}
+		base := snap.Name
+		if base == "" {
+			base = snap.ID
+		}
+		output = base + ".tar.gz"
+	}
+
+	stream, err := snapBackend.Export(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("export: %w", err)
+	}
+	defer stream.Close() //nolint:errcheck
+
+	stop := context.AfterFunc(ctx, func() {
+		stream.Close() //nolint:errcheck,gosec
+	})
+	defer stop()
+
+	f, err := os.Create(output) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("create output file: %w", err)
+	}
+	defer func() {
+		_ = f.Close()
+		if err != nil {
+			os.Remove(output) //nolint:errcheck,gosec
+		}
+	}()
+
+	logger.Infof(ctx, "exporting to %s ...", output)
+
+	if _, err = io.Copy(f, stream); err != nil {
+		return fmt.Errorf("write archive: %w", err)
+	}
+
+	logger.Infof(ctx, "exported: %s", output)
+	return nil
+}
+
+func (h Handler) Import(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	logger := log.WithFunc("cmd.snapshot.import")
+	snapBackend, err := cmdcore.InitSnapshot(conf)
+	if err != nil {
+		return err
+	}
+
+	filePath := args[0]
+	name, _ := cmd.Flags().GetString("name")
+	description, _ := cmd.Flags().GetString("description")
+
+	f, err := os.Open(filePath) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("open archive: %w", err)
+	}
+	defer f.Close() //nolint:errcheck
+
+	logger.Infof(ctx, "importing from %s ...", filePath)
+
+	snapID, err := snapBackend.Import(ctx, f, name, description)
+	if err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+
+	logger.Infof(ctx, "snapshot imported: %s", snapID)
+	return nil
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
