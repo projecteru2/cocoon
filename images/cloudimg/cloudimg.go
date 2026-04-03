@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"golang.org/x/sync/singleflight"
-
 	"github.com/projecteru2/core/log"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/images"
