@@ -122,7 +122,7 @@ cocoon
 │   ├── pull IMAGE [IMAGE...]      Pull OCI image(s) or cloud image URL(s)
 │   ├── list (alias: ls)           List locally stored images
 │   ├── rm ID [ID...]              Delete locally stored image(s)
-│   ├── import NAME [FILE]         Import image from file or stdin
+│   ├── import NAME [FILE...]      Import image from file(s) or stdin
 │   └── inspect IMAGE              Show detailed image info (JSON)
 ├── vm
 │   ├── create [flags] IMAGE       Create a VM from an image
@@ -226,6 +226,7 @@ Applies to `cocoon vm status`:
 | ------------------ | ------- | ------------------------------------------------------- |
 | `--interval`, `-n` | `5`     | Poll interval in seconds                                |
 | `--event`          | `false` | Event stream mode (append changes instead of refreshing) |
+| `--format`         |         | Output format: `json` (event mode only)                  |
 
 ### Debug-only Flags
 
