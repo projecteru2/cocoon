@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -132,51 +130,6 @@ func TestDetectReader_Empty(t *testing.T) {
 	_, _, _, err := detectReader(bytes.NewReader(nil))
 	if err == nil {
 		t.Fatal("expected error for empty input")
-	}
-}
-
-func TestIsGzipFile(t *testing.T) {
-	dir := t.TempDir()
-
-	// gzip file.
-	gzPath := filepath.Join(dir, "test.gz")
-	if err := os.WriteFile(gzPath, gzipWrap(t, []byte("hello")), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if !isGzipFile(gzPath) {
-		t.Error("expected gzip file to be detected")
-	}
-
-	// non-gzip file.
-	rawPath := filepath.Join(dir, "test.raw")
-	if err := os.WriteFile(rawPath, []byte("not gzip"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if isGzipFile(rawPath) {
-		t.Error("expected non-gzip file to not be detected")
-	}
-
-	// qcow2 file should not be detected as gzip.
-	qcow2Path := filepath.Join(dir, "test.qcow2")
-	if err := os.WriteFile(qcow2Path, append(qcow2Magic, make([]byte, 100)...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if isGzipFile(qcow2Path) {
-		t.Error("qcow2 file should not be detected as gzip")
-	}
-
-	// nonexistent file.
-	if isGzipFile(filepath.Join(dir, "nope")) {
-		t.Error("nonexistent file should return false")
-	}
-
-	// empty file.
-	emptyPath := filepath.Join(dir, "empty")
-	if err := os.WriteFile(emptyPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if isGzipFile(emptyPath) {
-		t.Error("empty file should return false")
 	}
 }
 

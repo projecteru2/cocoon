@@ -26,10 +26,6 @@ import (
 func importQcow2File(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, filePath string) error {
 	logger := log.WithFunc("cloudimg.import")
 
-	if _, err := os.Stat(filePath); err != nil {
-		return fmt.Errorf("file %s: %w", filePath, err)
-	}
-
 	// Phase 1: hash the file in place (no copy).
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDownload})
 

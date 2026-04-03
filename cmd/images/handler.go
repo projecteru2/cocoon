@@ -63,19 +63,31 @@ func (h Handler) Import(cmd *cobra.Command, args []string) error {
 
 	name := args[0]
 
-	// Raw qcow2 file on disk → optimized path (no temp copy).
 	if len(args) > 1 {
 		filePath := args[1]
-		if !isGzipFile(filePath) && cloudimg.IsQcow2File(filePath) {
-			logger.Infof(ctx, "importing qcow2 file %s ...", filePath)
-			return h.importCloudimgFile(ctx, conf, name, filePath)
-		}
-		// Other file types → reader path.
+		// Open once, peek 4 bytes to detect type.
 		f, openErr := os.Open(filePath) //nolint:gosec
 		if openErr != nil {
 			return fmt.Errorf("open %s: %w", filePath, openErr)
 		}
 		defer f.Close() //nolint:errcheck
+
+		var magic [4]byte
+		n, _ := io.ReadFull(f, magic[:])
+		isGzip := n >= 2 && magic[0] == 0x1f && magic[1] == 0x8b                                       //nolint:gosec // bounds checked by n >= 2
+		isQcow2 := n >= 4 && magic[0] == 'Q' && magic[1] == 'F' && magic[2] == 'I' && magic[3] == 0xfb //nolint:gosec // bounds checked by n >= 4
+
+		// Raw qcow2 file on disk → optimized path (no temp copy).
+		if !isGzip && isQcow2 {
+			_ = f.Close()
+			logger.Infof(ctx, "importing qcow2 file %s ...", filePath)
+			return h.importCloudimgFile(ctx, conf, name, filePath)
+		}
+
+		// Other file types → reader path (seek back to start).
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("seek %s: %w", filePath, err)
+		}
 		logger.Infof(ctx, "importing from %s ...", filePath)
 		return h.importFromReader(ctx, conf, name, f)
 	}
@@ -363,19 +375,4 @@ func detectReader(r io.Reader) (io.Reader, imageType, func(), error) {
 
 	// Default to tar.
 	return inner, imageTypeTar, cleanup, nil
-}
-
-// isGzipFile checks if a file starts with the gzip magic bytes (0x1f 0x8b).
-func isGzipFile(path string) bool {
-	f, err := os.Open(path) //nolint:gosec
-	if err != nil {
-		return false
-	}
-	defer f.Close() //nolint:errcheck
-
-	var magic [2]byte
-	if _, err := io.ReadFull(f, magic[:]); err != nil {
-		return false
-	}
-	return magic[0] == 0x1f && magic[1] == 0x8b //nolint:gosec // fixed-size array, ReadFull error checked above
 }
