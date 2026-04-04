@@ -380,28 +380,31 @@ type vmEvent struct {
 
 func statusEventLoopJSON(ctx context.Context, hyper hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	enc := json.NewEncoder(os.Stdout)
-	prev := map[string]*types.VM{}
+	type snapshotWithVM struct {
+		snap vmSnapshot
+		vm   types.VM
+	}
+	prev := map[string]snapshotWithVM{}
 	runLoop(ctx, watchCh, tick, func() {
 		vms := listAndFilter(ctx, hyper, filters)
-		curr := make(map[string]*types.VM, len(vms))
+		curr := make(map[string]snapshotWithVM, len(vms))
 		for _, vm := range vms {
-			// Reconcile state (check process liveness) before emitting.
 			vm.State = types.VMState(cmdcore.ReconcileState(vm))
-			curr[vm.ID] = vm
+			curr[vm.ID] = snapshotWithVM{snap: takeSnapshot(vm), vm: *vm}
 		}
 
-		for id, vm := range curr {
+		for id, entry := range curr {
 			old, existed := prev[id]
 			switch {
 			case !existed:
-				_ = enc.Encode(vmEvent{Event: "ADDED", VM: *vm})
-			case takeSnapshot(old) != takeSnapshot(vm):
-				_ = enc.Encode(vmEvent{Event: "MODIFIED", VM: *vm})
+				_ = enc.Encode(vmEvent{Event: "ADDED", VM: entry.vm})
+			case old.snap != entry.snap:
+				_ = enc.Encode(vmEvent{Event: "MODIFIED", VM: entry.vm})
 			}
 		}
-		for id, vm := range prev {
+		for id, entry := range prev {
 			if _, exists := curr[id]; !exists {
-				_ = enc.Encode(vmEvent{Event: "DELETED", VM: *vm})
+				_ = enc.Encode(vmEvent{Event: "DELETED", VM: entry.vm})
 			}
 		}
 		prev = curr
