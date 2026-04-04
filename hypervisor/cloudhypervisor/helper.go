@@ -2,9 +2,11 @@ package cloudhypervisor
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -221,17 +223,11 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 		return nil
 	}
 
-	out, err := exec.CommandContext(ctx, "qemu-img", "info", "--output=json", path).Output() //nolint:gosec
+	virtualSize, err := readQcow2VirtualSize(path)
 	if err != nil {
-		return fmt.Errorf("qemu-img info %s: %w", path, err)
+		return fmt.Errorf("read qcow2 virtual size %s: %w", path, err)
 	}
-	var info struct {
-		VirtualSize int64 `json:"virtual-size"`
-	}
-	if err := json.Unmarshal(out, &info); err != nil {
-		return fmt.Errorf("parse qemu-img info %s: %w", path, err)
-	}
-	if targetSize <= info.VirtualSize {
+	if targetSize <= virtualSize {
 		return nil
 	}
 	if out, err := exec.CommandContext(ctx, //nolint:gosec
@@ -240,6 +236,21 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 		return fmt.Errorf("qemu-img resize %s: %s: %w", path, strings.TrimSpace(string(out)), err)
 	}
 	return nil
+}
+
+// readQcow2VirtualSize reads the virtual size from a qcow2 file header.
+// The qcow2 header stores the virtual size as a big-endian uint64 at offset 24.
+func readQcow2VirtualSize(path string) (int64, error) {
+	f, err := os.Open(path) //nolint:gosec
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close() //nolint:errcheck
+	var hdr [32]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		return 0, fmt.Errorf("read header: %w", err)
+	}
+	return int64(binary.BigEndian.Uint64(hdr[24:32])), nil //nolint:gosec // qcow2 virtual size fits int64
 }
 
 func removeVMDirs(runDir, logDir string) error {

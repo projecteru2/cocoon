@@ -135,7 +135,7 @@ func TestPatchCHConfig_PreservesUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	path := writeCHConfig(t, dir, baseCHConfig())
 
-	if err := patchCHConfig(path, basePatchOpts()); err != nil {
+	if err := patchCHConfig(path, basePatchOpts(), nil, nil); err != nil {
 		t.Fatalf("patchCHConfig: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestPatchCHConfig_UpdatesDiskPaths(t *testing.T) {
 	path := writeCHConfig(t, dir, baseCHConfig())
 
 	opts := basePatchOpts()
-	if err := patchCHConfig(path, opts); err != nil {
+	if err := patchCHConfig(path, opts, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,7 +226,7 @@ func TestPatchCHConfig_SerialConsole(t *testing.T) {
 
 		opts := basePatchOpts()
 		opts.directBoot = true
-		if err := patchCHConfig(path, opts); err != nil {
+		if err := patchCHConfig(path, opts, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 
@@ -250,7 +250,7 @@ func TestPatchCHConfig_SerialConsole(t *testing.T) {
 		opts := basePatchOpts()
 		opts.directBoot = false
 		opts.consoleSock = "/new/console.sock"
-		if err := patchCHConfig(path, opts); err != nil {
+		if err := patchCHConfig(path, opts, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 
@@ -276,7 +276,7 @@ func TestPatchCHConfig_CPUMemoryBalloon(t *testing.T) {
 	opts := basePatchOpts()
 	opts.cpu = 4
 	opts.memory = 2 << 30 // 2 GiB
-	if err := patchCHConfig(path, opts); err != nil {
+	if err := patchCHConfig(path, opts, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -317,7 +317,7 @@ func TestPatchCHConfig_BalloonRemoved(t *testing.T) {
 
 	opts := basePatchOpts()
 	opts.memory = 128 << 20 // 128 MiB, below minBalloonMemory
-	if err := patchCHConfig(path, opts); err != nil {
+	if err := patchCHConfig(path, opts, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -335,7 +335,7 @@ func TestPatchCHConfig_BalloonCreated(t *testing.T) {
 
 	opts := basePatchOpts()
 	opts.memory = 1 << 30 // 1 GiB
-	if err := patchCHConfig(path, opts); err != nil {
+	if err := patchCHConfig(path, opts, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -360,7 +360,7 @@ func TestPatchCHConfig_DiskCountMismatch(t *testing.T) {
 	opts := basePatchOpts()
 	// 3 storage configs vs 2 disks in config.
 	opts.storageConfigs = append(opts.storageConfigs, &types.StorageConfig{Path: "/extra"})
-	err := patchCHConfig(path, opts)
+	err := patchCHConfig(path, opts, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for disk count mismatch")
 	}

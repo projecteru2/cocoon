@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/projecteru2/core/log"
 
@@ -13,55 +14,85 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// compile-time interface check.
 var _ storage.Store[struct{}] = (*Store[struct{}])(nil)
 
-// Store provides locked read/modify/write access to a JSON file.
-// T is the top-level structure stored in the file (must have exported fields with json tags).
-// If *T implements storage.Initer, Init() is called automatically after loading.
-// The caller provides the Locker, decoupling storage from any specific lock implementation.
 type Store[T any] struct {
 	filePath string
 	locker   lock.Locker
+
+	mu    sync.Mutex
+	cache *T
+	valid bool
 }
 
-// New creates a Store backed by filePath, using locker for mutual exclusion.
 func New[T any](filePath string, locker lock.Locker) *Store[T] {
 	return &Store[T]{filePath: filePath, locker: locker}
 }
 
-// ReadRaw deserializes the JSON file and passes the data to fn.
-// The caller must already hold the lock (via TryLock).
-func (s *Store[T]) ReadRaw(fn func(*T) error) error {
+func (s *Store[T]) load() (*T, error) {
+	s.mu.Lock()
+	if s.valid {
+		data := s.cache
+		s.mu.Unlock()
+		return data, nil
+	}
+	s.mu.Unlock()
+
 	var data T
-	raw, err := os.ReadFile(s.filePath) //nolint:gosec // internal metadata
+	raw, err := os.ReadFile(s.filePath) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
 			initData(&data)
-			return fn(&data)
+			s.setCache(&data)
+			return &data, nil
 		}
-		return fmt.Errorf("read %s: %w", s.filePath, err)
+		return nil, fmt.Errorf("read %s: %w", s.filePath, err)
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
-		return fmt.Errorf("parse %s: %w", s.filePath, err)
+		return nil, fmt.Errorf("parse %s: %w", s.filePath, err)
 	}
 	initData(&data)
-	return fn(&data)
+	s.setCache(&data)
+	return &data, nil
 }
 
-// WriteRaw deserializes the JSON file, passes the data to fn, and atomically
-// persists the result if fn returns nil.
-// The caller must already hold the lock (via TryLock).
+func (s *Store[T]) setCache(data *T) {
+	s.mu.Lock()
+	s.cache = data
+	s.valid = true
+	s.mu.Unlock()
+}
+
+func (s *Store[T]) invalidateCache() {
+	s.mu.Lock()
+	s.cache = nil
+	s.valid = false
+	s.mu.Unlock()
+}
+
+func (s *Store[T]) ReadRaw(fn func(*T) error) error {
+	data, err := s.load()
+	if err != nil {
+		return err
+	}
+	return fn(data)
+}
+
 func (s *Store[T]) WriteRaw(fn func(*T) error) error {
-	return s.ReadRaw(func(data *T) error {
-		if err := fn(data); err != nil {
-			return err
-		}
-		return utils.AtomicWriteJSON(s.filePath, data)
-	})
+	data, err := s.load()
+	if err != nil {
+		return err
+	}
+	if err := fn(data); err != nil {
+		return err
+	}
+	if err := utils.AtomicWriteJSON(s.filePath, data); err != nil {
+		s.invalidateCache()
+		return err
+	}
+	return nil
 }
 
-// withLocked acquires the lock, runs fn, then releases.
 func (s *Store[T]) withLocked(ctx context.Context, fn func() error) error {
 	if err := s.locker.Lock(ctx); err != nil {
 		return err
@@ -74,23 +105,18 @@ func (s *Store[T]) withLocked(ctx context.Context, fn func() error) error {
 	return fn()
 }
 
-// With acquires the lock (blocking), calls Read under lock, then releases.
 func (s *Store[T]) With(ctx context.Context, fn func(*T) error) error {
 	return s.withLocked(ctx, func() error { return s.ReadRaw(fn) })
 }
 
-// Update acquires the lock (blocking), calls Write under lock, then releases.
-// If fn returns nil the data is atomically persisted.
 func (s *Store[T]) Update(ctx context.Context, fn func(*T) error) error {
 	return s.withLocked(ctx, func() error { return s.WriteRaw(fn) })
 }
 
-// TryLock delegates to the underlying locker.
 func (s *Store[T]) TryLock(ctx context.Context) (bool, error) {
 	return s.locker.TryLock(ctx)
 }
 
-// Unlock delegates to the underlying locker.
 func (s *Store[T]) Unlock(ctx context.Context) error {
 	return s.locker.Unlock(ctx)
 }

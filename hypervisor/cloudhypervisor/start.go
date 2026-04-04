@@ -26,7 +26,11 @@ func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	return ch.forEachVM(ctx, ids, "Start", ch.startOne)
+	succeeded, forEachErr := ch.forEachVM(ctx, ids, "Start", ch.startOne)
+	if batchErr := ch.batchMarkStarted(ctx, succeeded); batchErr != nil {
+		log.WithFunc("cloudhypervisor.Start").Warnf(ctx, "batch state update: %v", batchErr)
+	}
+	return succeeded, forEachErr
 }
 
 func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
@@ -35,66 +39,54 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Idempotent: skip if the VM process is already running regardless of
-	// recorded state — prevents double-launch after a state-update failure.
-	runErr := ch.withRunningVM(ctx, &rec, func(_ int) error {
-		if rec.State != types.VMStateRunning {
-			return ch.updateState(ctx, id, types.VMStateRunning)
-		}
-		return nil
-	})
+	runErr := ch.withRunningVM(ctx, &rec, func(_ int) error { return nil })
 	switch {
 	case runErr == nil:
-		return nil // already running
+		return nil
 	case errors.Is(runErr, hypervisor.ErrNotRunning):
-		// expected — proceed to launch
 	default:
-		// VM is running but state update failed — do not re-launch.
 		return fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}
 
-	// Ensure per-VM runtime and log directories exist (use persisted paths
-	// from create time — never overwrite them so cleanup stays consistent).
 	if err = utils.EnsureDirs(rec.RunDir, rec.LogDir); err != nil {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	// Clean up stale runtime files from any previous run.
 	cleanupRuntimeFiles(ctx, rec.RunDir)
 
 	socketPath := socketPath(rec.RunDir)
 	consoleSock := consoleSockPath(rec.RunDir)
 
-	// Build VM config and convert to CLI args — CH boots immediately on launch.
 	vmCfg := buildVMConfig(ctx, &rec, consoleSock)
 	args := buildCLIArgs(vmCfg, socketPath)
 	ch.saveCmdline(ctx, &rec, args)
 
-	// Launch the CH process with full config.
 	withNetwork := len(rec.NetworkConfigs) > 0
-	pid, err := ch.launchProcess(ctx, &rec, socketPath, args, withNetwork)
-	if err != nil {
+	if _, err = ch.launchProcess(ctx, &rec, socketPath, args, withNetwork); err != nil {
 		ch.markError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}
-
-	// Persist running state. Console path is resolved lazily by Console() on first access.
-	now := time.Now()
-	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[id]
-		if r == nil {
-			return fmt.Errorf("VM %s disappeared from index", id)
-		}
-		r.State = types.VMStateRunning
-		r.StartedAt = &now
-		r.UpdatedAt = now
-		r.FirstBooted = true
-		return nil
-	}); err != nil {
-		ch.abortLaunch(ctx, pid, socketPath, rec.RunDir)
-		return fmt.Errorf("update state: %w", err)
-	}
 	return nil
+}
+
+func (ch *CloudHypervisor) batchMarkStarted(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	now := time.Now()
+	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		for _, id := range ids {
+			r := idx.VMs[id]
+			if r == nil {
+				continue
+			}
+			r.State = types.VMStateRunning
+			r.StartedAt = &now
+			r.UpdatedAt = now
+			r.FirstBooted = true
+		}
+		return nil
+	})
 }
 
 // launchProcess starts the cloud-hypervisor binary with the given args,

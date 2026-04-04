@@ -40,19 +40,28 @@ func (ch *CloudHypervisor) withRunningVM(ctx context.Context, rec *hypervisor.VM
 }
 
 func (ch *CloudHypervisor) updateState(ctx context.Context, id string, state types.VMState) error {
+	return ch.updateStates(ctx, []string{id}, state)
+}
+
+func (ch *CloudHypervisor) updateStates(ctx context.Context, ids []string, state types.VMState) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	now := time.Now()
 	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[id]
-		if r == nil {
-			return fmt.Errorf("VM %q not found in index", id)
-		}
-		r.State = state
-		r.UpdatedAt = now
-		switch state {
-		case types.VMStateRunning:
-			r.StartedAt = &now
-		case types.VMStateStopped:
-			r.StoppedAt = &now
+		for _, id := range ids {
+			r := idx.VMs[id]
+			if r == nil {
+				continue
+			}
+			r.State = state
+			r.UpdatedAt = now
+			switch state {
+			case types.VMStateRunning:
+				r.StartedAt = &now
+			case types.VMStateStopped:
+				r.StoppedAt = &now
+			}
 		}
 		return nil
 	})
@@ -77,10 +86,10 @@ func (ch *CloudHypervisor) reserveVM(ctx context.Context, id string, vmCfg *type
 	now := time.Now()
 	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		if idx.VMs[id] != nil {
-			return fmt.Errorf("ID collision %q (retry)", id)
+			return fmt.Errorf("id collision %q (retry)", id)
 		}
 		if dup, ok := idx.Names[vmCfg.Name]; ok {
-			return fmt.Errorf("VM name %q already exists (id: %s)", vmCfg.Name, dup)
+			return fmt.Errorf("vm name %q already exists (id: %s)", vmCfg.Name, dup)
 		}
 		idx.VMs[id] = &hypervisor.VMRecord{
 			VM: types.VM{

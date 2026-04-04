@@ -586,7 +586,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	if len(deleted) > 0 {
 		if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
 			if _, delErr := netProvider.Delete(ctx, deleted); delErr != nil {
-				return fmt.Errorf("VM(s) deleted but network cleanup failed: %w", delErr)
+				return fmt.Errorf("vm(s) deleted but network cleanup failed: %w", delErr)
 			}
 		}
 	}
@@ -634,7 +634,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 
 	// Validate NIC count matches.
 	if snapInfo.NICs != len(vm.NetworkConfigs) {
-		return fmt.Errorf("NIC count mismatch: VM has %d, snapshot has %d",
+		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), snapInfo.NICs)
 	}
 

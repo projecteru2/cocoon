@@ -40,7 +40,7 @@ func tryFiclone(dst, src string) error {
 
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, dstFile.Fd(), ficlone, srcFile.Fd())
 	if errno != 0 {
-		err = fmt.Errorf("FICLONE: %w", errno)
+		err = fmt.Errorf("ficlone: %w", errno)
 		return err
 	}
 	return nil

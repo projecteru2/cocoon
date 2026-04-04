@@ -32,10 +32,10 @@ type VMConfig struct {
 // Validate checks that VMConfig fields are within acceptable ranges.
 func (cfg *VMConfig) Validate() error {
 	if cfg.Name == "" {
-		return fmt.Errorf("VM name cannot be empty")
+		return fmt.Errorf("vm name cannot be empty")
 	}
 	if !validName.MatchString(cfg.Name) {
-		return fmt.Errorf("VM name %q is invalid: must match %s (max 63 chars)", cfg.Name, validName.String())
+		return fmt.Errorf("vm name %q is invalid: must match %s (max 63 chars)", cfg.Name, validName.String())
 	}
 	if cfg.CPU <= 0 {
 		return fmt.Errorf("--cpu must be at least 1, got %d", cfg.CPU)

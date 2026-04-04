@@ -19,27 +19,25 @@ type patchOptions struct {
 
 // patchCHConfig patches specific fields in config.json while preserving all
 // unknown fields that CH adds internally (platform, cpus.topology, etc.).
-// Uses a dual-parse approach: typed struct for reading/validation, raw JSON map for writing.
-func patchCHConfig(path string, opts *patchOptions) error {
-	data, err := os.ReadFile(path) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-
-	var chCfg chVMConfig
-	if e := json.Unmarshal(data, &chCfg); e != nil {
-		return fmt.Errorf("decode %s: %w", path, e)
+// If chCfg and rawData are provided, the file is not re-read.
+func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData []byte) error {
+	var err error
+	if rawData == nil {
+		rawData, err = os.ReadFile(path) //nolint:gosec
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
 	}
 
 	var raw map[string]json.RawMessage
-	if e := json.Unmarshal(data, &raw); e != nil {
+	if e := json.Unmarshal(rawData, &raw); e != nil {
 		return fmt.Errorf("decode raw %s: %w", path, e)
 	}
 
-	// Disk paths: patch only "path" in each element, preserving pci_segment, id, etc.
-	if len(opts.storageConfigs) != len(chCfg.Disks) {
+	diskCount := rawArrayLen(raw["disks"])
+	if len(opts.storageConfigs) != diskCount {
 		return fmt.Errorf("disk count mismatch: storageConfigs=%d, CH config=%d",
-			len(opts.storageConfigs), len(chCfg.Disks))
+			len(opts.storageConfigs), diskCount)
 	}
 	if diskRaw, ok := raw["disks"]; ok {
 		patched, patchErr := patchRawArray(diskRaw, len(opts.storageConfigs), func(i int, elem map[string]json.RawMessage) error {
@@ -51,7 +49,6 @@ func patchCHConfig(path string, opts *patchOptions) error {
 		raw["disks"] = patched
 	}
 
-	// Serial/console: full replace (snapshot carries stale /dev/pts/N paths).
 	if opts.directBoot {
 		_ = setField(raw, "serial", &chRuntimeFile{Mode: "Off"})
 		_ = setField(raw, "console", &chRuntimeFile{Mode: "Pty"})
@@ -60,7 +57,6 @@ func patchCHConfig(path string, opts *patchOptions) error {
 		_ = setField(raw, "console", &chRuntimeFile{Mode: "Off"})
 	}
 
-	// CPU: patch only "boot_vcpus", preserving topology, max_phys_bits, etc.
 	if opts.cpu > 0 {
 		if cpuRaw, ok := raw["cpus"]; ok {
 			patched, patchErr := patchRawObject(cpuRaw, func(obj map[string]json.RawMessage) error {
@@ -73,19 +69,9 @@ func patchCHConfig(path string, opts *patchOptions) error {
 		}
 	}
 
-	// Memory + balloon.
 	if opts.memory > 0 {
-		if memRaw, ok := raw["memory"]; ok {
-			patched, patchErr := patchRawObject(memRaw, func(obj map[string]json.RawMessage) error {
-				return setField(obj, "size", opts.memory)
-			})
-			if patchErr != nil {
-				return fmt.Errorf("patch memory: %w", patchErr)
-			}
-			raw["memory"] = patched
-		}
-		if balloonErr := patchBalloonRaw(raw, chCfg.Balloon, opts.memory); balloonErr != nil {
-			return fmt.Errorf("patch balloon: %w", balloonErr)
+		if memErr := patchMemoryAndBalloon(raw, chCfg, opts.memory); memErr != nil {
+			return memErr
 		}
 	}
 
@@ -96,15 +82,33 @@ func patchCHConfig(path string, opts *patchOptions) error {
 	return os.WriteFile(path, out, 0o600) //nolint:gosec
 }
 
-// patchBalloonRaw handles the balloon device in the raw config map.
-func patchBalloonRaw(raw map[string]json.RawMessage, existing *chBalloon, memory int64) error {
+func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, memory int64) error {
+	if memRaw, ok := raw["memory"]; ok {
+		patched, err := patchRawObject(memRaw, func(obj map[string]json.RawMessage) error {
+			return setField(obj, "size", memory)
+		})
+		if err != nil {
+			return fmt.Errorf("patch memory: %w", err)
+		}
+		raw["memory"] = patched
+	}
+	hasBalloon := chCfg != nil && chCfg.Balloon != nil
+	if !hasBalloon {
+		_, hasBalloon = raw["balloon"]
+	}
+	if err := patchBalloonRaw(raw, hasBalloon, memory); err != nil {
+		return fmt.Errorf("patch balloon: %w", err)
+	}
+	return nil
+}
+
+func patchBalloonRaw(raw map[string]json.RawMessage, hasBalloon bool, memory int64) error {
 	if memory < minBalloonMemory {
 		delete(raw, "balloon")
 		return nil
 	}
 	newSize := memory / defaultBalloon
-	// Existing balloon: patch only "size", preserving device id and other CH fields.
-	if existing != nil {
+	if hasBalloon {
 		if balloonRaw, ok := raw["balloon"]; ok {
 			patched, err := patchRawObject(balloonRaw, func(obj map[string]json.RawMessage) error {
 				return setField(obj, "size", newSize)
@@ -116,12 +120,22 @@ func patchBalloonRaw(raw map[string]json.RawMessage, existing *chBalloon, memory
 			return nil
 		}
 	}
-	// No existing balloon — create fresh.
 	return setField(raw, "balloon", &chBalloon{
 		Size:              newSize,
 		DeflateOnOOM:      true,
 		FreePageReporting: true,
 	})
+}
+
+func rawArrayLen(raw json.RawMessage) int {
+	if raw == nil {
+		return 0
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) != nil {
+		return 0
+	}
+	return len(arr)
 }
 
 // patchStateJSON does string replacement in state.json for stale values.
@@ -137,10 +151,11 @@ func patchStateJSON(path string, replacements map[string]string) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	content := string(data)
+	oldnew := make([]string, 0, len(replacements)*2)
 	for oldVal, newVal := range replacements {
-		content = strings.ReplaceAll(content, oldVal, newVal)
+		oldnew = append(oldnew, oldVal, newVal)
 	}
+	content := strings.NewReplacer(oldnew...).Replace(string(data))
 	return os.WriteFile(path, []byte(content), 0o600) //nolint:gosec
 }
 

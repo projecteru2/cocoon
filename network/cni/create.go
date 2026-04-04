@@ -95,7 +95,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 
 		cniResult, err := c.cniConf.AddNetworkList(ctx, confList, rt)
 		if err != nil {
-			return nil, fmt.Errorf("CNI ADD %s/%s: %w", vmID, ifName, err)
+			return nil, fmt.Errorf("cni add %s/%s: %w", vmID, ifName, err)
 		}
 		addedIFs = append(addedIFs, ifName)
 

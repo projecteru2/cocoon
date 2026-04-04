@@ -28,7 +28,7 @@ func scanDataSegments(fd int, size int64) ([]sparseSegment, error) {
 			if errors.Is(err, syscall.ENXIO) {
 				break
 			}
-			return nil, fmt.Errorf("SEEK_DATA at %d: %w", offset, err)
+			return nil, fmt.Errorf("seek_data at %d: %w", offset, err)
 		}
 
 		// Find the end of this data segment (start of next hole).
@@ -38,7 +38,7 @@ func scanDataSegments(fd int, size int64) ([]sparseSegment, error) {
 				// Data extends to EOF.
 				holeStart = size
 			} else {
-				return nil, fmt.Errorf("SEEK_HOLE at %d: %w", dataStart, err)
+				return nil, fmt.Errorf("seek_hole at %d: %w", dataStart, err)
 			}
 		}
 

@@ -78,11 +78,11 @@ func ParseEscapeChar(s string) (byte, error) {
 func validateEscapeByte(b byte) (byte, error) {
 	switch {
 	case b == 0:
-		return 0, fmt.Errorf("NUL cannot be used as escape character")
+		return 0, fmt.Errorf("nul cannot be used as escape character")
 	case b == '\r' || b == '\n':
-		return 0, fmt.Errorf("CR/LF cannot be used as escape character")
+		return 0, fmt.Errorf("cr/lf cannot be used as escape character")
 	case b == 0x7F: //nolint:mnd
-		return 0, fmt.Errorf("DEL (0x7F) cannot be used as escape character")
+		return 0, fmt.Errorf("del (0x7f) cannot be used as escape character")
 	case b >= 0x80: //nolint:mnd
 		return 0, fmt.Errorf("non-ASCII byte 0x%02X cannot be used as escape character", b)
 	}

@@ -50,7 +50,7 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 
 // AtomicWriteJSON marshals v to JSON and writes it atomically.
 func AtomicWriteJSON(path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
+	data, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshal JSON: %w", err)
 	}

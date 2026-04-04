@@ -51,7 +51,7 @@ func (ch *CloudHypervisor) prepareRestore(ctx context.Context, vmRef string) (st
 	}
 
 	if rec.State != types.VMStateRunning {
-		return "", nil, false, "", fmt.Errorf("VM %s is %s, must be running to restore", vmID, rec.State)
+		return "", nil, false, "", fmt.Errorf("vm %s is %s, must be running to restore", vmID, rec.State)
 	}
 
 	sockPath := socketPath(rec.RunDir)
@@ -86,7 +86,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 		directBoot:     directBoot,
 		cpu:            vmCfg.CPU,
 		memory:         vmCfg.Memory,
-	}); err != nil {
+	}, nil, nil); err != nil {
 		return nil, fmt.Errorf("patch config: %w", err)
 	}
 
@@ -124,7 +124,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	if err = ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
-			return fmt.Errorf("VM %s disappeared from index", vmID)
+			return fmt.Errorf("vm %s disappeared from index", vmID)
 		}
 		r.Config = *vmCfg
 		r.State = types.VMStateRunning

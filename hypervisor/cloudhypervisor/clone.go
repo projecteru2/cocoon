@@ -70,7 +70,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
 	chConfigPath := filepath.Join(runDir, "config.json")
-	chCfg, err := parseCHConfig(chConfigPath)
+	chCfg, chConfigRaw, err := parseCHConfig(chConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("parse CH config: %w", err)
 	}
@@ -117,7 +117,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		directBoot:     directBoot,
 		cpu:            vmCfg.CPU,
 		memory:         vmCfg.Memory,
-	}); err != nil {
+	}, chCfg, chConfigRaw); err != nil {
 		return nil, fmt.Errorf("patch CH config: %w", err)
 	}
 
@@ -170,7 +170,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
-			return fmt.Errorf("VM %s disappeared from index", vmID)
+			return fmt.Errorf("vm %s disappeared from index", vmID)
 		}
 		r.VM = info
 		r.BootConfig = bootCfg
@@ -250,16 +250,16 @@ func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig,
 	return storageConfigs, nil
 }
 
-func parseCHConfig(path string) (*chVMConfig, error) {
+func parseCHConfig(path string) (*chVMConfig, []byte, error) {
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var cfg chVMConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", path, err)
+		return nil, nil, fmt.Errorf("decode %s: %w", path, err)
 	}
-	return &cfg, nil
+	return &cfg, data, nil
 }
 
 func rebuildStorageConfigs(cfg *chVMConfig) []*types.StorageConfig {

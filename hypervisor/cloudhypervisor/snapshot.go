@@ -73,8 +73,8 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 			return fmt.Errorf("snapshot: %w", err)
 		}
 
-		if err := utils.SparseCopy(filepath.Join(tmpDir, cowName), cowPath); err != nil {
-			return fmt.Errorf("sparse copy COW: %w", err)
+		if err := utils.ReflinkCopy(filepath.Join(tmpDir, cowName), cowPath); err != nil {
+			return fmt.Errorf("copy COW: %w", err)
 		}
 
 		// Resume eagerly so we can propagate the error.
@@ -110,7 +110,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	if updateErr := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
-			return fmt.Errorf("VM %s disappeared from index", vmID)
+			return fmt.Errorf("vm %s disappeared from index", vmID)
 		}
 		if r.SnapshotIDs == nil {
 			r.SnapshotIDs = make(map[string]struct{})

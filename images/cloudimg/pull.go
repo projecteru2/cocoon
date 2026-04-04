@@ -198,12 +198,12 @@ func download(ctx context.Context, url string, dst *os.File, tracker progress.Tr
 	client := &http.Client{Timeout: urlDownloadTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("HTTP GET %s: %w", url, err)
+		return "", fmt.Errorf("http get %s: %w", url, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP GET %s: status %d %s", url, resp.StatusCode, resp.Status)
+		return "", fmt.Errorf("http get %s: status %d %s", url, resp.StatusCode, resp.Status)
 	}
 
 	contentLength := resp.ContentLength

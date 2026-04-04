@@ -28,7 +28,11 @@ func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	return ch.forEachVM(ctx, ids, "Stop", ch.stopOne)
+	succeeded, forEachErr := ch.forEachVM(ctx, ids, "Stop", ch.stopOne)
+	if batchErr := ch.updateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
+		log.WithFunc("cloudhypervisor.Stop").Warnf(ctx, "batch state update: %v", batchErr)
+	}
+	return succeeded, forEachErr
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
@@ -50,17 +54,14 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 
 	switch {
 	case errors.Is(shutdownErr, hypervisor.ErrNotRunning):
-		// Fast path: no running process — clean up and mark stopped.
 		cleanupRuntimeFiles(ctx, rec.RunDir)
-		return ch.updateState(ctx, id, types.VMStateStopped)
+		return nil
 	case shutdownErr != nil:
-		// Stop failed — do NOT clean runtime files; the process may still be
-		// running and we need socket/PID to control it later.
 		ch.markError(ctx, id)
 		return shutdownErr
 	default:
 		cleanupRuntimeFiles(ctx, rec.RunDir)
-		return ch.updateState(ctx, id, types.VMStateStopped)
+		return nil
 	}
 }
 

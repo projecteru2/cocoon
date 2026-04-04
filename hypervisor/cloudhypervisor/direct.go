@@ -62,8 +62,7 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 //   - COW disk: ReflinkCopy (FICLONE → SparseCopy, the only real copy)
 //   - everything else: plain copy (config.json, state.json — small metadata)
 func cloneSnapshotFiles(dstDir, srcDir string) error {
-	// Parse config.json from srcDir to identify the COW file(s).
-	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, _, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
 	if err != nil {
 		return fmt.Errorf("parse source config: %w", err)
 	}

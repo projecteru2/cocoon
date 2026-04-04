@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 )
 
 // PAX record keys for our custom sparse format.
@@ -144,9 +145,13 @@ func extractFileSparse(path string, r io.Reader, perm os.FileMode, realSize int6
 	return f.Sync()
 }
 
-// extractFile creates a file at path and copies content from r.
-// Zero-filled blocks are written as holes (seek instead of write) to preserve sparsity.
-// Used as fallback when COCOON.sparse PAX records are not present.
+var sparseBlockPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, sparseBlockSize)
+		return &b
+	},
+}
+
 func extractFile(path string, r io.Reader, perm os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm) //nolint:gosec
 	if err != nil {
@@ -154,7 +159,9 @@ func extractFile(path string, r io.Reader, perm os.FileMode) error {
 	}
 	defer f.Close() //nolint:errcheck
 
-	buf := make([]byte, sparseBlockSize)
+	bp := sparseBlockPool.Get().(*[]byte)
+	buf := *bp
+	defer sparseBlockPool.Put(bp)
 	var total int64
 	endsWithHole := false
 
