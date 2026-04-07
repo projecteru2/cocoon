@@ -72,7 +72,7 @@ func TestWatchFileCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	ch, err := WatchFile(ctx, target, 50*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)

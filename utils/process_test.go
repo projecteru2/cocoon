@@ -301,7 +301,7 @@ func TestTerminateProcess_ContextCancelled(t *testing.T) {
 		_ = cmd.Wait()
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately.
 
 	// With cancelled context, TerminateProcess should still attempt to kill.
