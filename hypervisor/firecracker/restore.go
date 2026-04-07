@@ -22,6 +22,12 @@ import (
 // Network is preserved -- same netns, same tap, same MAC/IP.
 // vmCfg carries the final resource config (already validated >= snapshot values).
 func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
+	// Validate CPU/memory overrides BEFORE killing the running VM.
+	// FC cannot PATCH machine-config after snapshot/load.
+	if checkErr := fc.validateRestoreOverrides(ctx, vmRef, vmCfg); checkErr != nil {
+		return nil, checkErr
+	}
+
 	vmID, rec, cowPath, err := fc.prepareRestore(ctx, vmRef)
 	if err != nil {
 		return nil, err
@@ -129,14 +135,6 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 		return nil, fmt.Errorf("resume: %w", err)
 	}
 
-	// FC cannot update CPU/memory after snapshot/load. Reject overrides.
-	if vmCfg.CPU != rec.Config.CPU {
-		return nil, fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", vmCfg.CPU, rec.Config.CPU)
-	}
-	if vmCfg.Memory != rec.Config.Memory {
-		return nil, fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
-	}
-
 	now := time.Now()
 	if err = fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
@@ -162,4 +160,25 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 	info.StartedAt = &now
 	info.UpdatedAt = now
 	return &info, nil
+}
+
+// validateRestoreOverrides checks that the user isn't requesting CPU/memory
+// changes that FC can't apply after snapshot/load. Called before prepareRestore
+// to avoid killing the running VM only to reject the request.
+func (fc *Firecracker) validateRestoreOverrides(ctx context.Context, vmRef string, vmCfg *types.VMConfig) error {
+	vmID, err := fc.ResolveRef(ctx, vmRef)
+	if err != nil {
+		return nil // resolve will fail again in prepareRestore with a proper error
+	}
+	rec, err := fc.LoadRecord(ctx, vmID)
+	if err != nil {
+		return nil
+	}
+	if vmCfg.CPU != rec.Config.CPU {
+		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (VM has %d)", vmCfg.CPU, rec.Config.CPU)
+	}
+	if vmCfg.Memory != rec.Config.Memory {
+		return fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
+	}
+	return nil
 }

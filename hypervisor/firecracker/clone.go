@@ -91,6 +91,15 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	}
 	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
 
+	// FC cannot update CPU/memory after snapshot/load. Reject overrides
+	// early, before any destructive operations (launch/resume).
+	if meta.CPU > 0 && vmCfg.CPU != meta.CPU {
+		return nil, fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", vmCfg.CPU, meta.CPU)
+	}
+	if meta.Memory > 0 && vmCfg.Memory != meta.Memory {
+		return nil, fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
+	}
+
 	if verifyErr := verifyBaseFiles(storageConfigs, bootCfg); verifyErr != nil {
 		return nil, fmt.Errorf("verify base files: %w", verifyErr)
 	}
@@ -143,15 +152,6 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 
 	if err := fc.restoreAndResumeClone(ctx, pid, sockPath, runDir, storageConfigs, networkConfigs); err != nil {
 		return nil, err
-	}
-
-	// FC cannot update CPU/memory after snapshot/load. Reject overrides
-	// that differ from the snapshot's values to avoid silent mismatch.
-	if meta.CPU > 0 && vmCfg.CPU != meta.CPU {
-		return nil, fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", vmCfg.CPU, meta.CPU)
-	}
-	if meta.Memory > 0 && vmCfg.Memory != meta.Memory {
-		return nil, fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
 	}
 
 	info := types.VM{
