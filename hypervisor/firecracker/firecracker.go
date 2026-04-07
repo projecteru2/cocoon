@@ -81,14 +81,6 @@ func (fc *Firecracker) Delete(ctx context.Context, refs []string, force bool) ([
 
 // --- Stubs: implemented in subsequent commits ---
 
-func (fc *Firecracker) Create(_ context.Context, _ string, _ *types.VMConfig, _ []*types.StorageConfig, _ []*types.NetworkConfig, _ *types.BootConfig) (*types.VM, error) {
-	return nil, fmt.Errorf("firecracker Create not yet implemented")
-}
-
-func (fc *Firecracker) Start(_ context.Context, _ []string) ([]string, error) {
-	return nil, fmt.Errorf("firecracker Start not yet implemented")
-}
-
 func (fc *Firecracker) Stop(_ context.Context, _ []string) ([]string, error) {
 	return nil, fmt.Errorf("firecracker Stop not yet implemented")
 }

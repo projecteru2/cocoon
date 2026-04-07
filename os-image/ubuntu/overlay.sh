@@ -8,6 +8,19 @@ resolve_disk() {
     local serial="$1" timeout="${COCOON_TIMEOUT:-10}" i=0
     case "$timeout" in ''|*[!0-9]*) timeout=10 ;; esac
 
+    # Direct device path (Firecracker uses /dev/vdX, no virtio serial support)
+    case "$serial" in
+        /dev/*)
+            while [ $i -lt $timeout ]; do
+                [ -b "$serial" ] && echo "$serial" && return 0
+                sleep 1
+                i=$((i + 1))
+            done
+            return 1
+            ;;
+    esac
+
+    # Serial name lookup (Cloud Hypervisor virtio-blk serial)
     while [ $i -lt $timeout ]; do
         for sysdev in /sys/block/vd*; do
             [ -d "$sysdev" ] || continue
