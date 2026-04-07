@@ -236,23 +236,9 @@ func loadSnapshotMeta(dir string, roots managedRoots) (*snapshotMeta, error) {
 		return nil, fmt.Errorf("source_root_dir %q must be absolute", meta.SourceRootDir)
 	}
 
-	// Save raw relative paths and validate they don't contain path traversal.
-	// These paths are later joined with SourceRootDir to build vmstate redirect
-	// targets, so a malicious "../../../etc" would escape the managed tree.
 	meta.rawRelPaths = make([]string, len(meta.StorageConfigs))
 	for i, sc := range meta.StorageConfigs {
 		meta.rawRelPaths[i] = sc.Path
-		if err := validateNoTraversal(sc.Path); err != nil {
-			return nil, fmt.Errorf("storage path %q: %w", sc.Path, err)
-		}
-	}
-	if b := meta.BootConfig; b != nil {
-		if err := validateNoTraversal(b.KernelPath); err != nil {
-			return nil, fmt.Errorf("kernel path %q: %w", b.KernelPath, err)
-		}
-		if err := validateNoTraversal(b.InitrdPath); err != nil {
-			return nil, fmt.Errorf("initrd path %q: %w", b.InitrdPath, err)
-		}
 	}
 	// Resolve relative paths against the LOCAL rootDir for file access.
 	// Validate that all resolved paths stay within Cocoon-managed directories
@@ -294,19 +280,6 @@ func resolveAndValidateBootPaths(b *types.BootConfig, roots managedRoots) error 
 		if err := validateManagedPath(b.InitrdPath, roots); err != nil {
 			return fmt.Errorf("initrd path %s: %w", b.InitrdPath, err)
 		}
-	}
-	return nil
-}
-
-// validateNoTraversal rejects paths containing ".." components that could escape
-// a parent directory when joined. Empty paths are allowed (optional fields).
-func validateNoTraversal(path string) error {
-	if path == "" {
-		return nil
-	}
-	cleaned := filepath.Clean(path)
-	if strings.Contains(cleaned, "..") {
-		return fmt.Errorf("path traversal detected")
 	}
 	return nil
 }

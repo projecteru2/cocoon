@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -127,6 +128,12 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	// can find drives during load. This handles both same-host (COW moved)
 	// and cross-host (different rootDir) cases.
 	vmstateSC := meta.vmstatePaths()
+	// Validate vmstate redirect paths before creating symlinks/renames on the host.
+	// Each path must be under SourceRootDir to prevent tampered archives from
+	// targeting arbitrary host files via createDriveRedirects.
+	if validateErr := validateVMStatePaths(vmstateSC, meta.SourceRootDir); validateErr != nil {
+		return nil, fmt.Errorf("vmstate path validation: %w", validateErr)
+	}
 	sameHost := meta.SourceRootDir == "" || meta.SourceRootDir == fc.conf.RootDir
 	if sameHost {
 		// Same host: lock the source COW to serialize with concurrent operations.
@@ -224,6 +231,24 @@ func rebuildCloneStorage(meta *snapshotMeta, cowPath string) []*types.StorageCon
 	}
 	configs = append(configs, &types.StorageConfig{Path: cowPath, RO: false, Serial: CowSerial})
 	return configs
+}
+
+// validateVMStatePaths ensures all vmstate redirect targets are under the
+// declared SourceRootDir. Prevents tampered archives from pointing drive
+// entries at arbitrary host paths that createDriveRedirects would then
+// rename/symlink before snapshot/load.
+func validateVMStatePaths(vmstateSC []*types.StorageConfig, sourceRootDir string) error {
+	if sourceRootDir == "" {
+		return nil // legacy snapshot, no source info
+	}
+	root := filepath.Clean(sourceRootDir)
+	for _, sc := range vmstateSC {
+		cleaned := filepath.Clean(sc.Path)
+		if !strings.HasPrefix(cleaned, root+string(filepath.Separator)) && cleaned != root {
+			return fmt.Errorf("vmstate path %s escapes source root %s", sc.Path, sourceRootDir)
+		}
+	}
+	return nil
 }
 
 // driveRedirect records a temporary symlink replacing a source drive path
