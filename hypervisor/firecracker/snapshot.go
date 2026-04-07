@@ -145,7 +145,20 @@ type snapshotMeta struct {
 }
 
 func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *types.BootConfig) error {
-	data, err := json.Marshal(snapshotMeta{StorageConfigs: storageConfigs, BootConfig: boot})
+	// Store the portable vmlinuz path, not the FC-specific vmlinux cache.
+	// On import, the clone host runs ensureVmlinux to (re)create vmlinux.
+	meta := snapshotMeta{StorageConfigs: storageConfigs}
+	if boot != nil {
+		b := *boot
+		if filepath.Base(b.KernelPath) == "vmlinux" {
+			vmlinuz := filepath.Join(filepath.Dir(b.KernelPath), "vmlinuz")
+			if _, err := os.Stat(vmlinuz); err == nil {
+				b.KernelPath = vmlinuz
+			}
+		}
+		meta.BootConfig = &b
+	}
+	data, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
