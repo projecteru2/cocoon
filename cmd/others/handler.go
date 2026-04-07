@@ -38,7 +38,11 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 		b.RegisterGC(o)
 	}
 	// Register ALL hypervisor backends so GC protects blobs from both CH and FC VMs.
-	for _, hyper := range cmdcore.InitAllHypervisors(conf) {
+	hypers, hyperErr := cmdcore.InitAllHypervisors(conf)
+	if hyperErr != nil {
+		return hyperErr
+	}
+	for _, hyper := range hypers {
 		hyper.RegisterGC(o)
 	}
 	netProvider.RegisterGC(o)

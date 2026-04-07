@@ -102,16 +102,18 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 }
 
 // InitAllHypervisors initializes both CH and FC backends for GC.
-// Errors are logged but not fatal — a backend that fails to init is skipped.
-func InitAllHypervisors(conf *config.Config) []hypervisor.Hypervisor {
-	var result []hypervisor.Hypervisor
-	if ch, err := cloudhypervisor.New(conf); err == nil {
-		result = append(result, ch)
+// Returns error if any backend fails to init — GC must not proceed
+// without full blob pinning or it risks deleting referenced layers.
+func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
+	ch, err := cloudhypervisor.New(conf)
+	if err != nil {
+		return nil, fmt.Errorf("init cloud-hypervisor for GC: %w", err)
 	}
-	if fc, err := firecracker.New(conf); err == nil {
-		result = append(result, fc)
+	fc, fcErr := firecracker.New(conf)
+	if fcErr != nil {
+		return nil, fmt.Errorf("init firecracker for GC: %w", fcErr)
 	}
-	return result
+	return []hypervisor.Hypervisor{ch, fc}, nil
 }
 
 // InitHypervisor initializes the selected hypervisor backend.

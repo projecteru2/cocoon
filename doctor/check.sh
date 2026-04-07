@@ -149,6 +149,7 @@ check_binary() {
             ch-remote)        ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             firecracker)      ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             qemu-img)         ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            zstd)             ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             mkfs.ext4)        ver=$("$name" -V 2>&1 | head -1) || true ;;
             mkfs.erofs)       ver=$("$name" --version 2>&1 | head -1) || true ;;
         esac
@@ -174,6 +175,7 @@ else
     warn "firecracker not found (optional, needed for --fc backend)"
 fi
 check_binary qemu-img
+check_binary zstd
 check_binary mkfs.ext4
 check_binary mkfs.erofs
 

@@ -168,8 +168,25 @@ func ensureVmlinux(kernelPath string) (string, error) {
 		return "", fmt.Errorf("decompress kernel from %s: %w (FC requires uncompressed ELF kernel)", kernelPath, decompErr)
 	}
 
-	if err := os.WriteFile(vmlinuxPath, decompressed, 0o644); err != nil { //nolint:gosec
-		return "", fmt.Errorf("write vmlinux: %w", err)
+	// Write atomically via temp file + rename to prevent concurrent readers
+	// from observing a partially written kernel.
+	tmpFile, tmpErr := os.CreateTemp(filepath.Dir(vmlinuxPath), ".vmlinux-*")
+	if tmpErr != nil {
+		return "", fmt.Errorf("create temp vmlinux: %w", tmpErr)
+	}
+	tmpPath := tmpFile.Name()
+	if _, writeErr := tmpFile.Write(decompressed); writeErr != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("write vmlinux: %w", writeErr)
+	}
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("close vmlinux: %w", closeErr)
+	}
+	if renameErr := os.Rename(tmpPath, vmlinuxPath); renameErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("rename vmlinux: %w", renameErr)
 	}
 	return vmlinuxPath, nil
 }
