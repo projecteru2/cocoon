@@ -24,8 +24,12 @@ func lockCOWPath(cowPath string) (unlock func(), err error) {
 		return noop, fmt.Errorf("flock %s: %w", lockPath, lockErr)
 	}
 
+	// Do NOT remove the lock file after unlock. flock synchronizes on
+	// the inode: removing the file while other callers are blocked would
+	// let a third caller create a new file (different inode) and acquire
+	// it immediately, defeating serialization. The lock file is small
+	// and harmless to leave on disk.
 	return func() {
 		_ = fl.Unlock()
-		_ = os.Remove(lockPath)
 	}, nil
 }

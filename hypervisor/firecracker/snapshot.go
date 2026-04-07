@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/projecteru2/core/log"
 
@@ -227,20 +228,53 @@ func loadSnapshotMeta(dir, localRootDir string) (*snapshotMeta, error) {
 		meta.rawRelPaths[i] = sc.Path
 	}
 	// Resolve relative paths against the LOCAL rootDir for file access.
+	// Validate that all resolved paths stay within Cocoon-managed directories
+	// to prevent path traversal from tampered snapshot archives.
 	for _, sc := range meta.StorageConfigs {
 		if !filepath.IsAbs(sc.Path) {
 			sc.Path = filepath.Join(localRootDir, sc.Path)
 		}
+		if err := validateManagedPath(sc.Path, localRootDir); err != nil {
+			return nil, fmt.Errorf("storage path %s: %w", sc.Path, err)
+		}
 	}
 	if b := meta.BootConfig; b != nil {
-		if b.KernelPath != "" && !filepath.IsAbs(b.KernelPath) {
-			b.KernelPath = filepath.Join(localRootDir, b.KernelPath)
-		}
-		if b.InitrdPath != "" && !filepath.IsAbs(b.InitrdPath) {
-			b.InitrdPath = filepath.Join(localRootDir, b.InitrdPath)
+		if resolveErr := resolveAndValidateBootPaths(b, localRootDir); resolveErr != nil {
+			return nil, resolveErr
 		}
 	}
 	return &meta, nil
+}
+
+func resolveAndValidateBootPaths(b *types.BootConfig, rootDir string) error {
+	if b.KernelPath != "" && !filepath.IsAbs(b.KernelPath) {
+		b.KernelPath = filepath.Join(rootDir, b.KernelPath)
+	}
+	if b.InitrdPath != "" && !filepath.IsAbs(b.InitrdPath) {
+		b.InitrdPath = filepath.Join(rootDir, b.InitrdPath)
+	}
+	if b.KernelPath != "" {
+		if err := validateManagedPath(b.KernelPath, rootDir); err != nil {
+			return fmt.Errorf("kernel path %s: %w", b.KernelPath, err)
+		}
+	}
+	if b.InitrdPath != "" {
+		if err := validateManagedPath(b.InitrdPath, rootDir); err != nil {
+			return fmt.Errorf("initrd path %s: %w", b.InitrdPath, err)
+		}
+	}
+	return nil
+}
+
+// validateManagedPath ensures a resolved path is under the Cocoon rootDir.
+// Prevents path traversal attacks from tampered snapshot metadata.
+func validateManagedPath(absPath, rootDir string) error {
+	cleaned := filepath.Clean(absPath)
+	root := filepath.Clean(rootDir)
+	if !strings.HasPrefix(cleaned, root+string(filepath.Separator)) && cleaned != root {
+		return fmt.Errorf("path escapes Cocoon root dir %s", rootDir)
+	}
+	return nil
 }
 
 // vmstatePaths reconstructs the absolute paths that FC's vmstate binary
