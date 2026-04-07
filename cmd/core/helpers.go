@@ -102,20 +102,21 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 }
 
 // InitHypervisor initializes the selected hypervisor backend.
-// Uses Firecracker when conf.UseFirecracker is true, Cloud Hypervisor otherwise.
 func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
-	if conf.UseFirecracker {
-		fc, err := firecracker.New(conf)
-		if err != nil {
-			return nil, fmt.Errorf("init hypervisor: %w", err)
-		}
-		return fc, nil
+	var (
+		h   hypervisor.Hypervisor
+		err error
+	)
+	switch conf.Hypervisor() {
+	case config.HypervisorFirecracker:
+		h, err = firecracker.New(conf)
+	default:
+		h, err = cloudhypervisor.New(conf)
 	}
-	ch, err := cloudhypervisor.New(conf)
 	if err != nil {
 		return nil, fmt.Errorf("init hypervisor: %w", err)
 	}
-	return ch, nil
+	return h, nil
 }
 
 // InitNetwork creates the CNI network provider.

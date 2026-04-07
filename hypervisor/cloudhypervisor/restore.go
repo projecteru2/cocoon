@@ -30,7 +30,7 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 	_ = os.Remove(cowPath) // best-effort; extractTar overwrites
 
 	if extractErr := utils.ExtractTar(rec.RunDir, snapshot); extractErr != nil {
-		ch.markError(ctx, vmID)
+		ch.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("extract snapshot: %w", extractErr)
 	}
 
@@ -40,12 +40,12 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 // prepareRestore handles the common setup for Restore and DirectRestore:
 // resolve ref, load record, validate state, kill current CH, cleanup.
 func (ch *CloudHypervisor) prepareRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, bool, string, error) {
-	vmID, err := ch.resolveRef(ctx, vmRef)
+	vmID, err := ch.ResolveRef(ctx, vmRef)
 	if err != nil {
 		return "", nil, false, "", err
 	}
 
-	rec, err := ch.loadRecord(ctx, vmID)
+	rec, err := ch.LoadRecord(ctx, vmID)
 	if err != nil {
 		return "", nil, false, "", err
 	}
@@ -54,14 +54,14 @@ func (ch *CloudHypervisor) prepareRestore(ctx context.Context, vmRef string) (st
 		return "", nil, false, "", fmt.Errorf("vm %s is %s, must be running to restore", vmID, rec.State)
 	}
 
-	sockPath := socketPath(rec.RunDir)
-	killErr := ch.withRunningVM(ctx, &rec, func(pid int) error {
+	sockPath := hypervisor.SocketPath(rec.RunDir)
+	killErr := ch.WithRunningVM(ctx, &rec, func(pid int) error {
 		return ch.forceTerminate(ctx, utils.NewSocketHTTPClient(sockPath), vmID, sockPath, pid)
 	})
 	if killErr != nil && !errors.Is(killErr, hypervisor.ErrNotRunning) {
 		return "", nil, false, "", fmt.Errorf("stop running VM: %w", killErr)
 	}
-	cleanupRuntimeFiles(ctx, rec.RunDir)
+	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 
 	directBoot := isDirectBoot(rec.BootConfig)
 	cowPath := ch.cowPath(vmID, directBoot)
@@ -75,14 +75,14 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 
 	defer func() {
 		if err != nil {
-			ch.markError(ctx, vmID)
+			ch.MarkError(ctx, vmID)
 		}
 	}()
 
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
 	if err = patchCHConfig(chConfigPath, &patchOptions{
 		storageConfigs: rec.StorageConfigs,
-		consoleSock:    consoleSockPath(rec.RunDir),
+		consoleSock:    hypervisor.ConsoleSockPath(rec.RunDir),
 		directBoot:     directBoot,
 		cpu:            vmCfg.CPU,
 		memory:         vmCfg.Memory,
@@ -96,7 +96,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 		}
 	}
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 	args := []string{"--api-socket", sockPath}
 	ch.saveCmdline(ctx, rec, args)
 
@@ -108,7 +108,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 
 	defer func() {
 		if err != nil {
-			ch.abortLaunch(ctx, pid, sockPath, rec.RunDir)
+			ch.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
 		}
 	}()
 
@@ -121,7 +121,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	}
 
 	now := time.Now()
-	if err = ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err = ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
 			return fmt.Errorf("vm %s disappeared from index", vmID)
@@ -141,7 +141,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	info.Config = *vmCfg
 	info.State = types.VMStateRunning
 	info.PID = pid
-	info.SocketPath = socketPath(rec.RunDir)
+	info.SocketPath = hypervisor.SocketPath(rec.RunDir)
 	info.StartedAt = &now
 	info.UpdatedAt = now
 	return &info, nil

@@ -26,17 +26,17 @@ const (
 func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
 	logger := log.WithFunc("firecracker.Snapshot")
 
-	vmID, err := fc.resolveRef(ctx, ref)
+	vmID, err := fc.ResolveRef(ctx, ref)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	rec, err := fc.loadRecord(ctx, vmID)
+	rec, err := fc.LoadRecord(ctx, vmID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 	hc := utils.NewSocketHTTPClient(sockPath)
 
 	cowPath := fc.conf.COWRawPath(vmID)
@@ -49,7 +49,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 
 	// withRunningVM verifies the process is alive, then runs the callback.
 	// Inside the callback: pause -> FC snapshot -> ReflinkCopy COW -> resume.
-	if err := fc.withRunningVM(ctx, &rec, func(_ int) error {
+	if err := fc.WithRunningVM(ctx, &rec, func(_ int) error {
 		if err := pauseVM(ctx, hc); err != nil {
 			return fmt.Errorf("pause: %w", err)
 		}
@@ -94,7 +94,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("generate snapshot ID: %w", genErr)
 	}
-	if updateErr := fc.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if updateErr := fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
 			return fmt.Errorf("vm %s disappeared from index", vmID)

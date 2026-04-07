@@ -16,39 +16,39 @@ import (
 // FC direct-boot VMs use SendCtrlAltDel → SIGTERM → SIGKILL.
 // Returns the IDs that were successfully stopped.
 func (fc *Firecracker) Stop(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := fc.resolveRefs(ctx, refs)
+	ids, err := fc.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	succeeded, forEachErr := fc.forEachVM(ctx, ids, "Stop", fc.stopOne)
-	if batchErr := fc.updateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
+	succeeded, forEachErr := fc.ForEachVM(ctx, ids, "Stop", fc.stopOne)
+	if batchErr := fc.UpdateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
 		log.WithFunc("firecracker.Stop").Warnf(ctx, "batch state update: %v", batchErr)
 	}
 	return succeeded, forEachErr
 }
 
 func (fc *Firecracker) stopOne(ctx context.Context, id string) error {
-	rec, err := fc.loadRecord(ctx, id)
+	rec, err := fc.LoadRecord(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 	hc := utils.NewSocketHTTPClient(sockPath)
 
-	shutdownErr := fc.withRunningVM(ctx, &rec, func(pid int) error {
+	shutdownErr := fc.WithRunningVM(ctx, &rec, func(pid int) error {
 		return fc.forceTerminate(ctx, hc, id, sockPath, pid)
 	})
 
 	switch {
 	case errors.Is(shutdownErr, hypervisor.ErrNotRunning):
-		cleanupRuntimeFiles(ctx, rec.RunDir)
+		hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 		return nil
 	case shutdownErr != nil:
-		fc.markError(ctx, id)
+		fc.MarkError(ctx, id)
 		return shutdownErr
 	default:
-		cleanupRuntimeFiles(ctx, rec.RunDir)
+		hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 		return nil
 	}
 }
@@ -59,5 +59,5 @@ func (fc *Firecracker) forceTerminate(ctx context.Context, hc *http.Client, vmID
 	if err := sendCtrlAltDel(ctx, hc); err != nil {
 		log.WithFunc("firecracker.forceTerminate").Warnf(ctx, "SendCtrlAltDel %s: %v", vmID, err)
 	}
-	return utils.TerminateProcess(ctx, pid, fc.fcBinaryName(), sockPath, fc.conf.TerminateGracePeriod())
+	return utils.TerminateProcess(ctx, pid, fc.conf.BinaryName(), sockPath, fc.conf.TerminateGracePeriod())
 }

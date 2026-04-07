@@ -7,12 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/projecteru2/core/log"
-	"github.com/vishvananda/netns"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
@@ -22,11 +20,11 @@ import (
 // Start launches the Cloud Hypervisor process for each VM ref.
 // Returns the IDs that were successfully started.
 func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := ch.resolveRefs(ctx, refs)
+	ids, err := ch.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	succeeded, forEachErr := ch.forEachVM(ctx, ids, "Start", ch.startOne)
+	succeeded, forEachErr := ch.ForEachVM(ctx, ids, "Start", ch.startOne)
 	if batchErr := ch.batchMarkStarted(ctx, succeeded); batchErr != nil {
 		log.WithFunc("cloudhypervisor.Start").Warnf(ctx, "batch state update: %v", batchErr)
 	}
@@ -34,12 +32,12 @@ func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, 
 }
 
 func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
-	rec, err := ch.loadRecord(ctx, id)
+	rec, err := ch.LoadRecord(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	runErr := ch.withRunningVM(ctx, &rec, func(_ int) error { return nil })
+	runErr := ch.WithRunningVM(ctx, &rec, func(_ int) error { return nil })
 	switch {
 	case runErr == nil:
 		return nil
@@ -52,18 +50,18 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	cleanupRuntimeFiles(ctx, rec.RunDir)
+	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 
-	socketPath := socketPath(rec.RunDir)
-	consoleSock := consoleSockPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
+	consoleSock := hypervisor.ConsoleSockPath(rec.RunDir)
 
 	vmCfg := buildVMConfig(ctx, &rec, consoleSock)
-	args := buildCLIArgs(vmCfg, socketPath)
+	args := buildCLIArgs(vmCfg, sockPath)
 	ch.saveCmdline(ctx, &rec, args)
 
 	withNetwork := len(rec.NetworkConfigs) > 0
-	if _, err = ch.launchProcess(ctx, &rec, socketPath, args, withNetwork); err != nil {
-		ch.markError(ctx, id)
+	if _, err = ch.launchProcess(ctx, &rec, sockPath, args, withNetwork); err != nil {
+		ch.MarkError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}
 	return nil
@@ -74,7 +72,7 @@ func (ch *CloudHypervisor) batchMarkStarted(ctx context.Context, ids []string) e
 		return nil
 	}
 	now := time.Now()
-	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	return ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		for _, id := range ids {
 			r := idx.VMs[id]
 			if r == nil {
@@ -117,7 +115,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 	// If the VM has network, CH must be launched inside the VM's netns
 	// so it can access the tap device. We setns before fork and restore after.
 	if withNetwork {
-		restore, enterErr := enterNetns(rec.NetworkConfigs[0].NetnsPath)
+		restore, enterErr := hypervisor.EnterNetns(rec.NetworkConfigs[0].NetnsPath)
 		if enterErr != nil {
 			return 0, fmt.Errorf("enter netns: %w", enterErr)
 		}
@@ -129,14 +127,14 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 	}
 	pid := cmd.Process.Pid
 
-	pidPath := pidFile(rec.RunDir)
+	pidPath := ch.PIDFilePath(rec.RunDir)
 	if err := utils.WritePIDFile(pidPath, pid); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return 0, fmt.Errorf("write PID file: %w", err)
 	}
 
-	if err := waitForSocket(ctx, socketPath, pid, ch.conf.SocketWaitTimeout()); err != nil {
+	if err := hypervisor.WaitForSocket(ctx, socketPath, pid, ch.conf.SocketWaitTimeout(), ch.conf.BinaryName()); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		_ = os.Remove(pidPath)
@@ -149,52 +147,4 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 	// that blocks IsProcessAlive checks during stop/delete.
 	go cmd.Wait() //nolint:errcheck
 	return pid, nil
-}
-
-// waitForSocket polls until socketPath is connectable, the process exits, or
-// the timeout/context fires.
-func waitForSocket(ctx context.Context, socketPath string, pid int, timeout time.Duration) error {
-	return utils.WaitFor(ctx, timeout, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
-		if utils.CheckSocket(socketPath) == nil {
-			return true, nil
-		}
-		if !utils.IsProcessAlive(pid) {
-			return false, fmt.Errorf("cloud-hypervisor exited before socket was ready")
-		}
-		return false, nil
-	})
-}
-
-// enterNetns locks the OS thread, saves the current netns, and switches
-// to the target netns. The forked child process inherits the new netns.
-// Returns a restore function that must be deferred by the caller.
-// No global state — safe for concurrent use.
-func enterNetns(nsPath string) (restore func(), err error) {
-	runtime.LockOSThread()
-
-	orig, err := netns.Get()
-	if err != nil {
-		runtime.UnlockOSThread()
-		return nil, fmt.Errorf("get current netns: %w", err)
-	}
-
-	target, err := netns.GetFromPath(nsPath)
-	if err != nil {
-		_ = orig.Close()
-		runtime.UnlockOSThread()
-		return nil, fmt.Errorf("open netns %s: %w", nsPath, err)
-	}
-	defer target.Close() //nolint:errcheck
-
-	if err := netns.Set(target); err != nil {
-		_ = orig.Close()
-		runtime.UnlockOSThread()
-		return nil, fmt.Errorf("setns %s: %w", nsPath, err)
-	}
-
-	return func() {
-		_ = netns.Set(orig)
-		_ = orig.Close()
-		runtime.UnlockOSThread()
-	}, nil
 }

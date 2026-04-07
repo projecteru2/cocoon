@@ -9,13 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/creack/pty"
 	"github.com/projecteru2/core/log"
-	"github.com/vishvananda/netns"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
@@ -25,11 +23,11 @@ import (
 // Start launches the Firecracker process for each VM ref, configures it
 // via the REST API, and issues InstanceStart.
 func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := fc.resolveRefs(ctx, refs)
+	ids, err := fc.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	succeeded, forEachErr := fc.forEachVM(ctx, ids, "Start", fc.startOne)
+	succeeded, forEachErr := fc.ForEachVM(ctx, ids, "Start", fc.startOne)
 	if batchErr := fc.batchMarkStarted(ctx, succeeded); batchErr != nil {
 		log.WithFunc("firecracker.Start").Warnf(ctx, "batch state update: %v", batchErr)
 	}
@@ -37,12 +35,12 @@ func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, erro
 }
 
 func (fc *Firecracker) startOne(ctx context.Context, id string) error {
-	rec, err := fc.loadRecord(ctx, id)
+	rec, err := fc.LoadRecord(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	runErr := fc.withRunningVM(ctx, &rec, func(_ int) error { return nil })
+	runErr := fc.WithRunningVM(ctx, &rec, func(_ int) error { return nil })
 	switch {
 	case runErr == nil:
 		return nil
@@ -55,21 +53,21 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 		return fmt.Errorf("ensure dirs: %w", err)
 	}
 
-	cleanupRuntimeFiles(ctx, rec.RunDir)
+	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 
 	withNetwork := len(rec.NetworkConfigs) > 0
 	pid, err := fc.launchProcess(ctx, &rec, sockPath, withNetwork)
 	if err != nil {
-		fc.markError(ctx, id)
+		fc.MarkError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}
 
 	// Configure VM via REST API and start the instance.
 	if err := fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), &rec); err != nil {
-		fc.abortLaunch(ctx, pid, sockPath, rec.RunDir)
-		fc.markError(ctx, id)
+		fc.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
+		fc.MarkError(ctx, id)
 		return fmt.Errorf("configure VM: %w", err)
 	}
 	return nil
@@ -131,7 +129,7 @@ func (fc *Firecracker) batchMarkStarted(ctx context.Context, ids []string) error
 		return nil
 	}
 	now := time.Now()
-	return fc.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	return fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		for _, id := range ids {
 			r := idx.VMs[id]
 			if r == nil {
@@ -175,7 +173,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 	fcCmd.Stdout = slave
 
 	if withNetwork {
-		restore, enterErr := enterNetns(rec.NetworkConfigs[0].NetnsPath)
+		restore, enterErr := hypervisor.EnterNetns(rec.NetworkConfigs[0].NetnsPath)
 		if enterErr != nil {
 			_ = master.Close()
 			return 0, fmt.Errorf("enter netns: %w", enterErr)
@@ -189,7 +187,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 	}
 	pid := fcCmd.Process.Pid
 
-	pidPath := pidFile(rec.RunDir)
+	pidPath := fc.PIDFilePath(rec.RunDir)
 	if err := utils.WritePIDFile(pidPath, pid); err != nil {
 		_ = master.Close()
 		_ = fcCmd.Process.Kill()
@@ -197,7 +195,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 		return 0, fmt.Errorf("write PID file: %w", err)
 	}
 
-	if err := waitForSocket(ctx, sockPath, pid, fc.conf.SocketWaitTimeout()); err != nil {
+	if err := hypervisor.WaitForSocket(ctx, sockPath, pid, fc.conf.SocketWaitTimeout(), fc.conf.BinaryName()); err != nil {
 		_ = master.Close()
 		_ = fcCmd.Process.Kill()
 		_ = fcCmd.Wait()
@@ -221,7 +219,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 // master and listens on console.sock for interactive console connections.
 // The relay auto-exits when the FC process (fcPID) dies.
 func (fc *Firecracker) startConsoleRelay(_ context.Context, runDir string, master *os.File, fcPID int) error {
-	consoleSock := consoleSockPath(runDir)
+	consoleSock := hypervisor.ConsoleSockPath(runDir)
 
 	// Create Unix listener for console.sock.
 	listener, err := net.Listen("unix", consoleSock)
@@ -253,50 +251,4 @@ func (fc *Firecracker) startConsoleRelay(_ context.Context, runDir string, maste
 	}
 	go relayCmd.Wait() //nolint:errcheck
 	return nil
-}
-
-// waitForSocket polls until socketPath is connectable, the process exits, or
-// the timeout/context fires.
-func waitForSocket(ctx context.Context, sockPath string, pid int, timeout time.Duration) error {
-	return utils.WaitFor(ctx, timeout, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
-		if utils.CheckSocket(sockPath) == nil {
-			return true, nil
-		}
-		if !utils.IsProcessAlive(pid) {
-			return false, fmt.Errorf("firecracker exited before socket was ready")
-		}
-		return false, nil
-	})
-}
-
-// enterNetns locks the OS thread, saves the current netns, and switches
-// to the target netns. The forked child process inherits the new netns.
-func enterNetns(nsPath string) (restore func(), err error) {
-	runtime.LockOSThread()
-
-	orig, err := netns.Get()
-	if err != nil {
-		runtime.UnlockOSThread()
-		return nil, fmt.Errorf("get current netns: %w", err)
-	}
-
-	target, err := netns.GetFromPath(nsPath)
-	if err != nil {
-		_ = orig.Close()
-		runtime.UnlockOSThread()
-		return nil, fmt.Errorf("open netns %s: %w", nsPath, err)
-	}
-	defer target.Close() //nolint:errcheck
-
-	if err := netns.Set(target); err != nil {
-		_ = orig.Close()
-		runtime.UnlockOSThread()
-		return nil, fmt.Errorf("setns %s: %w", nsPath, err)
-	}
-
-	return func() {
-		_ = netns.Set(orig)
-		_ = orig.Close()
-		runtime.UnlockOSThread()
-	}, nil
 }

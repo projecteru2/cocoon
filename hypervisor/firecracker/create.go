@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,16 +30,16 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 	runDir := fc.conf.VMRunDir(id)
 	logDir := fc.conf.VMLogDir(id)
 
-	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
 
 	defer func() {
 		if err != nil {
-			_ = removeVMDirs(runDir, logDir)
-			fc.rollbackCreate(ctx, id, vmCfg.Name)
+			_ = hypervisor.RemoveVMDirs(runDir, logDir)
+			fc.RollbackCreate(ctx, id, vmCfg.Name)
 		}
 	}()
 
-	if err = fc.reserveVM(ctx, id, vmCfg, blobIDs, runDir, logDir); err != nil {
+	if err = fc.ReserveVM(ctx, id, vmCfg, blobIDs, runDir, logDir); err != nil {
 		return nil, fmt.Errorf("reserve VM record: %w", err)
 	}
 	if err = utils.EnsureDirs(runDir, logDir); err != nil {
@@ -72,7 +71,7 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 		RunDir:       runDir,
 		LogDir:       logDir,
 	}
-	if err := fc.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err := fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		idx.VMs[id] = &rec
 		return nil
 	}); err != nil {
@@ -261,7 +260,7 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 
 	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
-		cmdline.WriteString(buildIPParams(networkConfigs, vmName, dnsServers))
+		cmdline.WriteString(hypervisor.BuildIPParams(networkConfigs, vmName, dnsServers))
 	}
 
 	return cmdline.String()
@@ -270,60 +269,4 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 // devPath returns the virtio block device path for the i-th drive.
 func devPath(idx int) string {
 	return fmt.Sprintf("/dev/vd%c", 'a'+idx)
-}
-
-// buildIPParams generates kernel ip= parameters for NICs with static IPs.
-func buildIPParams(networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
-	var params strings.Builder
-	fmt.Fprintf(&params, " cocoon.hostname=%s", vmName)
-	var dns0, dns1 string
-	if len(dnsServers) > 0 {
-		dns0 = dnsServers[0]
-	}
-	if len(dnsServers) > 1 {
-		dns1 = dnsServers[1]
-	}
-	for i, n := range networkConfigs {
-		if n.Network == nil || n.Network.IP == "" {
-			continue
-		}
-		param := fmt.Sprintf(" ip=%s::%s:%s:%s:eth%d:off",
-			n.Network.IP, n.Network.Gateway,
-			prefixToNetmask(n.Network.Prefix), vmName, i)
-		if dns0 != "" {
-			param += ":" + dns0
-			if dns1 != "" {
-				param += ":" + dns1
-			}
-		}
-		params.WriteString(param)
-	}
-	return params.String()
-}
-
-func prefixToNetmask(prefix int) string {
-	mask := net.CIDRMask(prefix, 32)
-	return net.IP(mask).String()
-}
-
-// extractBlobIDs extracts digest hexes from storage/boot paths for GC pinning.
-func extractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfig) map[string]struct{} {
-	ids := make(map[string]struct{})
-	if boot != nil && boot.KernelPath != "" {
-		for _, s := range storageConfigs {
-			if s.RO {
-				ids[blobHexFromPath(s.Path)] = struct{}{}
-			}
-		}
-		ids[filepath.Base(filepath.Dir(boot.KernelPath))] = struct{}{}
-		if boot.InitrdPath != "" {
-			ids[filepath.Base(filepath.Dir(boot.InitrdPath))] = struct{}{}
-		}
-	}
-	return ids
-}
-
-func blobHexFromPath(path string) string {
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
 }

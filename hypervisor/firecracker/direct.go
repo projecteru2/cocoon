@@ -3,11 +3,11 @@ package firecracker
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -44,12 +44,12 @@ func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *t
 
 	// Clean old snapshot files from runDir before linking/copying new ones.
 	if cleanErr := cleanSnapshotFiles(rec.RunDir); cleanErr != nil {
-		fc.markError(ctx, vmID)
+		fc.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("clean old snapshot files: %w", cleanErr)
 	}
 
 	if cloneErr := cloneSnapshotFiles(rec.RunDir, srcDir); cloneErr != nil {
-		fc.markError(ctx, vmID)
+		fc.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("clone snapshot files: %w", cloneErr)
 	}
 
@@ -88,7 +88,7 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 			}
 		default:
 			// Small metadata (vmstate): plain copy.
-			if err := copyFile(dst, src); err != nil {
+			if err := hypervisor.CopyFile(dst, src); err != nil {
 				return fmt.Errorf("copy %s: %w", name, err)
 			}
 		}
@@ -116,27 +116,4 @@ func cleanSnapshotFiles(runDir string) error {
 		}
 	}
 	return nil
-}
-
-// copyFile copies a single file (used for small metadata files).
-func copyFile(dst, src string) error {
-	srcFile, err := os.Open(src) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close() //nolint:errcheck
-
-	fi, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode()) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close() //nolint:errcheck
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
 }

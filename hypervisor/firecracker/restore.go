@@ -30,7 +30,7 @@ func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.V
 	_ = os.Remove(cowPath) // best-effort; extractTar overwrites
 
 	if extractErr := utils.ExtractTar(rec.RunDir, snapshot); extractErr != nil {
-		fc.markError(ctx, vmID)
+		fc.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("extract snapshot: %w", extractErr)
 	}
 
@@ -40,12 +40,12 @@ func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.V
 // prepareRestore handles the common setup for Restore and DirectRestore:
 // resolve ref, load record, validate state, kill current FC, cleanup.
 func (fc *Firecracker) prepareRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, string, error) {
-	vmID, err := fc.resolveRef(ctx, vmRef)
+	vmID, err := fc.ResolveRef(ctx, vmRef)
 	if err != nil {
 		return "", nil, "", err
 	}
 
-	rec, err := fc.loadRecord(ctx, vmID)
+	rec, err := fc.LoadRecord(ctx, vmID)
 	if err != nil {
 		return "", nil, "", err
 	}
@@ -54,14 +54,14 @@ func (fc *Firecracker) prepareRestore(ctx context.Context, vmRef string) (string
 		return "", nil, "", fmt.Errorf("vm %s is %s, must be running to restore", vmID, rec.State)
 	}
 
-	sockPath := socketPath(rec.RunDir)
-	killErr := fc.withRunningVM(ctx, &rec, func(pid int) error {
+	sockPath := hypervisor.SocketPath(rec.RunDir)
+	killErr := fc.WithRunningVM(ctx, &rec, func(pid int) error {
 		return fc.forceTerminate(ctx, utils.NewSocketHTTPClient(sockPath), vmID, sockPath, pid)
 	})
 	if killErr != nil && !errors.Is(killErr, hypervisor.ErrNotRunning) {
 		return "", nil, "", fmt.Errorf("stop running VM: %w", killErr)
 	}
-	cleanupRuntimeFiles(ctx, rec.RunDir)
+	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 
 	cowPath := fc.conf.COWRawPath(vmID)
 	return vmID, &rec, cowPath, nil
@@ -74,7 +74,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 
 	defer func() {
 		if err != nil {
-			fc.markError(ctx, vmID)
+			fc.MarkError(ctx, vmID)
 		}
 	}()
 
@@ -94,7 +94,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 		}
 	}
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 
 	withNetwork := len(rec.NetworkConfigs) > 0
 	pid, launchErr := fc.launchProcess(ctx, rec, sockPath, withNetwork)
@@ -104,7 +104,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 
 	defer func() {
 		if err != nil {
-			fc.abortLaunch(ctx, pid, sockPath, rec.RunDir)
+			fc.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
 		}
 	}()
 
@@ -123,7 +123,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 	}
 
 	now := time.Now()
-	if err = fc.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err = fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
 			return fmt.Errorf("vm %s disappeared from index", vmID)
@@ -143,7 +143,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 	info.Config = *vmCfg
 	info.State = types.VMStateRunning
 	info.PID = pid
-	info.SocketPath = socketPath(rec.RunDir)
+	info.SocketPath = hypervisor.SocketPath(rec.RunDir)
 	info.StartedAt = &now
 	info.UpdatedAt = now
 	return &info, nil

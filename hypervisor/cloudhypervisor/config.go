@@ -8,6 +8,12 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// BinaryName returns the base name of the Cloud Hypervisor binary.
+func (c *Config) BinaryName() string { return filepath.Base(c.CHBinary) }
+
+// PIDFileName returns the PID file name for the Cloud Hypervisor backend.
+func (c *Config) PIDFileName() string { return "ch.pid" }
+
 const (
 	defaultSocketWaitTimeout    = 5 * time.Second
 	defaultTerminateGracePeriod = 5 * time.Second

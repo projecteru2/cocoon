@@ -2,126 +2,24 @@ package cloudhypervisor
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/projecteru2/core/log"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
-	"github.com/cocoonstack/cocoon/types"
-	"github.com/cocoonstack/cocoon/utils"
 )
-
-func (ch *CloudHypervisor) loadRecord(ctx context.Context, id string) (hypervisor.VMRecord, error) {
-	var rec hypervisor.VMRecord
-	return rec, ch.store.With(ctx, func(idx *hypervisor.VMIndex) error {
-		var err error
-		rec, err = utils.LookupCopy(idx.VMs, id)
-		return err
-	})
-}
-
-func (ch *CloudHypervisor) chBinaryName() string {
-	return filepath.Base(ch.conf.CHBinary)
-}
-
-func (ch *CloudHypervisor) withRunningVM(ctx context.Context, rec *hypervisor.VMRecord, fn func(pid int) error) error {
-	pid, pidErr := utils.ReadPIDFile(pidFile(rec.RunDir))
-	if pidErr != nil && !os.IsNotExist(pidErr) {
-		log.WithFunc("cloudhypervisor.withRunningVM").Warnf(ctx, "read PID file: %v", pidErr)
-	}
-	if !utils.VerifyProcessCmdline(pid, ch.chBinaryName(), socketPath(rec.RunDir)) {
-		return hypervisor.ErrNotRunning
-	}
-	return fn(pid)
-}
-
-func (ch *CloudHypervisor) updateState(ctx context.Context, id string, state types.VMState) error {
-	return ch.updateStates(ctx, []string{id}, state)
-}
-
-func (ch *CloudHypervisor) updateStates(ctx context.Context, ids []string, state types.VMState) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	now := time.Now()
-	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		for _, id := range ids {
-			r := idx.VMs[id]
-			if r == nil {
-				continue
-			}
-			r.State = state
-			r.UpdatedAt = now
-			switch state {
-			case types.VMStateRunning:
-				r.StartedAt = &now
-			case types.VMStateStopped:
-				r.StoppedAt = &now
-			}
-		}
-		return nil
-	})
-}
-
-func (ch *CloudHypervisor) markError(ctx context.Context, id string) {
-	if err := ch.updateState(ctx, id, types.VMStateError); err != nil {
-		log.WithFunc("cloudhypervisor.markError").Warnf(ctx, "mark VM %s error: %v", id, err)
-	}
-}
 
 func (ch *CloudHypervisor) saveCmdline(ctx context.Context, rec *hypervisor.VMRecord, args []string) {
 	line := ch.conf.CHBinary + " " + strings.Join(args, " ")
 	if err := os.WriteFile(filepath.Join(rec.RunDir, "cmdline"), []byte(line), 0o600); err != nil {
 		log.WithFunc("cloudhypervisor.saveCmdline").Warnf(ctx, "save cmdline: %v", err)
 	}
-}
-
-// reserveVM writes a placeholder VMRecord (state=Creating) so that GC won't
-// treat the VM's directories as orphans. Used by both Create and Clone.
-func (ch *CloudHypervisor) reserveVM(ctx context.Context, id string, vmCfg *types.VMConfig, blobIDs map[string]struct{}, runDir, logDir string) error {
-	now := time.Now()
-	return ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		if idx.VMs[id] != nil {
-			return fmt.Errorf("id collision %q (retry)", id)
-		}
-		if dup, ok := idx.Names[vmCfg.Name]; ok {
-			return fmt.Errorf("vm name %q already exists (id: %s)", vmCfg.Name, dup)
-		}
-		idx.VMs[id] = &hypervisor.VMRecord{
-			VM: types.VM{
-				ID: id, State: types.VMStateCreating,
-				Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
-			},
-			ImageBlobIDs: blobIDs,
-			RunDir:       runDir,
-			LogDir:       logDir,
-		}
-		idx.Names[vmCfg.Name] = id
-		return nil
-	})
-}
-
-// rollbackCreate removes a placeholder VM record from the DB.
-func (ch *CloudHypervisor) rollbackCreate(ctx context.Context, id, name string) {
-	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		delete(idx.VMs, id)
-		if name != "" && idx.Names[name] == id {
-			delete(idx.Names, name)
-		}
-		return nil
-	}); err != nil {
-		log.WithFunc("cloudhypervisor.rollbackCreate").Warnf(ctx, "rollback VM %s (name=%s): %v", id, name, err)
-	}
-}
-
-// abortLaunch kills a CH process and removes runtime files after a failed launch sequence.
-func (ch *CloudHypervisor) abortLaunch(ctx context.Context, pid int, sockPath, runDir string) {
-	_ = utils.TerminateProcess(ctx, pid, ch.chBinaryName(), sockPath, ch.conf.TerminateGracePeriod())
-	cleanupRuntimeFiles(ctx, runDir)
 }
 
 // cowPath returns the writable COW disk path for a VM.
@@ -131,4 +29,52 @@ func (ch *CloudHypervisor) cowPath(vmID string, directBoot bool) string {
 		return ch.conf.COWRawPath(vmID)
 	}
 	return ch.conf.OverlayPath(vmID)
+}
+
+// qemuExpandImage expands a disk image to targetSize if its current virtual
+// size is smaller. For raw/sparse files (directBoot), os.Truncate is used;
+// for qcow2 images, qemu-img resize is used. No-op if already large enough.
+func qemuExpandImage(ctx context.Context, path string, targetSize int64, directBoot bool) error {
+	if directBoot {
+		fi, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		if targetSize <= fi.Size() {
+			return nil
+		}
+		if err := os.Truncate(path, targetSize); err != nil {
+			return fmt.Errorf("truncate %s to %d: %w", path, targetSize, err)
+		}
+		return nil
+	}
+
+	virtualSize, err := readQcow2VirtualSize(path)
+	if err != nil {
+		return fmt.Errorf("read qcow2 virtual size %s: %w", path, err)
+	}
+	if targetSize <= virtualSize {
+		return nil
+	}
+	if out, err := exec.CommandContext(ctx, //nolint:gosec
+		"qemu-img", "resize", path, fmt.Sprintf("%d", targetSize),
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("qemu-img resize %s: %s: %w", path, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// readQcow2VirtualSize reads the virtual size from a qcow2 file header.
+// The qcow2 header stores the virtual size as a big-endian uint64 at offset 24.
+func readQcow2VirtualSize(path string) (int64, error) {
+	f, err := os.Open(path) //nolint:gosec
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close() //nolint:errcheck
+	var hdr [32]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		return 0, fmt.Errorf("read header: %w", err)
+	}
+	return int64(binary.BigEndian.Uint64(hdr[24:32])), nil //nolint:gosec // qcow2 virtual size fits int64
 }

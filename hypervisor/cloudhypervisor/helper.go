@@ -2,17 +2,11 @@ package cloudhypervisor
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/projecteru2/core/log"
 
@@ -21,14 +15,9 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const (
-	apiSockName     = "api.sock"
-	pidFileName     = "ch.pid"
-	cmdlineFileName = "cmdline"
-	consoleSockName = "console.sock"
-)
+const cmdlineFileName = "cmdline"
 
-var runtimeFiles = []string{apiSockName, pidFileName, cmdlineFileName, consoleSockName}
+var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName}
 
 // ReverseLayerSerials extracts read-only layer serial names from StorageConfigs
 // and returns them in reverse order (top layer first for overlayfs lowerdir).
@@ -143,44 +132,6 @@ func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) 
 	return info.Config.Console.File, nil
 }
 
-// blobHexFromPath extracts the digest hex from a blob file path.
-// e.g., "/var/lib/cocoon/oci/blobs/abc123.erofs" → "abc123"
-func blobHexFromPath(path string) string {
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-// forEachVM runs fn for each ID concurrently (bounded by PoolSize),
-// collects successes, and logs failures.
-// All IDs are attempted (best-effort); errors are logged and collected.
-// The returned succeeded slice is always valid, even when err != nil.
-func (ch *CloudHypervisor) forEachVM(ctx context.Context, ids []string, op string, fn func(context.Context, string) error) ([]string, error) {
-	logger := log.WithFunc("cloudhypervisor." + op)
-	result := utils.ForEach(ctx, ids, fn, ch.conf.EffectivePoolSize())
-	for _, err := range result.Errors {
-		logger.Warnf(ctx, "%s: %v", op, err)
-	}
-	return result.Succeeded, result.Err()
-}
-
-func toVM(rec *hypervisor.VMRecord) *types.VM {
-	info := rec.VM // value copy — detached from the DB record
-	if info.State == types.VMStateRunning {
-		info.SocketPath = socketPath(rec.RunDir)
-		info.PID, _ = utils.ReadPIDFile(pidFile(rec.RunDir))
-	}
-	return &info
-}
-
-// socketPath returns the API socket path under a VM's run directory.
-func socketPath(runDir string) string { return filepath.Join(runDir, apiSockName) }
-
-// pidFile returns the PID file path under a VM's run directory.
-func pidFile(runDir string) string { return filepath.Join(runDir, pidFileName) }
-
-// consoleSockPath returns the console socket path under a VM's run directory.
-func consoleSockPath(runDir string) string { return filepath.Join(runDir, consoleSockName) }
-
 // resolveConsole determines the console path for a VM after launch.
 // Direct-boot (OCI) VMs use a PTY allocated by CH; UEFI VMs use a Unix socket.
 func resolveConsole(ctx context.Context, vmID, sockPath, consoleSock string, directBoot bool) string {
@@ -194,68 +145,4 @@ func resolveConsole(ctx context.Context, vmID, sockPath, consoleSock string, dir
 		return consolePath
 	}
 	return consoleSock
-}
-
-func cleanupRuntimeFiles(ctx context.Context, runDir string) {
-	for _, name := range runtimeFiles {
-		p := filepath.Join(runDir, name)
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			log.WithFunc("cloudhypervisor.cleanupRuntimeFiles").Warnf(ctx, "cleanup %s: %v", p, err)
-		}
-	}
-}
-
-// qemuExpandImage expands a disk image to targetSize if its current virtual
-// size is smaller. For raw/sparse files (directBoot), os.Truncate is used;
-// for qcow2 images, qemu-img resize is used. No-op if already large enough.
-func qemuExpandImage(ctx context.Context, path string, targetSize int64, directBoot bool) error {
-	if directBoot {
-		fi, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", path, err)
-		}
-		if targetSize <= fi.Size() {
-			return nil
-		}
-		if err := os.Truncate(path, targetSize); err != nil {
-			return fmt.Errorf("truncate %s to %d: %w", path, targetSize, err)
-		}
-		return nil
-	}
-
-	virtualSize, err := readQcow2VirtualSize(path)
-	if err != nil {
-		return fmt.Errorf("read qcow2 virtual size %s: %w", path, err)
-	}
-	if targetSize <= virtualSize {
-		return nil
-	}
-	if out, err := exec.CommandContext(ctx, //nolint:gosec
-		"qemu-img", "resize", path, fmt.Sprintf("%d", targetSize),
-	).CombinedOutput(); err != nil {
-		return fmt.Errorf("qemu-img resize %s: %s: %w", path, strings.TrimSpace(string(out)), err)
-	}
-	return nil
-}
-
-// readQcow2VirtualSize reads the virtual size from a qcow2 file header.
-// The qcow2 header stores the virtual size as a big-endian uint64 at offset 24.
-func readQcow2VirtualSize(path string) (int64, error) {
-	f, err := os.Open(path) //nolint:gosec
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close() //nolint:errcheck
-	var hdr [32]byte
-	if _, err := io.ReadFull(f, hdr[:]); err != nil {
-		return 0, fmt.Errorf("read header: %w", err)
-	}
-	return int64(binary.BigEndian.Uint64(hdr[24:32])), nil //nolint:gosec // qcow2 virtual size fits int64
-}
-
-func removeVMDirs(runDir, logDir string) error {
-	return errors.Join(
-		os.RemoveAll(runDir),
-		os.RemoveAll(logDir),
-	)
 }

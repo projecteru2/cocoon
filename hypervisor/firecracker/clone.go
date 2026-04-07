@@ -46,11 +46,11 @@ func (fc *Firecracker) cloneSetup(ctx context.Context, vmID string, vmCfg *types
 	logDir = fc.conf.VMLogDir(vmID)
 
 	cleanup = func() {
-		_ = removeVMDirs(runDir, logDir)
-		fc.rollbackCreate(ctx, vmID, vmCfg.Name)
+		_ = hypervisor.RemoveVMDirs(runDir, logDir)
+		fc.RollbackCreate(ctx, vmID, vmCfg.Name)
 	}
 
-	if err = fc.reserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
+	if err = fc.ReserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
 		return "", "", time.Time{}, nil, fmt.Errorf("reserve VM record: %w", err)
 	}
 	if err = utils.EnsureDirs(runDir, logDir); err != nil {
@@ -104,7 +104,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	}
 
 	// Launch FC process, load snapshot, configure drives, resume.
-	sockPath := socketPath(runDir)
+	sockPath := hypervisor.SocketPath(runDir)
 
 	withNetwork := len(networkConfigs) > 0
 	pid, err := fc.launchProcess(ctx, &hypervisor.VMRecord{
@@ -113,7 +113,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		LogDir: logDir,
 	}, sockPath, withNetwork)
 	if err != nil {
-		fc.markError(ctx, vmID)
+		fc.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("launch FC: %w", err)
 	}
 
@@ -132,7 +132,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		UpdatedAt:      now,
 		StartedAt:      &now,
 	}
-	if err := fc.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err := fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
 			return fmt.Errorf("vm %s disappeared from index", vmID)
@@ -143,7 +143,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		r.FirstBooted = true
 		return nil
 	}); err != nil {
-		fc.abortLaunch(ctx, pid, sockPath, runDir)
+		fc.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
 
@@ -160,7 +160,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 ) (err error) {
 	defer func() {
 		if err != nil {
-			fc.abortLaunch(ctx, pid, sockPath, runDir)
+			fc.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		}
 	}()
 
@@ -201,7 +201,7 @@ func (fc *Firecracker) rebuildFromSnapshot(ctx context.Context, _ string, vmCfg 
 	var storageConfigs []*types.StorageConfig
 	var bootCfg *types.BootConfig
 
-	if err := fc.store.With(ctx, func(idx *hypervisor.VMIndex) error {
+	if err := fc.DB.With(ctx, func(idx *hypervisor.VMIndex) error {
 		for _, rec := range idx.VMs {
 			if rec == nil || rec.Config.Image != vmCfg.Image {
 				continue
@@ -234,7 +234,7 @@ func (fc *Firecracker) rebuildFromSnapshot(ctx context.Context, _ string, vmCfg 
 		Serial: CowSerial,
 	})
 
-	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
 	return storageConfigs, bootCfg, blobIDs, nil
 }
 

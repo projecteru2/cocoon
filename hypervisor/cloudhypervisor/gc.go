@@ -29,11 +29,11 @@ func (s chSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
 func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 	return gc.Module[chSnapshot]{
 		Name:   typ,
-		Locker: ch.locker,
+		Locker: ch.Locker,
 		ReadDB: func(_ context.Context) (chSnapshot, error) {
 			var snap chSnapshot
 			cutoff := time.Now().Add(-creatingStateGCGrace)
-			if err := ch.store.ReadRaw(func(idx *hypervisor.VMIndex) error {
+			if err := ch.DB.ReadRaw(func(idx *hypervisor.VMIndex) error {
 				snap.blobIDs = make(map[string]struct{})
 				snap.vmIDs = make(map[string]struct{})
 				for id, rec := range idx.VMs {
@@ -78,10 +78,10 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 				// Try loading the DB record so we use stored RunDir/LogDir;
 				// for true orphans (no record) fall back to config-derived paths.
 				runDir, logDir := ch.conf.VMRunDir(id), ch.conf.VMLogDir(id)
-				if rec, loadErr := ch.loadRecord(ctx, id); loadErr == nil {
+				if rec, loadErr := ch.LoadRecord(ctx, id); loadErr == nil {
 					runDir, logDir = rec.RunDir, rec.LogDir
 				}
-				if err := removeVMDirs(runDir, logDir); err != nil {
+				if err := hypervisor.RemoveVMDirs(runDir, logDir); err != nil {
 					errs = append(errs, err)
 				}
 			}
@@ -106,7 +106,7 @@ func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context, ids []strin
 		return nil
 	}
 	cutoff := time.Now().Add(-creatingStateGCGrace)
-	return ch.store.WriteRaw(func(idx *hypervisor.VMIndex) error {
+	return ch.DB.WriteRaw(func(idx *hypervisor.VMIndex) error {
 		utils.CleanStaleRecords(idx.VMs, idx.Names, ids,
 			func(r *hypervisor.VMRecord) string { return r.Config.Name },
 			func(r *hypervisor.VMRecord) bool {
