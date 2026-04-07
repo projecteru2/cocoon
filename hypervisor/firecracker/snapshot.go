@@ -147,13 +147,19 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 // snapshotMeta is persisted as cocoon.json inside the snapshot tar.
 // It makes the snapshot self-contained: clones can reconstruct storage/boot
 // config without depending on live VM records or image backends.
+//
+// Paths in StorageConfigs and BootConfig are stored RELATIVE to SourceRootDir.
+// After loadSnapshotMeta, StorageConfigs/BootConfig are resolved against the
+// LOCAL rootDir. vmstatePaths() reconstructs the original absolute paths
+// (against SourceRootDir) for snapshot/load drive redirects.
 type snapshotMeta struct {
-	// SourceRootDir is the root_dir of the host that created the snapshot.
-	// Needed to reconstruct the absolute paths baked into FC's vmstate binary,
-	// which cannot be patched. Clone creates symlinks at those original paths.
 	SourceRootDir  string                 `json:"source_root_dir"`
-	StorageConfigs []*types.StorageConfig `json:"storage_configs"`       // relative to SourceRootDir
-	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"` // relative to SourceRootDir
+	StorageConfigs []*types.StorageConfig `json:"storage_configs"`       // resolved to local absolute paths after load
+	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"` // resolved to local absolute paths after load
+
+	// rawRelPaths preserves the original relative paths from cocoon.json
+	// so vmstatePaths() can reconstruct source-host absolute paths.
+	rawRelPaths []string // populated by loadSnapshotMeta, not serialized
 }
 
 // saveSnapshotMeta stores paths relative to rootDir so snapshots are portable
@@ -212,6 +218,12 @@ func loadSnapshotMeta(dir, localRootDir string) (*snapshotMeta, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
 	}
+	// Save raw relative paths before resolving, so vmstatePaths() can
+	// reconstruct the source-host absolute paths independently.
+	meta.rawRelPaths = make([]string, len(meta.StorageConfigs))
+	for i, sc := range meta.StorageConfigs {
+		meta.rawRelPaths[i] = sc.Path
+	}
 	// Resolve relative paths against the LOCAL rootDir for file access.
 	for _, sc := range meta.StorageConfigs {
 		if !filepath.IsAbs(sc.Path) {
@@ -230,19 +242,19 @@ func loadSnapshotMeta(dir, localRootDir string) (*snapshotMeta, error) {
 }
 
 // vmstatePaths reconstructs the absolute paths that FC's vmstate binary
-// has baked in (source host paths). These are where symlinks must be placed
-// so snapshot/load can find the drives.
+// has baked in (source host paths). Uses the raw relative paths from
+// cocoon.json resolved against SourceRootDir, NOT the locally-resolved paths.
 func (m *snapshotMeta) vmstatePaths() []*types.StorageConfig {
-	if m.SourceRootDir == "" {
+	if m.SourceRootDir == "" || len(m.rawRelPaths) == 0 {
 		return m.StorageConfigs // legacy: no source info, use as-is
 	}
-	var configs []*types.StorageConfig
-	for _, sc := range m.StorageConfigs {
-		path := sc.Path
+	configs := make([]*types.StorageConfig, len(m.StorageConfigs))
+	for i, sc := range m.StorageConfigs {
+		path := m.rawRelPaths[i]
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(m.SourceRootDir, path)
 		}
-		configs = append(configs, &types.StorageConfig{Path: path, RO: sc.RO, Serial: sc.Serial})
+		configs[i] = &types.StorageConfig{Path: path, RO: sc.RO, Serial: sc.Serial}
 	}
 	return configs
 }

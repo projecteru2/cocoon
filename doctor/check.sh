@@ -175,7 +175,12 @@ else
     warn "firecracker not found (optional, needed for --fc backend)"
 fi
 check_binary qemu-img
-check_binary zstd
+# zstd is optional — only needed for FC kernel decompression on some distros.
+if command -v zstd &>/dev/null; then
+    check_binary zstd
+else
+    warn "zstd not found (optional, needed for --fc kernel decompression)"
+fi
 check_binary mkfs.ext4
 check_binary mkfs.erofs
 
