@@ -112,3 +112,66 @@ func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
 	}
 	return fcAPI(ctx, hc, http.MethodPut, "/actions", body)
 }
+
+// pauseVM pauses a running FC instance via PATCH /vm.
+func pauseVM(ctx context.Context, hc *http.Client) error {
+	body, err := json.Marshal(map[string]string{"state": "Paused"})
+	if err != nil {
+		return fmt.Errorf("marshal pause request: %w", err)
+	}
+	return fcAPI(ctx, hc, http.MethodPatch, "/vm", body)
+}
+
+// resumeVM resumes a paused FC instance via PATCH /vm.
+func resumeVM(ctx context.Context, hc *http.Client) error {
+	body, err := json.Marshal(map[string]string{"state": "Resumed"})
+	if err != nil {
+		return fmt.Errorf("marshal resume request: %w", err)
+	}
+	return fcAPI(ctx, hc, http.MethodPatch, "/vm", body)
+}
+
+// FC snapshot/load request types.
+type fcSnapshotCreate struct {
+	SnapshotPath string `json:"snapshot_path"`
+	MemFilePath  string `json:"mem_file_path"`
+}
+
+type fcSnapshotLoad struct {
+	SnapshotPath        string          `json:"snapshot_path"`
+	MemBackend          fcSnapshotMemBE `json:"mem_backend"`
+	EnableDiffSnapshots bool            `json:"enable_diff_snapshots,omitempty"`
+	ResumeVM            bool            `json:"resume_vm,omitempty"`
+}
+
+type fcSnapshotMemBE struct {
+	BackendPath string `json:"backend_path"`
+	BackendType string `json:"backend_type"`
+}
+
+// createSnapshotFC creates a full VM snapshot (vmstate + memory file) in destDir.
+func createSnapshotFC(ctx context.Context, hc *http.Client, destDir string) error {
+	body, err := json.Marshal(fcSnapshotCreate{
+		SnapshotPath: destDir + "/" + snapshotVMStateFile,
+		MemFilePath:  destDir + "/" + snapshotMemFile,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal snapshot/create request: %w", err)
+	}
+	return fcAPI(ctx, hc, http.MethodPut, "/snapshot/create", body)
+}
+
+// loadSnapshotFC loads a VM snapshot from sourceDir into a freshly started FC process.
+func loadSnapshotFC(ctx context.Context, hc *http.Client, sourceDir string) error {
+	body, err := json.Marshal(fcSnapshotLoad{
+		SnapshotPath: sourceDir + "/" + snapshotVMStateFile,
+		MemBackend: fcSnapshotMemBE{
+			BackendPath: sourceDir + "/" + snapshotMemFile,
+			BackendType: "File",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal snapshot/load request: %w", err)
+	}
+	return fcAPI(ctx, hc, http.MethodPut, "/snapshot/load", body)
+}
