@@ -19,6 +19,7 @@ COCOON_CNI_BIN_DIR="${COCOON_CNI_BIN_DIR:-/opt/cni/bin}"
 
 # Dependency versions
 CH_VERSION="${CH_VERSION:-v51.1}"
+FC_VERSION="${FC_VERSION:-v1.12.0}"
 FW_VERSION="${FW_VERSION:-0.5.0}"
 CNI_VERSION="${CNI_VERSION:-v1.9.0}"
 
@@ -146,6 +147,7 @@ check_binary() {
         case "$name" in
             cloud-hypervisor) ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             ch-remote)        ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            firecracker)      ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             qemu-img)         ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             mkfs.ext4)        ver=$("$name" -V 2>&1 | head -1) || true ;;
             mkfs.erofs)       ver=$("$name" --version 2>&1 | head -1) || true ;;
@@ -165,6 +167,7 @@ check_binary() {
 
 check_binary cloud-hypervisor
 check_binary ch-remote
+check_binary firecracker
 check_binary qemu-img
 check_binary mkfs.ext4
 check_binary mkfs.erofs
@@ -430,6 +433,20 @@ if $UPGRADE; then
         fixed "ch-remote ${CH_VERSION} -> ${chr_dest}"
     else
         fail "failed to download ch-remote from ${chr_url}"
+    fi
+
+    # -- firecracker --------------------------------------------------------
+    header "Install firecracker ${FC_VERSION}"
+
+    fc_url="https://github.com/firecracker-microvm/firecracker/releases/download/${FC_VERSION}/firecracker-${FC_VERSION}-${ARCH}"
+    fc_dest="/usr/local/bin/firecracker"
+    info "downloading ${fc_url}"
+    if curl -fsSL -o "${tmpdir}/firecracker" "$fc_url"; then
+        install -m 0755 "${tmpdir}/firecracker" "$fc_dest"
+        setcap cap_net_admin+ep "$fc_dest" 2>/dev/null || true
+        fixed "firecracker ${FC_VERSION} -> ${fc_dest}"
+    else
+        fail "failed to download firecracker from ${fc_url}"
     fi
 
     # -- firmware -----------------------------------------------------------
