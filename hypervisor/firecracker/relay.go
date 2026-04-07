@@ -99,7 +99,13 @@ func relayBidirectional(ctx context.Context, a io.ReadWriter, b io.ReadWriteClos
 	case <-done:
 	case <-ctx.Done():
 	}
-	// Close the conn to unblock the other goroutine's io.Copy.
+	// Close the conn to unblock conn→master io.Copy.
+	// The master→conn io.Copy may remain blocked on PTY read until the
+	// guest writes to serial or FC exits. Use a timeout to avoid blocking
+	// the accept loop indefinitely.
 	_ = b.Close()
-	<-done // wait for the second goroutine
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second): //nolint:mnd
+	}
 }

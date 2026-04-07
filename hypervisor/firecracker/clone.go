@@ -65,36 +65,34 @@ func (fc *Firecracker) cloneSetup(ctx context.Context, vmID string, vmCfg *types
 func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
 	logger := log.WithFunc("firecracker.Clone")
 
-	// Rebuild storage/boot configs from the snapshot's cow.raw and existing record context.
-	// FC stores StorageConfigs on the VMRecord (not in a config.json like CH).
-	// We need to find the COW file in the snapshot and update paths.
+	// Read snapshot metadata (cocoon.json) to reconstruct storage/boot config.
+	// This makes the clone self-contained — no dependency on live VM records.
+	meta, err := loadSnapshotMeta(runDir)
+	if err != nil {
+		return nil, fmt.Errorf("load snapshot metadata: %w", err)
+	}
+
 	cowPath := fc.conf.COWRawPath(vmID)
 	snapshotCOW := filepath.Join(runDir, cowFileName)
-
-	// Move the extracted COW to its canonical location.
-	if err := os.Rename(snapshotCOW, cowPath); err != nil {
-		return nil, fmt.Errorf("move COW to canonical path: %w", err)
+	if renameErr := os.Rename(snapshotCOW, cowPath); renameErr != nil {
+		return nil, fmt.Errorf("move COW to canonical path: %w", renameErr)
 	}
 
-	// Rebuild storage configs: read-only layers from snapshot config (via blob IDs),
-	// plus the new COW disk.
-	storageConfigs, bootCfg, blobIDs, err := fc.rebuildFromSnapshot(ctx, vmID, vmCfg, cowPath)
-	if err != nil {
-		return nil, fmt.Errorf("rebuild from snapshot: %w", err)
-	}
+	// Rebuild storage configs: reuse layer paths from metadata, update COW path.
+	storageConfigs := rebuildCloneStorage(meta, cowPath)
+	bootCfg := meta.BootConfig
+	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
 
 	if verifyErr := verifyBaseFiles(storageConfigs, bootCfg); verifyErr != nil {
 		return nil, fmt.Errorf("verify base files: %w", verifyErr)
 	}
 
-	// Expand COW if vmCfg requests larger storage.
 	if vmCfg.Storage > 0 {
 		if expandErr := expandRawImage(cowPath, vmCfg.Storage); expandErr != nil {
 			return nil, fmt.Errorf("resize COW: %w", expandErr)
 		}
 	}
 
-	// Update bootCfg.Cmdline for the new clone (new VM name, IP, DNS).
 	if bootCfg != nil {
 		dns, dnsErr := fc.conf.DNSServers()
 		if dnsErr != nil {
@@ -103,9 +101,13 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		bootCfg.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, dns)
 	}
 
-	// Launch FC process, load snapshot, configure drives, resume.
-	sockPath := hypervisor.SocketPath(runDir)
+	// FC snapshot/load requires drives at the same paths as the source.
+	// Read-only layers are shared blobs (same path). COW changed path.
+	// Create a temp symlink from the source COW path -> clone COW so load succeeds.
+	symlinks := createDriveSymlinks(meta.StorageConfigs, storageConfigs)
+	defer cleanupSymlinks(symlinks)
 
+	sockPath := hypervisor.SocketPath(runDir)
 	withNetwork := len(networkConfigs) > 0
 	pid, err := fc.launchProcess(ctx, &hypervisor.VMRecord{
 		VM:     types.VM{NetworkConfigs: networkConfigs},
@@ -121,16 +123,10 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		return nil, err
 	}
 
-	// Finalize record -> Running.
 	info := types.VM{
-		ID:             vmID,
-		State:          types.VMStateRunning,
-		Config:         *vmCfg,
-		StorageConfigs: storageConfigs,
-		NetworkConfigs: networkConfigs,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		StartedAt:      &now,
+		ID: vmID, State: types.VMStateRunning,
+		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
+		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
 	if err := fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
@@ -169,13 +165,9 @@ func (fc *Firecracker) restoreAndResumeClone(
 		return fmt.Errorf("snapshot/load: %w", err)
 	}
 
-	// Re-configure drives after snapshot load.
-	// FC snapshot/load does NOT preserve drive config; drives must be re-attached.
 	if err = fc.reconfigureDrives(ctx, hc, storageConfigs); err != nil {
 		return fmt.Errorf("reconfigure drives: %w", err)
 	}
-
-	// Re-configure network interfaces for the clone (new TAP devices, new MACs).
 	if err = fc.reconfigureNetworks(ctx, hc, networkConfigs); err != nil {
 		return fmt.Errorf("reconfigure networks: %w", err)
 	}
@@ -186,56 +178,50 @@ func (fc *Firecracker) restoreAndResumeClone(
 	return nil
 }
 
-// rebuildFromSnapshot reconstructs StorageConfigs, BootConfig, and blob IDs
-// from the VM's image (looked up via vmCfg.Image) plus the new COW path.
-// FC only supports OCI (direct boot), so we always have a kernel+initrd+layers.
-func (fc *Firecracker) rebuildFromSnapshot(ctx context.Context, _ string, vmCfg *types.VMConfig, cowPath string) ([]*types.StorageConfig, *types.BootConfig, map[string]struct{}, error) {
-	// Look up the original VM that was snapshotted to find its storage layout.
-	// For clone, the snapshot already carried the COW; we need the read-only layers
-	// which are shared blobs on disk (referenced by the image).
-	// The caller (cmd layer) already resolved the image and passed storageConfigs
-	// via snapshotConfig.ImageBlobIDs. We reconstruct from the index.
+// rebuildCloneStorage creates new StorageConfigs from snapshot metadata,
+// keeping read-only layer paths unchanged and updating the COW path.
+func rebuildCloneStorage(meta *snapshotMeta, cowPath string) []*types.StorageConfig {
+	var configs []*types.StorageConfig
+	for _, sc := range meta.StorageConfigs {
+		if sc.RO {
+			configs = append(configs, &types.StorageConfig{Path: sc.Path, RO: true, Serial: sc.Serial})
+		}
+	}
+	configs = append(configs, &types.StorageConfig{Path: cowPath, RO: false, Serial: CowSerial})
+	return configs
+}
 
-	// Search for any existing VM with the same image to get layer paths.
-	// This is a fallback; the primary path is through the image resolver at the cmd layer.
-	var storageConfigs []*types.StorageConfig
-	var bootCfg *types.BootConfig
-
-	if err := fc.DB.With(ctx, func(idx *hypervisor.VMIndex) error {
-		for _, rec := range idx.VMs {
-			if rec == nil || rec.Config.Image != vmCfg.Image {
-				continue
-			}
-			// Found a VM with the same image; reuse its read-only layers and boot config.
-			for _, sc := range rec.StorageConfigs {
-				if sc.RO {
-					storageConfigs = append(storageConfigs, &types.StorageConfig{
-						Path:   sc.Path,
-						RO:     true,
-						Serial: sc.Serial,
-					})
+// createDriveSymlinks creates temporary symlinks from source drive paths to
+// clone drive paths so FC snapshot/load can find drives at their original locations.
+// Only creates symlinks for paths that actually changed (i.e., COW disk).
+func createDriveSymlinks(srcConfigs, dstConfigs []*types.StorageConfig) []string {
+	var symlinks []string
+	dstPaths := make(map[string]string) // srcPath → dstPath
+	for i, src := range srcConfigs {
+		if i < len(dstConfigs) && src.Path != dstConfigs[i].Path {
+			dstPaths[src.Path] = dstConfigs[i].Path
+		}
+	}
+	for srcPath, dstPath := range dstPaths {
+		// Only create if source path doesn't already exist (avoid overwriting real files).
+		if _, err := os.Stat(srcPath); err != nil {
+			// Ensure parent directory exists for the symlink.
+			if mkErr := os.MkdirAll(filepath.Dir(srcPath), 0o700); mkErr == nil {
+				if linkErr := os.Symlink(dstPath, srcPath); linkErr == nil {
+					symlinks = append(symlinks, srcPath)
 				}
 			}
-			if rec.BootConfig != nil {
-				b := *rec.BootConfig
-				bootCfg = &b
-			}
-			return nil
 		}
-		return fmt.Errorf("no VM with image %q found for layer reference", vmCfg.Image)
-	}); err != nil {
-		return nil, nil, nil, err
 	}
+	return symlinks
+}
 
-	// Append the new COW disk.
-	storageConfigs = append(storageConfigs, &types.StorageConfig{
-		Path:   cowPath,
-		RO:     false,
-		Serial: CowSerial,
-	})
-
-	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
-	return storageConfigs, bootCfg, blobIDs, nil
+func cleanupSymlinks(paths []string) {
+	for _, p := range paths {
+		_ = os.Remove(p)
+		// Clean up parent dir if it was created for the symlink (best-effort).
+		_ = os.Remove(filepath.Dir(p))
+	}
 }
 
 // reconfigureDrives re-attaches drives after FC snapshot/load.

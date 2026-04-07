@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cocoonstack/cocoon/config"
-	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/lock/flock"
 	storejson "github.com/cocoonstack/cocoon/storage/json"
@@ -83,5 +82,3 @@ func (fc *Firecracker) Delete(ctx context.Context, refs []string, force bool) ([
 		})
 	})
 }
-
-func (fc *Firecracker) RegisterGC(_ *gc.Orchestrator) {}

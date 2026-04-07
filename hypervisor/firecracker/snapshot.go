@@ -2,6 +2,7 @@ package firecracker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -18,6 +19,7 @@ import (
 const (
 	snapshotVMStateFile = "vmstate"
 	snapshotMemFile     = "mem"
+	snapshotMetaFile    = "cocoon.json"
 )
 
 // Snapshot pauses the VM, captures its full state (CPU/device state via FC
@@ -88,6 +90,13 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 		return nil, nil, fmt.Errorf("snapshot VM %s: %w", vmID, err)
 	}
 
+	// Save snapshot metadata so clones can reconstruct storage/boot config
+	// without depending on live VM records.
+	if metaErr := saveSnapshotMeta(tmpDir, rec.StorageConfigs, rec.BootConfig); metaErr != nil {
+		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
+		return nil, nil, fmt.Errorf("save snapshot metadata: %w", metaErr)
+	}
+
 	// Generate snapshot ID and record it on the VM atomically.
 	snapID, genErr := utils.GenerateID()
 	if genErr != nil {
@@ -125,4 +134,32 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	}
 
 	return cfg, utils.TarDirStreamWithRemove(tmpDir), nil
+}
+
+// snapshotMeta is persisted as cocoon.json inside the snapshot tar.
+// It makes the snapshot self-contained: clones can reconstruct storage/boot
+// config without depending on live VM records or image backends.
+type snapshotMeta struct {
+	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
+	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
+}
+
+func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *types.BootConfig) error {
+	data, err := json.Marshal(snapshotMeta{StorageConfigs: storageConfigs, BootConfig: boot})
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, snapshotMetaFile), data, 0o600)
+}
+
+func loadSnapshotMeta(dir string) (*snapshotMeta, error) {
+	data, err := os.ReadFile(filepath.Join(dir, snapshotMetaFile)) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", snapshotMetaFile, err)
+	}
+	var meta snapshotMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
+	}
+	return &meta, nil
 }
