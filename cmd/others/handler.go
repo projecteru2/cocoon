@@ -20,7 +20,7 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
+	backends, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,10 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 	for _, b := range backends {
 		b.RegisterGC(o)
 	}
-	hyper.RegisterGC(o)
+	// Register ALL hypervisor backends so GC protects blobs from both CH and FC VMs.
+	for _, hyper := range cmdcore.InitAllHypervisors(conf) {
+		hyper.RegisterGC(o)
+	}
 	netProvider.RegisterGC(o)
 	snapBackend.RegisterGC(o)
 	if err := o.Run(ctx); err != nil {

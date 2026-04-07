@@ -16,6 +16,9 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if conf.UseFirecracker {
+		return fmt.Errorf("--fc is not supported with vm debug (debug generates Cloud Hypervisor commands)")
+	}
 	backends, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err

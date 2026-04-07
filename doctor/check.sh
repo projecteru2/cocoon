@@ -167,7 +167,12 @@ check_binary() {
 
 check_binary cloud-hypervisor
 check_binary ch-remote
-check_binary firecracker
+# Firecracker is optional — only needed for --fc backend.
+if command -v firecracker &>/dev/null; then
+    check_binary firecracker
+else
+    warn "firecracker not found (optional, needed for --fc backend)"
+fi
 check_binary qemu-img
 check_binary mkfs.ext4
 check_binary mkfs.erofs
