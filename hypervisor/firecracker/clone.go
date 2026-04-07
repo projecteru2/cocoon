@@ -110,28 +110,24 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	}
 
 	// FC snapshot/load requires drives at the same paths baked into vmstate.
-	// Drive redirects (symlinks) are only needed when the vmstate paths differ
-	// from the local paths — i.e., same-host clones where only the COW moved.
-	// Cross-host clones (different rootDir) require the same rootDir layout;
-	// redirecting into a foreign path tree would be incorrect.
+	// Create symlinks from vmstate paths (source host) → local paths so FC
+	// can find drives during load. This handles both same-host (COW moved)
+	// and cross-host (different rootDir) cases.
 	vmstateSC := meta.vmstatePaths()
 	sameHost := meta.SourceRootDir == "" || meta.SourceRootDir == fc.conf.RootDir
-	var redirectCleanup func()
 	if sameHost {
+		// Same host: lock the source COW to serialize with concurrent operations.
 		unlock, lockErr := acquireCOWLock(vmstateSC)
 		if lockErr != nil {
 			return nil, fmt.Errorf("lock source COW: %w", lockErr)
 		}
 		defer unlock()
-		redirects, redirectErr := createDriveRedirects(vmstateSC, storageConfigs)
-		if redirectErr != nil {
-			return nil, fmt.Errorf("drive redirect: %w", redirectErr)
-		}
-		redirectCleanup = func() { cleanupDriveRedirects(redirects) }
-	} else {
-		redirectCleanup = func() {}
 	}
-	defer redirectCleanup()
+	redirects, redirectErr := createDriveRedirects(vmstateSC, storageConfigs)
+	if redirectErr != nil {
+		return nil, fmt.Errorf("drive redirect: %w", redirectErr)
+	}
+	defer cleanupDriveRedirects(redirects)
 
 	sockPath := hypervisor.SocketPath(runDir)
 	withNetwork := len(networkConfigs) > 0
@@ -149,13 +145,13 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		return nil, err
 	}
 
-	// FC cannot update CPU/memory after snapshot/load (no PATCH /machine-config
-	// on a restored VM). Use the snapshot's original values.
-	if meta.CPU > 0 {
-		vmCfg.CPU = meta.CPU
+	// FC cannot update CPU/memory after snapshot/load. Reject overrides
+	// that differ from the snapshot's values to avoid silent mismatch.
+	if meta.CPU > 0 && vmCfg.CPU != meta.CPU {
+		return nil, fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", vmCfg.CPU, meta.CPU)
 	}
-	if meta.Memory > 0 {
-		vmCfg.Memory = meta.Memory
+	if meta.Memory > 0 && vmCfg.Memory != meta.Memory {
+		return nil, fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
 	}
 
 	info := types.VM{
