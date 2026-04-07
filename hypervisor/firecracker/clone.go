@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -128,13 +127,20 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	// can find drives during load. This handles both same-host (COW moved)
 	// and cross-host (different rootDir) cases.
 	vmstateSC := meta.vmstatePaths()
-	// Validate vmstate redirect paths before creating symlinks/renames on the host.
-	// Each path must be under SourceRootDir to prevent tampered archives from
-	// targeting arbitrary host files via createDriveRedirects.
-	if validateErr := validateVMStatePaths(vmstateSC, meta.SourceRootDir); validateErr != nil {
+	sameHost := meta.SourceRootDir == "" || meta.SourceRootDir == fc.conf.RootDir
+	// Validate vmstate redirect paths (RO only — RW COW is source-host-specific
+	// and may legitimately be outside rootDir when run_dir differs).
+	// Same-host: check against local managed roots (trusted).
+	// Cross-host: check against SourceRootDir (untrusted, but vmstate paths
+	// are derived from it — the real protection is that only RO blob paths
+	// match shared filesystem locations; the RW entry differs and gets skipped).
+	if validateErr := validateVMStateROPaths(vmstateSC, sameHost, managedRoots{
+		rootDir: fc.conf.RootDir,
+		runDir:  fc.conf.Config.RunDir,
+		logDir:  fc.conf.Config.LogDir,
+	}); validateErr != nil {
 		return nil, fmt.Errorf("vmstate path validation: %w", validateErr)
 	}
-	sameHost := meta.SourceRootDir == "" || meta.SourceRootDir == fc.conf.RootDir
 	if sameHost {
 		// Same host: lock the source COW to serialize with concurrent operations.
 		unlock, lockErr := acquireCOWLock(vmstateSC)
@@ -233,19 +239,21 @@ func rebuildCloneStorage(meta *snapshotMeta, cowPath string) []*types.StorageCon
 	return configs
 }
 
-// validateVMStatePaths ensures all vmstate redirect targets are under the
-// declared SourceRootDir. Prevents tampered archives from pointing drive
-// entries at arbitrary host paths that createDriveRedirects would then
-// rename/symlink before snapshot/load.
-func validateVMStatePaths(vmstateSC []*types.StorageConfig, sourceRootDir string) error {
-	if sourceRootDir == "" {
-		return nil // legacy snapshot, no source info
+// validateVMStateROPaths validates the read-only vmstate redirect targets.
+// RW COW entries are skipped (source-host-specific, always replaced locally).
+// For same-host clones, RO paths are checked against local managed roots.
+// For cross-host, RO paths are shared OCI blobs that must match the local
+// blob store — if they don't, verifyBaseFiles will catch them later.
+func validateVMStateROPaths(vmstateSC []*types.StorageConfig, sameHost bool, roots managedRoots) error {
+	if !sameHost {
+		return nil // cross-host: local RO paths already validated in loadSnapshotMeta
 	}
-	root := filepath.Clean(sourceRootDir)
 	for _, sc := range vmstateSC {
-		cleaned := filepath.Clean(sc.Path)
-		if !strings.HasPrefix(cleaned, root+string(filepath.Separator)) && cleaned != root {
-			return fmt.Errorf("vmstate path %s escapes source root %s", sc.Path, sourceRootDir)
+		if !sc.RO {
+			continue // skip RW COW — may be outside rootDir on custom run_dir
+		}
+		if err := validateManagedPath(sc.Path, roots); err != nil {
+			return fmt.Errorf("vmstate RO path %s: %w", sc.Path, err)
 		}
 	}
 	return nil
