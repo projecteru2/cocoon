@@ -167,10 +167,18 @@ type fcSnapshotCreate struct {
 }
 
 type fcSnapshotLoad struct {
-	SnapshotPath        string          `json:"snapshot_path"`
-	MemBackend          fcSnapshotMemBE `json:"mem_backend"`
-	EnableDiffSnapshots bool            `json:"enable_diff_snapshots,omitempty"`
-	ResumeVM            bool            `json:"resume_vm,omitempty"`
+	SnapshotPath        string              `json:"snapshot_path"`
+	MemBackend          fcSnapshotMemBE     `json:"mem_backend"`
+	EnableDiffSnapshots bool                `json:"enable_diff_snapshots,omitempty"`
+	ResumeVM            bool                `json:"resume_vm,omitempty"`
+	NetworkOverrides    []fcNetworkOverride `json:"network_overrides,omitempty"`
+}
+
+// fcNetworkOverride overrides a network interface from the snapshot
+// with a new TAP device (FC v1.14+, PR #4731).
+type fcNetworkOverride struct {
+	IfaceID     string `json:"iface_id"`
+	HostDevName string `json:"host_dev_name"`
 }
 
 type fcSnapshotMemBE struct {
@@ -191,13 +199,15 @@ func createSnapshotFC(ctx context.Context, hc *http.Client, destDir string) erro
 }
 
 // loadSnapshotFC loads a VM snapshot from sourceDir into a freshly started FC process.
-func loadSnapshotFC(ctx context.Context, hc *http.Client, sourceDir string) error {
+// networkOverrides replaces TAP devices from the snapshot with new ones.
+func loadSnapshotFC(ctx context.Context, hc *http.Client, sourceDir string, networkOverrides []fcNetworkOverride) error {
 	body, err := json.Marshal(fcSnapshotLoad{
 		SnapshotPath: filepath.Join(sourceDir, snapshotVMStateFile),
 		MemBackend: fcSnapshotMemBE{
 			BackendPath: filepath.Join(sourceDir, snapshotMemFile),
 			BackendType: memBackendTypeFile,
 		},
+		NetworkOverrides: networkOverrides,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal snapshot/load request: %w", err)

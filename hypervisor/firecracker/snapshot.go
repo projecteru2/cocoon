@@ -43,49 +43,45 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	hc := utils.NewSocketHTTPClient(sockPath)
 	cowPath := fc.conf.COWRawPath(vmID)
 
-	// Serialize with concurrent clone redirects that may symlink cowPath.
-	cowUnlock, cowLockErr := lockCOWPath(cowPath)
-	if cowLockErr != nil {
-		return nil, nil, fmt.Errorf("lock COW: %w", cowLockErr)
-	}
-	defer cowUnlock()
-
 	tmpDir, err := os.MkdirTemp(fc.conf.VMRunDir(vmID), "snapshot-")
 	if err != nil {
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	if err := fc.WithRunningVM(ctx, &rec, func(_ int) error {
-		if err := pauseVM(ctx, hc); err != nil {
-			return fmt.Errorf("pause: %w", err)
-		}
-
-		resumed := false
-		var resumeErr error
-		doResume := func() {
-			if resumed {
-				return
+	// Serialize the COW copy with concurrent clone redirects.
+	if err := withCOWPathLocked(cowPath, func() error {
+		return fc.WithRunningVM(ctx, &rec, func(_ int) error {
+			if err := pauseVM(ctx, hc); err != nil {
+				return fmt.Errorf("pause: %w", err)
 			}
-			resumed = true
-			resumeErr = resumeVM(context.WithoutCancel(ctx), hc)
+
+			resumed := false
+			var resumeErr error
+			doResume := func() {
+				if resumed {
+					return
+				}
+				resumed = true
+				resumeErr = resumeVM(context.WithoutCancel(ctx), hc)
+				if resumeErr != nil {
+					logger.Warnf(ctx, "resume VM %s: %v", vmID, resumeErr)
+				}
+			}
+			defer doResume()
+
+			if err := createSnapshotFC(ctx, hc, tmpDir); err != nil {
+				return fmt.Errorf("snapshot: %w", err)
+			}
+			if err := utils.ReflinkCopy(filepath.Join(tmpDir, cowFileName), cowPath); err != nil {
+				return fmt.Errorf("copy COW: %w", err)
+			}
+
+			doResume()
 			if resumeErr != nil {
-				logger.Warnf(ctx, "resume VM %s: %v", vmID, resumeErr)
+				return fmt.Errorf("snapshot data captured but resume failed: %w", resumeErr)
 			}
-		}
-		defer doResume()
-
-		if err := createSnapshotFC(ctx, hc, tmpDir); err != nil {
-			return fmt.Errorf("snapshot: %w", err)
-		}
-		if err := utils.ReflinkCopy(filepath.Join(tmpDir, cowFileName), cowPath); err != nil {
-			return fmt.Errorf("copy COW: %w", err)
-		}
-
-		doResume()
-		if resumeErr != nil {
-			return fmt.Errorf("snapshot data captured but resume failed: %w", resumeErr)
-		}
-		return nil
+			return nil
+		})
 	}); err != nil {
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("snapshot VM %s: %w", vmID, err)

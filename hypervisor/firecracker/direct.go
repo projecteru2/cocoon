@@ -47,25 +47,23 @@ func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *t
 		return nil, err
 	}
 
-	// Serialize with concurrent clone redirects that may symlink cowPath.
-	cowUnlock, cowLockErr := lockCOWPath(cowPath)
-	if cowLockErr != nil {
-		return nil, fmt.Errorf("lock COW: %w", cowLockErr)
+	var result *types.VM
+	if lockErr := withCOWPathLocked(cowPath, func() error {
+		if cleanErr := cleanSnapshotFiles(rec.RunDir); cleanErr != nil {
+			fc.MarkError(ctx, vmID)
+			return fmt.Errorf("clean old snapshot files: %w", cleanErr)
+		}
+		if cloneErr := cloneSnapshotFiles(rec.RunDir, srcDir); cloneErr != nil {
+			fc.MarkError(ctx, vmID)
+			return fmt.Errorf("clone snapshot files: %w", cloneErr)
+		}
+		var restoreErr error
+		result, restoreErr = fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, cowPath)
+		return restoreErr
+	}); lockErr != nil {
+		return nil, lockErr
 	}
-	defer cowUnlock()
-
-	// Clean old snapshot files from runDir before linking/copying new ones.
-	if cleanErr := cleanSnapshotFiles(rec.RunDir); cleanErr != nil {
-		fc.MarkError(ctx, vmID)
-		return nil, fmt.Errorf("clean old snapshot files: %w", cleanErr)
-	}
-
-	if cloneErr := cloneSnapshotFiles(rec.RunDir, srcDir); cloneErr != nil {
-		fc.MarkError(ctx, vmID)
-		return nil, fmt.Errorf("clone snapshot files: %w", cloneErr)
-	}
-
-	return fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, cowPath)
+	return result, nil
 }
 
 // cloneSnapshotFiles copies snapshot files from srcDir to dstDir using

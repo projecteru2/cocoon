@@ -136,6 +136,9 @@ func (h Handler) prepareClone(cmd *cobra.Command, ctx context.Context, conf *con
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
+	if conf.UseFirecracker {
+		vmCfg.SingleQueueNet = true
+	}
 
 	vmID, err := utils.GenerateID()
 	if err != nil {
@@ -263,6 +266,11 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, image)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	// FC only supports single-queue virtio-net.
+	if conf.UseFirecracker {
+		vmCfg.SingleQueueNet = true
 	}
 
 	// Validate backend/boot-mode constraints before initializing backends.

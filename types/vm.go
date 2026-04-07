@@ -20,13 +20,14 @@ var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
 
 // VMConfig describes the resources requested for a new VM.
 type VMConfig struct {
-	Name    string `json:"name"`
-	CPU     int    `json:"cpu"`
-	Memory  int64  `json:"memory"`  // bytes
-	Storage int64  `json:"storage"` // COW disk size, bytes
-	Image   string `json:"image"`
-	Network string `json:"network,omitempty"` // CNI conflist name; empty = default
-	Windows bool   `json:"windows,omitempty"` // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
+	Name           string `json:"name"`
+	CPU            int    `json:"cpu"`
+	Memory         int64  `json:"memory"`  // bytes
+	Storage        int64  `json:"storage"` // COW disk size, bytes
+	Image          string `json:"image"`
+	Network        string `json:"network,omitempty"`          // CNI conflist name; empty = default
+	Windows        bool   `json:"windows,omitempty"`          // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
+	SingleQueueNet bool   `json:"single_queue_net,omitempty"` // FC: single-queue TAP (no multi-queue support)
 }
 
 // Validate checks that VMConfig fields are within acceptable ranges.

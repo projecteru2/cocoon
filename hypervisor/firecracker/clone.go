@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -114,36 +113,32 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 
 	// FC snapshot/load requires drives at the same absolute paths as the source.
 	// RO layers are shared blobs (same path). Only the COW path changed.
-	// Redirect the source COW path → clone COW via temporary symlink.
 	// TODO: Replace symlink redirect with drive_overrides when FC PR #5774
 	// (github.com/firecracker-microvm/firecracker/pull/5774) is merged.
-	// That adds a drive_overrides parameter to PUT /snapshot/load, eliminating
-	// the need for temporary symlinks and COW locking entirely.
-	unlock, lockErr := acquireCOWLock(meta.StorageConfigs)
-	if lockErr != nil {
-		return nil, fmt.Errorf("lock source COW: %w", lockErr)
-	}
-	defer unlock()
-	redirects, redirectErr := createDriveRedirects(meta.StorageConfigs, storageConfigs)
-	if redirectErr != nil {
-		return nil, fmt.Errorf("drive redirect: %w", redirectErr)
-	}
-	defer cleanupDriveRedirects(redirects)
-
 	sockPath := hypervisor.SocketPath(runDir)
 	withNetwork := len(networkConfigs) > 0
-	pid, launchErr := fc.launchProcess(ctx, &hypervisor.VMRecord{
-		VM:     types.VM{ID: vmID, NetworkConfigs: networkConfigs},
-		RunDir: runDir,
-		LogDir: logDir,
-	}, sockPath, withNetwork)
-	if launchErr != nil {
-		fc.MarkError(ctx, vmID)
-		return nil, fmt.Errorf("launch FC: %w", launchErr)
-	}
+	var pid int
+	if cloneErr := withSourceCOWLocked(meta.StorageConfigs, func() error {
+		redirects, redirectErr := createDriveRedirects(meta.StorageConfigs, storageConfigs)
+		if redirectErr != nil {
+			return fmt.Errorf("drive redirect: %w", redirectErr)
+		}
+		defer cleanupDriveRedirects(redirects)
 
-	if restoreErr := fc.restoreAndResumeClone(ctx, pid, sockPath, runDir, storageConfigs, networkConfigs); restoreErr != nil {
-		return nil, restoreErr
+		var launchErr error
+		pid, launchErr = fc.launchProcess(ctx, &hypervisor.VMRecord{
+			VM:     types.VM{ID: vmID, NetworkConfigs: networkConfigs},
+			RunDir: runDir,
+			LogDir: logDir,
+		}, sockPath, withNetwork)
+		if launchErr != nil {
+			fc.MarkError(ctx, vmID)
+			return fmt.Errorf("launch FC: %w", launchErr)
+		}
+
+		return fc.restoreAndResumeClone(ctx, pid, sockPath, runDir, networkConfigs)
+	}); cloneErr != nil {
+		return nil, cloneErr
 	}
 
 	info := types.VM{
@@ -174,7 +169,6 @@ func (fc *Firecracker) restoreAndResumeClone(
 	ctx context.Context,
 	pid int,
 	sockPath, runDir string,
-	storageConfigs []*types.StorageConfig,
 	networkConfigs []*types.NetworkConfig,
 ) (err error) {
 	defer func() {
@@ -184,14 +178,15 @@ func (fc *Firecracker) restoreAndResumeClone(
 	}()
 
 	hc := utils.NewSocketHTTPClient(sockPath)
-	if err = loadSnapshotFC(ctx, hc, runDir); err != nil {
+	// Use network_overrides to provide clone's TAP devices during snapshot/load.
+	// FC re-creates network devices from vmstate — overrides replace the
+	// source TAP with the clone's TAP so FC opens the right device.
+	netOverrides := buildNetworkOverrides(networkConfigs)
+	// FC opens drive files during snapshot/load and holds the fds.
+	// The symlink redirect ensures FC opens the clone's COW, not the source's.
+	// No drive reconfiguration needed — fds survive symlink cleanup.
+	if err = loadSnapshotFC(ctx, hc, runDir, netOverrides); err != nil {
 		return fmt.Errorf("snapshot/load: %w", err)
-	}
-	if err = reconfigureDrives(ctx, hc, storageConfigs); err != nil {
-		return fmt.Errorf("reconfigure drives: %w", err)
-	}
-	if err = reconfigureNetworks(ctx, hc, networkConfigs); err != nil {
-		return fmt.Errorf("reconfigure networks: %w", err)
 	}
 	if err = resumeVM(ctx, hc); err != nil {
 		return fmt.Errorf("resume: %w", err)
@@ -269,43 +264,25 @@ func cleanupDriveRedirects(redirects []driveRedirect) {
 	}
 }
 
-// acquireCOWLock locks the source VM's writable COW disk path.
-func acquireCOWLock(srcConfigs []*types.StorageConfig) (func(), error) {
+// withSourceCOWLocked runs fn while holding the source COW lock.
+func withSourceCOWLocked(srcConfigs []*types.StorageConfig, fn func() error) error {
 	for _, sc := range srcConfigs {
 		if !sc.RO {
-			return lockCOWPath(sc.Path)
+			return withCOWPathLocked(sc.Path, fn)
 		}
 	}
-	return func() {}, nil
+	return fn() // no RW disk, run unlocked
 }
 
-func reconfigureDrives(ctx context.Context, hc *http.Client, storageConfigs []*types.StorageConfig) error {
-	for i, sc := range storageConfigs {
-		driveID := fmt.Sprintf(driveIDFmt, i)
-		if err := putDrive(ctx, hc, fcDrive{
-			DriveID:      driveID,
-			PathOnHost:   sc.Path,
-			IsRootDevice: false,
-			IsReadOnly:   sc.RO,
-		}); err != nil {
-			return fmt.Errorf("drive %s: %w", driveID, err)
-		}
-	}
-	return nil
-}
-
-func reconfigureNetworks(ctx context.Context, hc *http.Client, networkConfigs []*types.NetworkConfig) error {
+func buildNetworkOverrides(networkConfigs []*types.NetworkConfig) []fcNetworkOverride {
+	var overrides []fcNetworkOverride
 	for i, nc := range networkConfigs {
-		ifaceID := fmt.Sprintf(ifaceIDFmt, i)
-		if err := putNetworkInterface(ctx, hc, fcNetworkInterface{
-			IfaceID:     ifaceID,
+		overrides = append(overrides, fcNetworkOverride{
+			IfaceID:     fmt.Sprintf(ifaceIDFmt, i),
 			HostDevName: nc.Tap,
-			GuestMAC:    nc.Mac,
-		}); err != nil {
-			return fmt.Errorf("network-interface %s: %w", ifaceID, err)
-		}
+		})
 	}
-	return nil
+	return overrides
 }
 
 func expandRawImage(path string, targetSize int64) error {
