@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/projecteru2/core/log"
 
@@ -169,7 +170,10 @@ func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *t
 	return os.WriteFile(filepath.Join(dir, snapshotMetaFile), data, 0o600)
 }
 
-func loadSnapshotMeta(dir string) (*snapshotMeta, error) {
+// loadSnapshotMeta reads cocoon.json and validates all paths are under
+// Cocoon-managed directories. Rejects tampered archives with paths
+// pointing outside rootDir/runDir.
+func loadSnapshotMeta(dir, rootDir, runDir string) (*snapshotMeta, error) {
 	data, err := os.ReadFile(filepath.Join(dir, snapshotMetaFile)) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", snapshotMetaFile, err)
@@ -178,5 +182,27 @@ func loadSnapshotMeta(dir string) (*snapshotMeta, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
 	}
+	for _, sc := range meta.StorageConfigs {
+		if !isUnderDir(sc.Path, rootDir) && !isUnderDir(sc.Path, runDir) {
+			return nil, fmt.Errorf("untrusted storage path in snapshot metadata: %s", sc.Path)
+		}
+	}
+	if b := meta.BootConfig; b != nil {
+		if b.KernelPath != "" && !isUnderDir(b.KernelPath, rootDir) {
+			return nil, fmt.Errorf("untrusted kernel path in snapshot metadata: %s", b.KernelPath)
+		}
+		if b.InitrdPath != "" && !isUnderDir(b.InitrdPath, rootDir) {
+			return nil, fmt.Errorf("untrusted initrd path in snapshot metadata: %s", b.InitrdPath)
+		}
+	}
 	return &meta, nil
+}
+
+func isUnderDir(path, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	cleaned := filepath.Clean(path)
+	root := filepath.Clean(dir)
+	return strings.HasPrefix(cleaned, root+string(filepath.Separator))
 }

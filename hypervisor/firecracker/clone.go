@@ -64,7 +64,7 @@ func (fc *Firecracker) cloneSetup(ctx context.Context, vmID string, vmCfg *types
 func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
 	logger := log.WithFunc("firecracker.Clone")
 
-	meta, err := loadSnapshotMeta(runDir)
+	meta, err := loadSnapshotMeta(runDir, fc.conf.RootDir, fc.conf.Config.RunDir)
 	if err != nil {
 		return nil, fmt.Errorf("load snapshot metadata: %w", err)
 	}
