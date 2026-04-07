@@ -11,6 +11,20 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// FC REST API constants.
+const (
+	actionInstanceStart  = "InstanceStart"
+	actionSendCtrlAltDel = "SendCtrlAltDel"
+	vmStatePaused        = "Paused"
+	vmStateResumed       = "Resumed"
+	memBackendTypeFile   = "File"
+
+	driveIDFmt = "drive_%d"
+	ifaceIDFmt = "eth%d"
+
+	cowFileName = "cow.raw"
+)
+
 // Firecracker REST API request types.
 // FC uses a pre-boot configuration model: start an empty process,
 // configure via HTTP PUT/PATCH, then issue InstanceStart.
@@ -98,7 +112,7 @@ func putNetworkInterface(ctx context.Context, hc *http.Client, iface fcNetworkIn
 }
 
 func instanceStart(ctx context.Context, hc *http.Client) error {
-	body, err := json.Marshal(fcAction{ActionType: "InstanceStart"})
+	body, err := json.Marshal(fcAction{ActionType: actionInstanceStart})
 	if err != nil {
 		return fmt.Errorf("marshal action: %w", err)
 	}
@@ -106,7 +120,7 @@ func instanceStart(ctx context.Context, hc *http.Client) error {
 }
 
 func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
-	body, err := json.Marshal(fcAction{ActionType: "SendCtrlAltDel"})
+	body, err := json.Marshal(fcAction{ActionType: actionSendCtrlAltDel})
 	if err != nil {
 		return fmt.Errorf("marshal action: %w", err)
 	}
@@ -115,7 +129,7 @@ func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
 
 // pauseVM pauses a running FC instance via PATCH /vm.
 func pauseVM(ctx context.Context, hc *http.Client) error {
-	body, err := json.Marshal(map[string]string{"state": "Paused"})
+	body, err := json.Marshal(map[string]string{"state": vmStatePaused})
 	if err != nil {
 		return fmt.Errorf("marshal pause request: %w", err)
 	}
@@ -124,7 +138,7 @@ func pauseVM(ctx context.Context, hc *http.Client) error {
 
 // resumeVM resumes a paused FC instance via PATCH /vm.
 func resumeVM(ctx context.Context, hc *http.Client) error {
-	body, err := json.Marshal(map[string]string{"state": "Resumed"})
+	body, err := json.Marshal(map[string]string{"state": vmStateResumed})
 	if err != nil {
 		return fmt.Errorf("marshal resume request: %w", err)
 	}
@@ -167,7 +181,7 @@ func loadSnapshotFC(ctx context.Context, hc *http.Client, sourceDir string) erro
 		SnapshotPath: sourceDir + "/" + snapshotVMStateFile,
 		MemBackend: fcSnapshotMemBE{
 			BackendPath: sourceDir + "/" + snapshotMemFile,
-			BackendType: "File",
+			BackendType: memBackendTypeFile,
 		},
 	})
 	if err != nil {

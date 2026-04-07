@@ -98,7 +98,7 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 	}
 
 	for i, sc := range rec.StorageConfigs {
-		driveID := fmt.Sprintf("drive_%d", i)
+		driveID := fmt.Sprintf(driveIDFmt, i)
 		if err := putDrive(ctx, hc, fcDrive{
 			DriveID:      driveID,
 			PathOnHost:   sc.Path,
@@ -110,7 +110,7 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 	}
 
 	for i, nc := range rec.NetworkConfigs {
-		ifaceID := fmt.Sprintf("eth%d", i)
+		ifaceID := fmt.Sprintf(ifaceIDFmt, i)
 		if err := putNetworkInterface(ctx, hc, fcNetworkInterface{
 			IfaceID:     ifaceID,
 			HostDevName: nc.Tap,

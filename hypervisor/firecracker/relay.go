@@ -78,14 +78,14 @@ func RunRelay() {
 			continue
 		}
 		relayBidirectional(ctx, master, conn)
-		_ = conn.Close()
 	}
 }
 
 // relayBidirectional copies data in both directions between a and b.
 // Returns when either direction hits EOF/error or ctx is canceled.
-func relayBidirectional(ctx context.Context, a, b io.ReadWriter) {
-	done := make(chan struct{}, 1)
+// Closes b (the network connection) to unblock the surviving goroutine.
+func relayBidirectional(ctx context.Context, a io.ReadWriter, b io.ReadWriteCloser) {
+	done := make(chan struct{}, 2) //nolint:mnd
 	go func() {
 		_, _ = io.Copy(b, a)
 		done <- struct{}{}
@@ -99,4 +99,7 @@ func relayBidirectional(ctx context.Context, a, b io.ReadWriter) {
 	case <-done:
 	case <-ctx.Done():
 	}
+	// Close the conn to unblock the other goroutine's io.Copy.
+	_ = b.Close()
+	<-done // wait for the second goroutine
 }

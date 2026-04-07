@@ -109,7 +109,7 @@ func cleanSnapshotFiles(runDir string) error {
 		}
 		name := entry.Name()
 		// Keep files that are NOT part of snapshot data (e.g., logs, PID file).
-		if name == snapshotVMStateFile || name == snapshotMemFile || name == "cow.raw" {
+		if name == snapshotVMStateFile || name == snapshotMemFile || name == cowFileName {
 			if removeErr := os.Remove(filepath.Join(runDir, name)); removeErr != nil {
 				return fmt.Errorf("remove %s: %w", name, removeErr)
 			}

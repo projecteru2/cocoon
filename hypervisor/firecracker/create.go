@@ -111,7 +111,7 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 
 	// FC requires uncompressed ELF kernel (vmlinux), not compressed vmlinuz.
 	// Extract and cache vmlinux alongside vmlinuz if needed.
-	if boot.KernelPath != "" {
+	if boot != nil && boot.KernelPath != "" {
 		vmlinuxPath, extractErr := ensureVmlinux(boot.KernelPath)
 		if extractErr != nil {
 			return nil, fmt.Errorf("extract vmlinux: %w", extractErr)
@@ -123,7 +123,9 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 	if err != nil {
 		return nil, fmt.Errorf("parse DNS servers: %w", err)
 	}
-	boot.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, dns)
+	if boot != nil {
+		boot.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, dns)
+	}
 	return storageConfigs, nil
 }
 
@@ -132,19 +134,33 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 // Otherwise, extracts the uncompressed kernel from the compressed vmlinuz
 // and caches it as "vmlinux" in the same directory.
 func ensureVmlinux(kernelPath string) (string, error) {
-	data, err := os.ReadFile(kernelPath) //nolint:gosec
-	if err != nil {
-		return "", fmt.Errorf("read kernel: %w", err)
-	}
-
 	elfMagic := []byte{0x7f, 'E', 'L', 'F'}
-	if bytes.HasPrefix(data, elfMagic) {
+
+	// Quick check: read just the magic bytes to detect ELF without loading the full file.
+	f, err := os.Open(kernelPath) //nolint:gosec
+	if err != nil {
+		return "", fmt.Errorf("open kernel: %w", err)
+	}
+	var magic [4]byte
+	_, err = io.ReadFull(f, magic[:])
+	_ = f.Close()
+	if err != nil {
+		return "", fmt.Errorf("read kernel magic: %w", err)
+	}
+	if bytes.Equal(magic[:], elfMagic) {
 		return kernelPath, nil // already uncompressed
 	}
 
+	// Check cache before doing expensive decompression.
 	vmlinuxPath := filepath.Join(filepath.Dir(kernelPath), "vmlinux")
 	if _, statErr := os.Stat(vmlinuxPath); statErr == nil {
 		return vmlinuxPath, nil // already cached
+	}
+
+	// Full read only when decompression is needed.
+	data, err := os.ReadFile(kernelPath) //nolint:gosec
+	if err != nil {
+		return "", fmt.Errorf("read kernel: %w", err)
 	}
 
 	// Try known compression formats: zstd (Ubuntu 24.04+), then gzip.
@@ -194,7 +210,7 @@ func decompressKernel(data []byte) ([]byte, error) {
 	return nil, fmt.Errorf("no supported compression format found (tried zstd, gzip)")
 }
 
-func decompressZstd(data []byte) ([]byte, error) { //nolint:unparam
+func decompressZstd(data []byte) ([]byte, error) {
 	// Use zstd CLI: the Go library's decoder may not handle the kernel's
 	// zstd stream correctly, and the bzImage has trailing data after the
 	// zstd frame which causes errors even with valid decompression.
@@ -203,6 +219,9 @@ func decompressZstd(data []byte) ([]byte, error) { //nolint:unparam
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	_ = cmd.Run() // ignore exit code — trailing data after frame causes non-zero exit
+	if stdout.Len() == 0 {
+		return nil, fmt.Errorf("zstd produced no output (is zstd installed?)")
+	}
 	return stdout.Bytes(), nil
 }
 

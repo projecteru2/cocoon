@@ -69,7 +69,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	// FC stores StorageConfigs on the VMRecord (not in a config.json like CH).
 	// We need to find the COW file in the snapshot and update paths.
 	cowPath := fc.conf.COWRawPath(vmID)
-	snapshotCOW := filepath.Join(runDir, "cow.raw")
+	snapshotCOW := filepath.Join(runDir, cowFileName)
 
 	// Move the extracted COW to its canonical location.
 	if err := os.Rename(snapshotCOW, cowPath); err != nil {
@@ -242,7 +242,7 @@ func (fc *Firecracker) rebuildFromSnapshot(ctx context.Context, _ string, vmCfg 
 // FC does not preserve drive configuration across snapshot/load boundaries.
 func (fc *Firecracker) reconfigureDrives(ctx context.Context, hc *http.Client, storageConfigs []*types.StorageConfig) error {
 	for i, sc := range storageConfigs {
-		driveID := fmt.Sprintf("drive_%d", i)
+		driveID := fmt.Sprintf(driveIDFmt, i)
 		if err := putDrive(ctx, hc, fcDrive{
 			DriveID:      driveID,
 			PathOnHost:   sc.Path,
@@ -259,7 +259,7 @@ func (fc *Firecracker) reconfigureDrives(ctx context.Context, hc *http.Client, s
 // Clone VMs get new TAP devices and MACs.
 func (fc *Firecracker) reconfigureNetworks(ctx context.Context, hc *http.Client, networkConfigs []*types.NetworkConfig) error {
 	for i, nc := range networkConfigs {
-		ifaceID := fmt.Sprintf("eth%d", i)
+		ifaceID := fmt.Sprintf(ifaceIDFmt, i)
 		if err := putNetworkInterface(ctx, hc, fcNetworkInterface{
 			IfaceID:     ifaceID,
 			HostDevName: nc.Tap,

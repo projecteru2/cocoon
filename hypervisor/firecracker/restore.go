@@ -79,7 +79,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 	}()
 
 	// Move extracted COW to canonical path if it was extracted into runDir.
-	snapshotCOW := filepath.Join(rec.RunDir, "cow.raw")
+	snapshotCOW := filepath.Join(rec.RunDir, cowFileName)
 	if snapshotCOW != cowPath {
 		if _, statErr := os.Stat(snapshotCOW); statErr == nil {
 			if renameErr := os.Rename(snapshotCOW, cowPath); renameErr != nil {

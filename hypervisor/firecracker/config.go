@@ -47,7 +47,7 @@ func (c *Config) VMLogDir(vmID string) string { return filepath.Join(c.LogDir(),
 
 // COWRawPath returns the path for the OCI COW raw disk.
 func (c *Config) COWRawPath(vmID string) string {
-	return filepath.Join(c.VMRunDir(vmID), "cow.raw")
+	return filepath.Join(c.VMRunDir(vmID), cowFileName)
 }
 
 // SocketWaitTimeout returns the configured socket wait timeout or the default.

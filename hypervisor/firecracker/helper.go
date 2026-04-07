@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,6 +29,12 @@ func toVM(rec *hypervisor.VMRecord) *types.VM {
 	if info.State == types.VMStateRunning {
 		info.SocketPath = socketPath(rec.RunDir)
 		info.PID, _ = utils.ReadPIDFile(pidFile(rec.RunDir))
+	}
+	// Deep-copy SnapshotIDs map to avoid shared mutable reference to DB record.
+	if info.SnapshotIDs != nil {
+		ids := make(map[string]struct{}, len(info.SnapshotIDs))
+		maps.Copy(ids, info.SnapshotIDs)
+		info.SnapshotIDs = ids
 	}
 	return &info
 }

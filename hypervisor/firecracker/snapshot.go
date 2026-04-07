@@ -72,7 +72,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 			return fmt.Errorf("snapshot: %w", err)
 		}
 
-		if err := utils.ReflinkCopy(filepath.Join(tmpDir, "cow.raw"), cowPath); err != nil {
+		if err := utils.ReflinkCopy(filepath.Join(tmpDir, cowFileName), cowPath); err != nil {
 			return fmt.Errorf("copy COW: %w", err)
 		}
 
