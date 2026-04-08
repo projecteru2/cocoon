@@ -139,7 +139,7 @@ cocoon
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
 │   ├── restore [flags] VM SNAP   Restore a running VM to a snapshot
 │   ├── status [VM...]             Watch VM status in real time
-│   └── debug [flags] IMAGE        Generate CH launch command (dry run)
+│   └── debug [flags] IMAGE        Generate hypervisor launch command (dry run)
 ├── snapshot
 │   ├── save [flags] VM            Create a snapshot from a running VM
 │   ├── list (alias: ls)           List all snapshots
@@ -165,7 +165,6 @@ cocoon
 | `--cni-bin-dir`   | `COCOON_CNI_BIN_DIR`           | `/opt/cni/bin`     | CNI plugin binary directory            |
 | `--root-password` | `COCOON_DEFAULT_ROOT_PASSWORD` |                    | Default root password for cloudimg VMs |
 | `--dns`           | `COCOON_DNS`                   | `8.8.8.8,1.1.1.1`  | DNS servers for VMs (comma separated)  |
-| `--fc`            | `COCOON_USE_FIRECRACKER`       | `false`            | Use Firecracker backend (OCI only)     |
 
 ## VM Flags
 
@@ -173,6 +172,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 
 | Flag        | Default          | Description                                   |
 | ----------- | ---------------- | --------------------------------------------- |
+| `--fc`      | `false`          | Use Firecracker backend (OCI images only)      |
 | `--name`    | `cocoon-<image>` | VM name                                       |
 | `--cpu`     | `2`              | Boot CPUs                                     |
 | `--memory`  | `1G`             | Memory size (e.g., 512M, 2G)                  |
@@ -365,13 +365,17 @@ For more details, see the [Cloud Hypervisor Windows documentation](https://githu
 Cocoon supports [Firecracker](https://github.com/firecracker-microvm/firecracker) as an alternative hypervisor for workloads that prioritize boot speed and resource density.
 
 ```bash
-# Run with Firecracker
-cocoon --fc vm run --name fast-vm ghcr.io/cocoonstack/cocoon/ubuntu:24.04
+# Run with Firecracker (--fc only needed for create/run/debug)
+cocoon vm run --fc --name fast-vm ghcr.io/cocoonstack/cocoon/ubuntu:24.04
 
-# All commands use --fc to target the Firecracker backend
-cocoon --fc vm list
-cocoon --fc vm console fast-vm
-cocoon --fc vm stop fast-vm
+# Other commands auto-detect the backend — no --fc needed
+cocoon vm list              # shows both CH and FC VMs
+cocoon vm console fast-vm
+cocoon vm stop fast-vm
+
+# Clone infers backend from the snapshot
+cocoon snapshot save fast-vm --name my-snap
+cocoon vm clone my-snap --name clone-vm
 ```
 
 ### Feature Comparison
