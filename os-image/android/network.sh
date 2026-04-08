@@ -3,26 +3,27 @@
 #
 # Fix networking in cocoon VM where ConnectivityService doesn't manage eth0.
 #
-# Problem: Android netd adds "32000: from all unreachable" catch-all ip rule
-# and controls all policy routing tables. Direct "ip route" writes are either
-# rejected or silently cleaned up by netd's netlink monitor.
+# Problem: Android netd adds "32000: from all unreachable" catch-all ip rule.
+# Solution: copy default routes into netd-managed policy tables so traffic
+# doesn't hit the 32000 unreachable fallback.
 #
-# Solution: use ndc (netd command interface) to register the network, add the
-# interface, set up routes, and mark it as default. This makes netd own the
-# routes and populate all policy tables correctly.
+# Static IP: kernel ip= already configured routes in main table.
+# DHCP: busybox udhcpc obtains a lease, then same route-copy logic applies.
 
 IFACE=eth0
-NETID=100
+TABLES="legacy_system legacy_network local_network"
 
 # Guard against repeated invocations — cocoon-network.rc triggers on every
-# netd start/restart. Only run once; subsequent calls are no-ops.
+# netd start/restart. Only run once.
 GUARD="/tmp/.cocoon-network-done"
-if [ -f "$GUARD" ]; then
-    exit 0
-fi
+[ -f "$GUARD" ] && exit 0
 
 cmdline_ip() {
-    for x in $(cat /proc/cmdline); do
+    local cmdline
+    cmdline="$(cat /proc/cmdline 2>/dev/null)" || \
+    cmdline="$(tr '\0' ' ' < /proc/1/cmdline 2>/dev/null)" || \
+    return 1
+    for x in $cmdline; do
         case "$x" in
             ip=*) echo "${x#ip=}"; return 0 ;;
         esac
@@ -30,13 +31,8 @@ cmdline_ip() {
     return 1
 }
 
-iface_src() {
-    ip -4 -o addr show dev "$IFACE" 2>/dev/null \
-        | sed -n 's/.* inet \([0-9.]*\)\/.*/\1/p' \
-        | head -n1
-}
-
 CMDLINE_IP="$(cmdline_ip || true)"
+CMDLINE_GW="" CMDLINE_DNS1="" CMDLINE_DNS2=""
 if [ -n "$CMDLINE_IP" ]; then
     CMDLINE_IFACE="$(printf '%s' "$CMDLINE_IP" | cut -d: -f6)"
     [ -n "$CMDLINE_IFACE" ] && IFACE="$CMDLINE_IFACE"
@@ -48,7 +44,6 @@ fi
 ip link set "$IFACE" up 2>/dev/null || true
 
 # No kernel ip= — run DHCP via busybox udhcpc.
-# This covers dhcp-noipam CNI networks where the guest must obtain its own IP.
 if [ -z "$CMDLINE_IP" ] && [ -x /sbin/busybox ]; then
     log -t cocoon-network "no ip= cmdline, running udhcpc on $IFACE"
     UDHCPC_SCRIPT="/tmp/udhcpc.sh"
@@ -81,40 +76,36 @@ while [ $try -lt 10 ]; do
     try=$((try + 1))
 done
 
-# Discover gateway: main table first, then kernel cmdline / udhcpc result.
+# Discover gateway: main table first, then cmdline/udhcpc result.
 GW=""
 try=0
 while [ $try -lt 10 ]; do
     GW="$(ip -4 route show table main 2>/dev/null | sed -n 's/^default via \([0-9.]*\).*$/\1/p' | head -1)"
     [ -n "$GW" ] && break
-    if [ -n "$CMDLINE_GW" ]; then
-        GW="$CMDLINE_GW"
-        break
-    fi
+    [ -n "$CMDLINE_GW" ] && GW="$CMDLINE_GW" && break
     sleep 1
     try=$((try + 1))
 done
 
+# Copy routes into netd policy tables.
 if [ -z "$GW" ]; then
-    log -t cocoon-network "WARN: no gateway found; skip ndc setup"
+    log -t cocoon-network "WARN: no gateway found; skip route setup"
 else
-    # Register network with netd so it owns the routes and policy tables.
-    # Destroy first in case a previous run left a stale network registration.
-    ndc network destroy "$NETID" 2>/dev/null
-    ndc network create "$NETID" 2>/dev/null
-    ndc network interface add "$NETID" "$IFACE" 2>/dev/null
     SUBNET="$(ip -4 route show table main 2>/dev/null | sed -n "s#^\([0-9.][0-9./]*\) dev ${IFACE} .*#\1#p" | head -1)"
-    [ -n "$SUBNET" ] && ndc network route add "$NETID" "$IFACE" "$SUBNET" 2>/dev/null
-    ndc network route add "$NETID" "$IFACE" 0.0.0.0/0 "$GW" 2>/dev/null
-    ndc network default set "$NETID" 2>/dev/null
-    ndc network permission user set NETWORK "$NETID" 2>/dev/null
+    SRC="$(ip -4 -o addr show dev "$IFACE" 2>/dev/null | sed -n 's/.* inet \([0-9.]*\)\/.*/\1/p' | head -1)"
+    for T in $TABLES; do
+        [ -n "$SUBNET" ] && [ -n "$SRC" ] && \
+            ip route replace "$SUBNET" dev "$IFACE" src "$SRC" scope link table "$T" 2>/dev/null || true
+        ip route replace default via "$GW" dev "$IFACE" onlink table "$T" 2>/dev/null || true
+    done
+    ip route replace default via "$GW" dev "$IFACE" onlink table main 2>/dev/null || true
     touch "$GUARD"
 fi
 
-# Set DNS (no ConnectivityService to configure resolvers).
+# Set DNS.
 DNS1="${CMDLINE_DNS1:-8.8.8.8}"
 DNS2="${CMDLINE_DNS2:-1.1.1.1}"
 setprop net.dns1 "$DNS1"
 setprop net.dns2 "$DNS2"
 
-log -t cocoon-network "iface=$IFACE gw=${GW:-none} netid=$NETID dns=[$DNS1,$DNS2]"
+log -t cocoon-network "iface=$IFACE gw=${GW:-none} dns=[$DNS1,$DNS2]"
