@@ -53,7 +53,7 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 	}
 
 	info := types.VM{
-		ID: id, State: types.VMStateCreated,
+		ID: id, Hypervisor: typ, State: types.VMStateCreated,
 		Config:         *vmCfg,
 		StorageConfigs: preparedStorage,
 		NetworkConfigs: networkConfigs,

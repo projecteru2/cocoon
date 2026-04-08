@@ -51,9 +51,10 @@ func (cfg *VMConfig) Validate() error {
 
 // VM is the runtime record for a VM, persisted by the hypervisor backend.
 type VM struct {
-	ID     string   `json:"id"`
-	State  VMState  `json:"state"`
-	Config VMConfig `json:"config"`
+	ID         string   `json:"id"`
+	Hypervisor string   `json:"hypervisor,omitempty"`
+	State      VMState  `json:"state"`
+	Config     VMConfig `json:"config"`
 
 	// Runtime — populated only while State == VMStateRunning.
 	PID        int    `json:"pid,omitempty"`

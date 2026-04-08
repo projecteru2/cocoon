@@ -135,6 +135,54 @@ func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
 	return result, nil
 }
 
+// FindHypervisor returns the backend that owns the given VM ref.
+// Tries all registered backends; returns ErrNotFound if no backend has it.
+func FindHypervisor(ctx context.Context, conf *config.Config, ref string) (hypervisor.Hypervisor, error) {
+	hypers, err := InitAllHypervisors(conf)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range hypers {
+		if _, resolveErr := h.Inspect(ctx, ref); resolveErr == nil {
+			return h, nil
+		}
+	}
+	return nil, fmt.Errorf("VM %q: %w", ref, hypervisor.ErrNotFound)
+}
+
+// ListAllVMs returns VMs from all registered backends, merged.
+func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.VM, error) {
+	var all []*types.VM
+	for _, h := range hypers {
+		vms, listErr := h.List(ctx)
+		if listErr != nil {
+			continue
+		}
+		all = append(all, vms...)
+	}
+	return all, nil
+}
+
+// RouteRefs groups VM refs by their owning backend.
+// Returns a map from hypervisor to refs it owns, or error if any ref is unresolvable.
+func RouteRefs(ctx context.Context, hypers []hypervisor.Hypervisor, refs []string) (map[hypervisor.Hypervisor][]string, error) {
+	result := map[hypervisor.Hypervisor][]string{}
+	for _, ref := range refs {
+		found := false
+		for _, h := range hypers {
+			if _, resolveErr := h.Inspect(ctx, ref); resolveErr == nil {
+				result[h] = append(result[h], ref)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("VM %q: %w", ref, hypervisor.ErrNotFound)
+		}
+	}
+	return result, nil
+}
+
 // InitNetwork creates the CNI network provider.
 func InitNetwork(conf *config.Config) (network.Network, error) {
 	p, err := cni.New(conf)

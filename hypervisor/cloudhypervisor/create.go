@@ -67,7 +67,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 
 	// Step 3: finalize the record with full data and Created state.
 	info := types.VM{
-		ID: id, State: types.VMStateCreated,
+		ID: id, Hypervisor: typ, State: types.VMStateCreated,
 		Config:         *vmCfg,
 		StorageConfigs: preparedStorage,
 		NetworkConfigs: networkConfigs,

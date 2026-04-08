@@ -22,16 +22,26 @@ func (h Handler) Start(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	hyper, err := cmdcore.InitHypervisor(conf)
+
+	hypers, err := cmdcore.InitAllHypervisors(conf)
+	if err != nil {
+		return err
+	}
+	routed, err := cmdcore.RouteRefs(ctx, hypers, args)
 	if err != nil {
 		return err
 	}
 
+	// Recover network for all backends before starting.
 	if netProvider, netErr := cmdcore.InitNetwork(conf); netErr == nil {
-		h.recoverNetwork(ctx, hyper, netProvider, args)
+		for hyper, refs := range routed {
+			h.recoverNetwork(ctx, hyper, netProvider, refs)
+		}
 	}
 
-	return batchVMCmd(ctx, "start", "started", hyper.Start, args)
+	return batchRoutedCmd(ctx, "start", "started", routed, func(hyper hypervisor.Hypervisor, refs []string) ([]string, error) {
+		return hyper.Start(ctx, refs)
+	})
 }
 
 func (h Handler) Stop(cmd *cobra.Command, args []string) error {
@@ -49,17 +59,28 @@ func (h Handler) Stop(cmd *cobra.Command, args []string) error {
 		conf.StopTimeoutSeconds = timeout
 	}
 
-	hyper, err := cmdcore.InitHypervisor(conf)
+	hypers, err := cmdcore.InitAllHypervisors(conf)
 	if err != nil {
 		return err
 	}
-	return batchVMCmd(ctx, "stop", "stopped", hyper.Stop, args)
+	routed, err := cmdcore.RouteRefs(ctx, hypers, args)
+	if err != nil {
+		return err
+	}
+	return batchRoutedCmd(ctx, "stop", "stopped", routed, func(hyper hypervisor.Hypervisor, refs []string) ([]string, error) {
+		return hyper.Stop(ctx, refs)
+	})
 }
 
 func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
-	ctx, hyper, err := h.initHyper(cmd)
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
+	}
+
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
+	if err != nil {
+		return fmt.Errorf("inspect: %w", err)
 	}
 
 	info, err := hyper.Inspect(ctx, args[0])
@@ -71,9 +92,14 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) Console(cmd *cobra.Command, args []string) error {
-	ctx, hyper, err := h.initHyper(cmd)
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
+	}
+
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
+	if err != nil {
+		return fmt.Errorf("console: %w", err)
 	}
 	ref := args[0]
 
@@ -128,31 +154,44 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	hyper, err := cmdcore.InitHypervisor(conf)
-	if err != nil {
-		return err
-	}
 	logger := log.WithFunc("cmd.rm")
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	deleted, deleteErr := hyper.Delete(ctx, args, force)
-	for _, id := range deleted {
-		logger.Infof(ctx, "deleted VM: %s", id)
+	hypers, err := cmdcore.InitAllHypervisors(conf)
+	if err != nil {
+		return err
+	}
+	routed, err := cmdcore.RouteRefs(ctx, hypers, args)
+	if err != nil {
+		return err
 	}
 
-	if len(deleted) > 0 {
+	var allDeleted []string
+	var lastErr error
+	for hyper, refs := range routed {
+		deleted, deleteErr := hyper.Delete(ctx, refs, force)
+		for _, id := range deleted {
+			logger.Infof(ctx, "deleted VM: %s", id)
+		}
+		allDeleted = append(allDeleted, deleted...)
+		if deleteErr != nil {
+			lastErr = deleteErr
+		}
+	}
+
+	if len(allDeleted) > 0 {
 		if netProvider, initErr := cmdcore.InitNetwork(conf); initErr == nil {
-			if _, delErr := netProvider.Delete(ctx, deleted); delErr != nil {
+			if _, delErr := netProvider.Delete(ctx, allDeleted); delErr != nil {
 				return fmt.Errorf("vm(s) deleted but network cleanup failed: %w", delErr)
 			}
 		}
 	}
 
-	if deleteErr != nil {
-		return fmt.Errorf("rm: %w", deleteErr)
+	if lastErr != nil {
+		return fmt.Errorf("rm: %w", lastErr)
 	}
-	if len(deleted) == 0 {
+	if len(allDeleted) == 0 {
 		logger.Info(ctx, "no VMs deleted")
 	}
 	return nil
@@ -175,14 +214,26 @@ func (h Handler) recoverNetwork(ctx context.Context, hyper hypervisor.Hypervisor
 	}
 }
 
-func (h Handler) initHyper(cmd *cobra.Command) (context.Context, hypervisor.Hypervisor, error) {
-	ctx, conf, err := h.Init(cmd)
-	if err != nil {
-		return nil, nil, err
+// batchRoutedCmd runs a batch operation across multiple backends.
+func batchRoutedCmd(ctx context.Context, name, pastTense string, routed map[hypervisor.Hypervisor][]string, fn func(hypervisor.Hypervisor, []string) ([]string, error)) error {
+	logger := log.WithFunc("cmd." + name)
+	var allDone []string
+	var lastErr error
+	for hyper, refs := range routed {
+		done, err := fn(hyper, refs)
+		for _, id := range done {
+			logger.Infof(ctx, "%s: %s", pastTense, id)
+		}
+		allDone = append(allDone, done...)
+		if err != nil {
+			lastErr = err
+		}
 	}
-	hyper, err := cmdcore.InitHypervisor(conf)
-	if err != nil {
-		return nil, nil, err
+	if lastErr != nil {
+		return fmt.Errorf("%s: %w", name, lastErr)
 	}
-	return ctx, hyper, nil
+	if len(allDone) == 0 {
+		logger.Infof(ctx, "no VMs %s", pastTense)
+	}
+	return nil
 }

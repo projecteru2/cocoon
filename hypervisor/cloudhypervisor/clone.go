@@ -158,6 +158,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	// Finalize record → Running.
 	info := types.VM{
 		ID:             vmID,
+		Hypervisor:     typ,
 		State:          types.VMStateRunning,
 		Config:         *vmCfg,
 		StorageConfigs: storageConfigs,

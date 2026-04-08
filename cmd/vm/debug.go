@@ -18,6 +18,12 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Read --fc from the subcommand flag.
+	if fc, _ := cmd.Flags().GetBool("fc"); fc {
+		conf.UseFirecracker = true
+	}
+
 	backends, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err

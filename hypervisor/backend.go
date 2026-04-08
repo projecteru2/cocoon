@@ -81,6 +81,7 @@ func (b *Backend) List(ctx context.Context) ([]*types.VM, error) {
 // Deep-copies SnapshotIDs to prevent shared mutable reference to DB record.
 func (b *Backend) ToVM(rec *VMRecord) *types.VM {
 	info := rec.VM // value copy
+	info.Hypervisor = b.Typ
 	if info.State == types.VMStateRunning {
 		info.SocketPath = SocketPath(rec.RunDir)
 		info.PID, _ = utils.ReadPIDFile(b.PIDFilePath(rec.RunDir))
@@ -181,7 +182,7 @@ func (b *Backend) ReserveVM(ctx context.Context, id string, vmCfg *types.VMConfi
 		}
 		idx.VMs[id] = &VMRecord{
 			VM: types.VM{
-				ID: id, State: types.VMStateCreating,
+				ID: id, Hypervisor: b.Typ, State: types.VMStateCreating,
 				Config: *vmCfg, CreatedAt: now, UpdatedAt: now,
 			},
 			ImageBlobIDs: blobIDs,

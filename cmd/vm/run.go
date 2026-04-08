@@ -54,10 +54,6 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	}
 	logger := log.WithFunc("cmd.clone")
 
-	hyper, err := cmdcore.InitHypervisor(conf)
-	if err != nil {
-		return err
-	}
 	snapBackend, err := cmdcore.InitSnapshot(conf)
 	if err != nil {
 		return err
@@ -65,11 +61,18 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 
 	snapRef := args[0]
 
-	// Validate snapshot backend matches the selected hypervisor before cloning.
-	if snapInfo, inspectErr := snapBackend.Inspect(ctx, snapRef); inspectErr == nil {
-		if backendErr := validateSnapshotBackend(snapInfo.Hypervisor, hyper.Type()); backendErr != nil {
-			return backendErr
-		}
+	// Infer hypervisor backend from the snapshot's Hypervisor field.
+	snapInfo, err := snapBackend.Inspect(ctx, snapRef)
+	if err != nil {
+		return fmt.Errorf("inspect snapshot %s: %w", snapRef, err)
+	}
+	if snapInfo.Hypervisor != "" {
+		conf.UseFirecracker = snapInfo.Hypervisor == "firecracker"
+	}
+
+	hyper, err := cmdcore.InitHypervisor(conf)
+	if err != nil {
+		return err
 	}
 
 	if da, ok := snapBackend.(snapshot.Direct); ok {
@@ -157,11 +160,7 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		return nil, "", nil, nil, fmt.Errorf("--nics %d above snapshot count %d: Firecracker cannot add NICs after snapshot/load", nics, cfg.NICs)
 	}
 
-	tapQueues := vmCfg.CPU
-	if conf.UseFirecracker {
-		tapQueues = 1
-	}
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues)
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker))
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
@@ -201,17 +200,17 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	}
 	logger := log.WithFunc("cmd.restore")
 
-	hyper, err := cmdcore.InitHypervisor(conf)
+	vmRef := args[0]
+	snapRef := args[1]
+
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
 	if err != nil {
-		return err
+		return fmt.Errorf("find VM %s: %w", vmRef, err)
 	}
 	snapBackend, err := cmdcore.InitSnapshot(conf)
 	if err != nil {
 		return err
 	}
-
-	vmRef := args[0]
-	snapRef := args[1]
 
 	vm, err := hyper.Inspect(ctx, vmRef)
 	if err != nil {
@@ -268,6 +267,11 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 		return nil, nil, nil, err
 	}
 
+	// Read --fc from the subcommand flag (create/run/debug only).
+	if fc, _ := cmd.Flags().GetBool("fc"); fc {
+		conf.UseFirecracker = true
+	}
+
 	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, image)
 	if err != nil {
 		return nil, nil, nil, err
@@ -301,12 +305,7 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	}
 
 	nics, _ := cmd.Flags().GetInt("nics")
-	// FC: single-queue TAP (no multi-queue support).
-	tapQueues := vmCfg.CPU
-	if conf.UseFirecracker {
-		tapQueues = 1
-	}
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues)
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -319,7 +318,16 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	return ctx, info, hyper, nil
 }
 
-func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, tapQueues int) (network.Network, []*types.NetworkConfig, error) {
+// tapQueues returns the number of TAP queues per NIC.
+// FC only supports single-queue TAPs; CH uses one queue per vCPU.
+func tapQueues(cpu int, useFC bool) int {
+	if useFC {
+		return 1
+	}
+	return cpu
+}
+
+func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, queues int) (network.Network, []*types.NetworkConfig, error) {
 	if nics <= 0 {
 		return nil, nil, nil
 	}
@@ -330,7 +338,7 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	// Override CPU for TAP queue count — FC uses single-queue, CH uses per-vCPU queues.
 	// The network layer derives TAP queues from vmCfg.CPU.
 	origCPU := vmCfg.CPU
-	vmCfg.CPU = tapQueues
+	vmCfg.CPU = queues
 	configs, err := netProvider.Config(ctx, vmID, nics, vmCfg)
 	vmCfg.CPU = origCPU
 	if err != nil {
@@ -346,21 +354,6 @@ func rollbackNetwork(ctx context.Context, netProvider network.Network, vmID stri
 	if _, delErr := netProvider.Delete(ctx, []string{vmID}); delErr != nil {
 		log.WithFunc("cmd.rollbackNetwork").Warnf(ctx, "rollback network for %s: %v", vmID, delErr)
 	}
-}
-
-func batchVMCmd(ctx context.Context, name, pastTense string, fn func(context.Context, []string) ([]string, error), refs []string) error {
-	logger := log.WithFunc("cmd." + name)
-	done, err := fn(ctx, refs)
-	for _, id := range done {
-		logger.Infof(ctx, "%s: %s", pastTense, id)
-	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	if len(done) == 0 {
-		logger.Infof(ctx, "no VMs %s", strings.ToLower(pastTense))
-	}
-	return nil
 }
 
 func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
@@ -477,25 +470,4 @@ func printBashArray(name string, nics []nicHint, field func(nicHint) string) {
 		fmt.Printf("'%s'", field(n))
 	}
 	fmt.Println(")")
-}
-
-// validateSnapshotBackend checks that the snapshot's originating hypervisor
-// matches the currently selected backend. Returns error on mismatch.
-// Empty snapshotHypervisor (pre-v0.3 snapshots) is allowed for backward compat.
-func validateSnapshotBackend(snapshotHypervisor, activeBackend string) error {
-	if snapshotHypervisor == "" {
-		return nil // legacy snapshot, no backend tag
-	}
-	if snapshotHypervisor != activeBackend {
-		return fmt.Errorf("snapshot was created by %s backend but current backend is %s; use --%s to match",
-			snapshotHypervisor, activeBackend, backendFlag(snapshotHypervisor))
-	}
-	return nil
-}
-
-func backendFlag(hypervisorType string) string {
-	if hypervisorType == "firecracker" {
-		return "fc"
-	}
-	return "no flag (default)"
 }

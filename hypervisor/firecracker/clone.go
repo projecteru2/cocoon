@@ -142,7 +142,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	}
 
 	info := types.VM{
-		ID: vmID, State: types.VMStateRunning,
+		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
 		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}

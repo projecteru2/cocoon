@@ -22,12 +22,16 @@ import (
 )
 
 func (h Handler) List(cmd *cobra.Command, _ []string) error {
-	ctx, hyper, err := h.initHyper(cmd)
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
 
-	vms, err := hyper.List(ctx)
+	hypers, err := cmdcore.InitAllHypervisors(conf)
+	if err != nil {
+		return err
+	}
+	vms, err := cmdcore.ListAllVMs(ctx, hypers)
 	if err != nil {
 		return fmt.Errorf("list: %w", err)
 	}
@@ -44,7 +48,7 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 }
 
 func (h Handler) Status(cmd *cobra.Command, args []string) error {
-	ctx, hyper, err := h.initHyper(cmd)
+	ctx, conf, err := h.Init(cmd)
 	if err != nil {
 		return err
 	}
@@ -55,13 +59,13 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	}
 	eventMode, _ := cmd.Flags().GetBool("event")
 
-	var watchCh <-chan struct{}
-	if w, ok := hyper.(hypervisor.Watchable); ok {
-		watchCh, err = utils.WatchFile(ctx, w.WatchPath(), 200*time.Millisecond) //nolint:mnd
-		if err != nil {
-			return fmt.Errorf("watch: %w", err)
-		}
+	hypers, hyperErr := cmdcore.InitAllHypervisors(conf)
+	if hyperErr != nil {
+		return hyperErr
 	}
+
+	// Set up file watchers for all backends that support it.
+	watchCh := mergeWatchChannels(ctx, hypers)
 
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
@@ -70,15 +74,47 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 
 	if eventMode {
 		if format == "json" {
-			statusEventLoopJSON(ctx, hyper, args, watchCh, ticker.C)
+			statusEventLoopJSON(ctx, hypers, args, watchCh, ticker.C)
 		} else {
-			statusEventLoop(ctx, hyper, args, watchCh, ticker.C)
+			statusEventLoop(ctx, hypers, args, watchCh, ticker.C)
 		}
 	} else {
 		isTTY := term.IsTerminal(os.Stdout.Fd())
-		statusRefreshLoop(ctx, hyper, args, watchCh, ticker.C, isTTY)
+		statusRefreshLoop(ctx, hypers, args, watchCh, ticker.C, isTTY)
 	}
 	return nil
+}
+
+func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-chan struct{} {
+	var channels []<-chan struct{}
+	for _, h := range hypers {
+		w, ok := h.(hypervisor.Watchable)
+		if !ok {
+			continue
+		}
+		ch, err := utils.WatchFile(ctx, w.WatchPath(), 200*time.Millisecond) //nolint:mnd
+		if err == nil {
+			channels = append(channels, ch)
+		}
+	}
+	if len(channels) == 0 {
+		return nil
+	}
+	if len(channels) == 1 {
+		return channels[0]
+	}
+	merged := make(chan struct{}, 1)
+	for _, ch := range channels {
+		go func() {
+			for range ch {
+				select {
+				case merged <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+	return merged
 }
 
 func runLoop(ctx context.Context, watchCh <-chan struct{}, tick <-chan time.Time, fn func()) {
@@ -98,10 +134,10 @@ func runLoop(ctx context.Context, watchCh <-chan struct{}, tick <-chan time.Time
 	}
 }
 
-func statusRefreshLoop(ctx context.Context, hyper hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time, isTTY bool) {
+func statusRefreshLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time, isTTY bool) {
 	var prev []vmSnapshot
 	runLoop(ctx, watchCh, tick, func() {
-		vms := listAndFilter(ctx, hyper, filters)
+		vms := listAndFilter(ctx, hypers, filters)
 		curr := snapshotAll(vms)
 		if slices.Equal(prev, curr) {
 			return
@@ -122,12 +158,12 @@ func statusRefreshLoop(ctx context.Context, hyper hypervisor.Hypervisor, filters
 	})
 }
 
-func statusEventLoop(ctx context.Context, hyper hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
+func statusEventLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	fmt.Println("EVENT\tID\tNAME\tSTATE\tCPU\tMEMORY\tIP\tIMAGE") //nolint:errcheck
 
 	prev := map[string]vmSnapshot{}
 	runLoop(ctx, watchCh, tick, func() {
-		vms := listAndFilter(ctx, hyper, filters)
+		vms := listAndFilter(ctx, hypers, filters)
 		curr := make(map[string]vmSnapshot, len(vms))
 		for _, vm := range vms {
 			curr[vm.ID] = takeSnapshot(vm)
@@ -158,7 +194,7 @@ type vmEvent struct {
 	VM    types.VM `json:"vm"`
 }
 
-func statusEventLoopJSON(ctx context.Context, hyper hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
+func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	enc := json.NewEncoder(os.Stdout)
 	type snapshotWithVM struct {
 		snap vmSnapshot
@@ -166,7 +202,7 @@ func statusEventLoopJSON(ctx context.Context, hyper hypervisor.Hypervisor, filte
 	}
 	prev := map[string]snapshotWithVM{}
 	runLoop(ctx, watchCh, tick, func() {
-		vms := listAndFilter(ctx, hyper, filters)
+		vms := listAndFilter(ctx, hypers, filters)
 		curr := make(map[string]snapshotWithVM, len(vms))
 		for _, vm := range vms {
 			vm.State = types.VMState(cmdcore.ReconcileState(vm))
@@ -216,8 +252,8 @@ func printEventRow(w *tabwriter.Writer, event string, snap vmSnapshot) {
 		snap.ip, snap.image)
 }
 
-func listAndFilter(ctx context.Context, hyper hypervisor.Hypervisor, filters []string) []*types.VM {
-	vms, err := hyper.List(ctx)
+func listAndFilter(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string) []*types.VM {
+	vms, err := cmdcore.ListAllVMs(ctx, hypers)
 	if err != nil {
 		log.WithFunc("status").Warnf(ctx, "list: %v", err)
 		return nil
