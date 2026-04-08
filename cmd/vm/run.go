@@ -151,6 +151,11 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	if nics < cfg.NICs {
 		return nil, "", nil, nil, fmt.Errorf("--nics %d below snapshot minimum %d", nics, cfg.NICs)
 	}
+	// FC snapshot/load restores exactly the snapshot's NIC count via network_overrides.
+	// Extra NICs can't be hot-added after load, so reject the mismatch.
+	if conf.UseFirecracker && nics > cfg.NICs {
+		return nil, "", nil, nil, fmt.Errorf("--nics %d above snapshot count %d: Firecracker cannot add NICs after snapshot/load", nics, cfg.NICs)
+	}
 
 	tapQueues := vmCfg.CPU
 	if conf.UseFirecracker {

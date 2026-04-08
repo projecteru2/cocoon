@@ -27,6 +27,12 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// hypervisorConstructors maps backend type to its constructor.
+var hypervisorConstructors = map[config.HypervisorType]func(*config.Config) (hypervisor.Hypervisor, error){
+	config.HypervisorCH:          func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) },
+	config.HypervisorFirecracker: func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) },
+}
+
 // BaseHandler provides shared config access for all command handlers.
 type BaseHandler struct {
 	ConfProvider func() *config.Config
@@ -99,12 +105,6 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 		return nil, nil, fmt.Errorf("init cloudimg backend: %w", err)
 	}
 	return ociStore, cloudimgStore, nil
-}
-
-// hypervisorConstructors maps backend type to its constructor.
-var hypervisorConstructors = map[config.HypervisorType]func(*config.Config) (hypervisor.Hypervisor, error){
-	config.HypervisorCH:          func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) },
-	config.HypervisorFirecracker: func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) },
 }
 
 // InitHypervisor initializes the selected hypervisor backend.

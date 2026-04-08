@@ -9,6 +9,7 @@ import (
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/hypervisor/cloudhypervisor"
+	"github.com/cocoonstack/cocoon/hypervisor/firecracker"
 	"github.com/cocoonstack/cocoon/types"
 )
 
@@ -36,6 +37,12 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		if boot.KernelPath == "" {
 			return fmt.Errorf("--fc requires OCI images (direct kernel boot)")
 		}
+		// FC requires uncompressed ELF kernel — resolve vmlinux path for debug output.
+		vmlinuxPath, extractErr := firecracker.EnsureVmlinux(boot.KernelPath)
+		if extractErr != nil {
+			return fmt.Errorf("extract vmlinux: %w", extractErr)
+		}
+		boot.KernelPath = vmlinuxPath
 		printFCDebug(storageConfigs, boot, vmCfg, conf.FCBinary)
 	} else {
 		maxCPU, _ := cmd.Flags().GetInt("max-cpu")

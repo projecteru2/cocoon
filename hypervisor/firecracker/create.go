@@ -106,7 +106,7 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 	// FC requires uncompressed ELF kernel (vmlinux), not compressed vmlinuz.
 	// Extract and cache vmlinux alongside vmlinuz if needed.
 	if boot != nil && boot.KernelPath != "" {
-		vmlinuxPath, extractErr := ensureVmlinux(boot.KernelPath)
+		vmlinuxPath, extractErr := EnsureVmlinux(boot.KernelPath)
 		if extractErr != nil {
 			return nil, fmt.Errorf("extract vmlinux: %w", extractErr)
 		}
@@ -123,11 +123,11 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 	return storageConfigs, nil
 }
 
-// ensureVmlinux returns the path to an uncompressed ELF kernel.
+// EnsureVmlinux returns the path to an uncompressed ELF kernel.
 // If the kernel at path is already ELF, returns path as-is.
 // Otherwise, extracts the uncompressed kernel from the compressed vmlinuz
 // and caches it as "vmlinux" in the same directory.
-func ensureVmlinux(kernelPath string) (string, error) {
+func EnsureVmlinux(kernelPath string) (string, error) {
 	elfMagic := []byte{0x7f, 'E', 'L', 'F'}
 
 	// Quick check: read just the magic bytes to detect ELF without loading the full file.

@@ -87,7 +87,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	storageConfigs := rebuildCloneStorage(meta, cowPath)
 	bootCfg := meta.BootConfig
 	if bootCfg != nil && bootCfg.KernelPath != "" {
-		vmlinuxPath, extractErr := ensureVmlinux(bootCfg.KernelPath)
+		vmlinuxPath, extractErr := EnsureVmlinux(bootCfg.KernelPath)
 		if extractErr != nil {
 			return nil, fmt.Errorf("extract vmlinux for clone: %w", extractErr)
 		}
