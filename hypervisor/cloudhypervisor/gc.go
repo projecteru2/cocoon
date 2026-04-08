@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"time"
 
@@ -70,28 +69,7 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		// Collect runs while the GC orchestrator holds the module's flock.
-		// Use lock-free DB access (ReadRaw/WriteRaw) to avoid self-deadlock,
-		// since the flock is shared between Backend.Locker and DB.locker.
-		Collect: func(ctx context.Context, ids []string) error {
-			var errs []error
-			for _, id := range ids {
-				runDir, logDir := ch.conf.VMRunDir(id), ch.conf.VMLogDir(id)
-				_ = ch.DB.ReadRaw(func(idx *hypervisor.VMIndex) error {
-					if rec := idx.VMs[id]; rec != nil {
-						runDir, logDir = rec.RunDir, rec.LogDir
-					}
-					return nil
-				})
-				if err := hypervisor.RemoveVMDirs(runDir, logDir); err != nil {
-					errs = append(errs, err)
-				}
-			}
-			if err := ch.CleanStalePlaceholders(ctx, ids); err != nil {
-				errs = append(errs, err)
-			}
-			return errors.Join(errs...)
-		},
+		Collect: ch.GCCollect,
 	}
 }
 

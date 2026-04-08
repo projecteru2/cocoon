@@ -2,6 +2,7 @@ package hypervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -35,6 +36,8 @@ type BackendConfig interface {
 	PIDFileName() string
 	TerminateGracePeriod() time.Duration
 	EffectivePoolSize() int
+	VMRunDir(id string) string
+	VMLogDir(id string) string
 }
 
 // Backend provides shared store operations for hypervisor backends.
@@ -260,6 +263,29 @@ func (b *Backend) CleanStalePlaceholders(_ context.Context, ids []string) error 
 		)
 		return nil
 	})
+}
+
+// GCCollect removes orphan VM directories and stale DB records.
+// Runs under the GC orchestrator's flock — uses lock-free DB access
+// (ReadRaw/WriteRaw) to avoid self-deadlock.
+func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
+	var errs []error
+	for _, id := range ids {
+		runDir, logDir := b.Conf.VMRunDir(id), b.Conf.VMLogDir(id)
+		_ = b.DB.ReadRaw(func(idx *VMIndex) error {
+			if rec := idx.VMs[id]; rec != nil {
+				runDir, logDir = rec.RunDir, rec.LogDir
+			}
+			return nil
+		})
+		if err := RemoveVMDirs(runDir, logDir); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := b.CleanStalePlaceholders(ctx, ids); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 // SocketPath returns the API socket path under a VM's run directory.

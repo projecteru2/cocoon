@@ -106,10 +106,18 @@ func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-c
 	merged := make(chan struct{}, 1)
 	for _, ch := range channels {
 		go func() {
-			for range ch {
+			for {
 				select {
-				case merged <- struct{}{}:
-				default:
+				case <-ctx.Done():
+					return
+				case _, ok := <-ch:
+					if !ok {
+						return
+					}
+					select {
+					case merged <- struct{}{}:
+					default:
+					}
 				}
 			}
 		}()
