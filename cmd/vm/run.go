@@ -147,17 +147,20 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		vmCfg.Name = "cocoon-clone-" + vmID[:8]
 	}
 
+	// FC snapshot/load cannot change CPU, memory, or NIC count.
+	// Reject overrides early before creating network/dirs.
+	if conf.UseFirecracker {
+		if validateErr := validateFCCloneOverrides(cmd, cfg); validateErr != nil {
+			return nil, "", nil, nil, validateErr
+		}
+	}
+
 	nics, _ := cmd.Flags().GetInt("nics")
 	if nics == 0 {
 		nics = cfg.NICs
 	}
 	if nics < cfg.NICs {
 		return nil, "", nil, nil, fmt.Errorf("--nics %d below snapshot minimum %d", nics, cfg.NICs)
-	}
-	// FC snapshot/load restores exactly the snapshot's NIC count via network_overrides.
-	// Extra NICs can't be hot-added after load, so reject the mismatch.
-	if conf.UseFirecracker && nics > cfg.NICs {
-		return nil, "", nil, nil, fmt.Errorf("--nics %d above snapshot count %d: Firecracker cannot add NICs after snapshot/load", nics, cfg.NICs)
 	}
 
 	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker))
@@ -377,12 +380,33 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	fmt.Println("  # Release memory for balloon")
 	fmt.Println("  echo 3 > /proc/sys/vm/drop_caches")
 
+	// FC clone: guest MAC is baked in vmstate (source VM's MAC).
+	// Must change guest MAC before networkd config takes effect.
+	if vm.Hypervisor == "firecracker" {
+		printFCMACHints(networkConfigs)
+	}
+
 	if isCloudimg {
 		printCloudimgNetworkHints(networkConfigs)
 	} else {
 		printOCINetworkHints(vm, networkConfigs)
 	}
 	fmt.Println()
+}
+
+// printFCMACHints prints commands to change guest MAC addresses.
+// FC clone retains the source VM's MAC in vmstate — must be changed manually.
+func printFCMACHints(networkConfigs []*types.NetworkConfig) {
+	fmt.Println()
+	fmt.Println("  # Fix guest MAC addresses (FC clone retains source VM's MAC)")
+	for i, nc := range networkConfigs {
+		if nc == nil || nc.Mac == "" {
+			continue
+		}
+		fmt.Printf("  ip link set dev eth%d down\n", i)
+		fmt.Printf("  ip link set dev eth%d address %s\n", i, nc.Mac)
+		fmt.Printf("  ip link set dev eth%d up\n", i)
+	}
 }
 
 func printCloudimgNetworkHints(_ []*types.NetworkConfig) {
@@ -459,6 +483,21 @@ func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	}
 
 	fmt.Println("  systemctl restart systemd-networkd")
+}
+
+// validateFCCloneOverrides rejects CPU/memory/NIC overrides for FC clones.
+// FC cannot change these after snapshot/load — fail early before creating resources.
+func validateFCCloneOverrides(cmd *cobra.Command, cfg *types.SnapshotConfig) error {
+	if cpuFlag, _ := cmd.Flags().GetInt("cpu"); cpuFlag > 0 && cpuFlag != cfg.CPU {
+		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", cpuFlag, cfg.CPU)
+	}
+	if memStr, _ := cmd.Flags().GetString("memory"); memStr != "" {
+		return fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
+	}
+	if nics, _ := cmd.Flags().GetInt("nics"); nics > 0 && nics != cfg.NICs {
+		return fmt.Errorf("--nics %d not supported: Firecracker cannot change NIC count after snapshot/load (snapshot has %d)", nics, cfg.NICs)
+	}
+	return nil
 }
 
 func printBashArray(name string, nics []nicHint, field func(nicHint) string) {
