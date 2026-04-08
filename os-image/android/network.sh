@@ -15,7 +15,7 @@ TABLES="legacy_system legacy_network local_network"
 
 # Guard against repeated invocations — cocoon-network.rc triggers on every
 # netd start/restart. Only run once.
-GUARD="/tmp/.cocoon-network-done"
+GUARD="/data/local/tmp/.cocoon-network-done"
 [ -f "$GUARD" ] && exit 0
 
 cmdline_ip() {
@@ -46,7 +46,7 @@ ip link set "$IFACE" up 2>/dev/null || true
 # No kernel ip= — run DHCP via busybox udhcpc.
 if [ -z "$CMDLINE_IP" ] && [ -x /sbin/busybox ]; then
     log -t cocoon-network "no ip= cmdline, running udhcpc on $IFACE"
-    UDHCPC_SCRIPT="/tmp/udhcpc.sh"
+    UDHCPC_SCRIPT="/data/local/tmp/udhcpc.sh"
     cat > "$UDHCPC_SCRIPT" << 'DHCPSCRIPT'
 #!/bin/sh
 case "$1" in
@@ -54,17 +54,17 @@ case "$1" in
         ip addr flush dev "$interface" 2>/dev/null
         ip addr add "$ip/$mask" dev "$interface"
         [ -n "$router" ] && ip route replace default via "$router" dev "$interface" 2>/dev/null
-        echo "$router" > /tmp/udhcpc_gw
-        echo "$dns" > /tmp/udhcpc_dns
+        echo "$router" > /data/local/tmp/udhcpc_gw
+        echo "$dns" > /data/local/tmp/udhcpc_dns
         ;;
 esac
 DHCPSCRIPT
     chmod 0755 "$UDHCPC_SCRIPT"
     /sbin/busybox udhcpc -i "$IFACE" -n -q -f -s "$UDHCPC_SCRIPT" 2>/dev/null
-    [ -f /tmp/udhcpc_gw ] && CMDLINE_GW="$(cat /tmp/udhcpc_gw)"
-    if [ -f /tmp/udhcpc_dns ]; then
-        CMDLINE_DNS1="$(cat /tmp/udhcpc_dns | awk '{print $1}')"
-        CMDLINE_DNS2="$(cat /tmp/udhcpc_dns | awk '{print $2}')"
+    [ -f /data/local/tmp/udhcpc_gw ] && CMDLINE_GW="$(cat /data/local/tmp/udhcpc_gw)"
+    if [ -f /data/local/tmp/udhcpc_dns ]; then
+        CMDLINE_DNS1="$(cat /data/local/tmp/udhcpc_dns | awk '{print $1}')"
+        CMDLINE_DNS2="$(cat /data/local/tmp/udhcpc_dns | awk '{print $2}')"
     fi
 fi
 
