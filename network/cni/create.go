@@ -113,11 +113,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		if i < len(existing) && existing[i] != nil {
 			overrideMAC = existing[i].Mac
 		}
-		tapQueues := vmCfg.CPU
-		if vmCfg.SingleQueueNet {
-			tapQueues = 1
-		}
-		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, tapQueues, vmCfg.SingleQueueNet, overrideMAC)
+		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, vmCfg.CPU, overrideMAC)
 		if setupErr != nil {
 			return nil, fmt.Errorf("setup tc-redirect %s: %w", vmID, setupErr)
 		}
@@ -125,7 +121,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		configs = append(configs, &types.NetworkConfig{
 			Tap:       tapName,
 			Mac:       mac,
-			NumQueues: netNumQueues(tapQueues),
+			NumQueues: netNumQueues(vmCfg.CPU),
 			QueueSize: defaultQueueSize,
 			NetnsPath: nsPath,
 			Network:   netInfo,

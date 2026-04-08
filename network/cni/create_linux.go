@@ -60,11 +60,11 @@ func deleteNetns(ctx context.Context, name string) error {
 // When overrideMAC is non-empty (recovery), the veth's hardware address is
 // set to the given value before proceeding, so the returned MAC matches
 // the persisted CH --net mac= value.
-func setupTCRedirect(nsPath, ifName, tapName string, queues int, noPIFlag bool, overrideMAC string) (string, error) {
+func setupTCRedirect(nsPath, ifName, tapName string, queues int, overrideMAC string) (string, error) {
 	var mac string
 	err := cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
 		var nsErr error
-		mac, nsErr = tcRedirectInNS(ifName, tapName, queues, noPIFlag, overrideMAC)
+		mac, nsErr = tcRedirectInNS(ifName, tapName, queues, overrideMAC)
 		return nsErr
 	})
 	return mac, err
@@ -76,7 +76,7 @@ func setupTCRedirect(nsPath, ifName, tapName string, queues int, noPIFlag bool, 
 //  3. Bring both interfaces up.
 //  4. Attach ingress qdisc to both.
 //  5. Add U32+mirred filters for bidirectional redirect.
-func tcRedirectInNS(ifName, tapName string, queues int, noPIFlag bool, overrideMAC string) (string, error) {
+func tcRedirectInNS(ifName, tapName string, queues int, overrideMAC string) (string, error) {
 	// 1. Find CNI veth, optionally restore its MAC (recovery), then flush IP addresses.
 	link, err := netlink.LinkByName(ifName)
 	if err != nil {
@@ -118,10 +118,9 @@ func tcRedirectInNS(ifName, tapName string, queues int, noPIFlag bool, overrideM
 	// VNET_HDR: allows kernel to parse virtio_net headers for checksum/GSO offload.
 	// Multi-queue: match CH num_queues so each vCPU gets its own TX/RX ring.
 	// Single-queue: ONE_QUEUE prevents packet drops on older kernels.
-	flags := netlink.TUNTAP_VNET_HDR
-	if noPIFlag {
-		flags |= netlink.TUNTAP_NO_PI
-	}
+	// IFF_NO_PI: both CH and FC open TAPs with IFF_NO_PI; the flag must
+	// match at attach time or TUNSETIFF returns EINVAL.
+	flags := netlink.TUNTAP_VNET_HDR | netlink.TUNTAP_NO_PI
 	if queues <= 1 {
 		queues = 1
 		flags |= netlink.TUNTAP_ONE_QUEUE

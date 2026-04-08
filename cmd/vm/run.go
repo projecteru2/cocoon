@@ -136,10 +136,6 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
-	if conf.UseFirecracker {
-		vmCfg.SingleQueueNet = true
-	}
-
 	vmID, err := utils.GenerateID()
 	if err != nil {
 		return nil, "", nil, nil, fmt.Errorf("generate VM ID: %w", err)
@@ -156,7 +152,11 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		return nil, "", nil, nil, fmt.Errorf("--nics %d below snapshot minimum %d", nics, cfg.NICs)
 	}
 
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg)
+	tapQueues := vmCfg.CPU
+	if conf.UseFirecracker {
+		tapQueues = 1
+	}
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues)
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
@@ -268,10 +268,6 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 		return nil, nil, nil, err
 	}
 
-	if conf.UseFirecracker {
-		vmCfg.SingleQueueNet = true
-	}
-
 	// Validate backend/boot-mode constraints before initializing backends.
 	if conf.UseFirecracker && vmCfg.Windows {
 		return nil, nil, nil, fmt.Errorf("--fc and --windows are mutually exclusive: Firecracker does not support Windows guests")
@@ -300,7 +296,12 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	}
 
 	nics, _ := cmd.Flags().GetInt("nics")
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg)
+	// FC: single-queue TAP (no multi-queue support).
+	tapQueues := vmCfg.CPU
+	if conf.UseFirecracker {
+		tapQueues = 1
+	}
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -313,7 +314,7 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	return ctx, info, hyper, nil
 }
 
-func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig) (network.Network, []*types.NetworkConfig, error) {
+func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, tapQueues int) (network.Network, []*types.NetworkConfig, error) {
 	if nics <= 0 {
 		return nil, nil, nil
 	}
@@ -321,7 +322,12 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	if err != nil {
 		return nil, nil, fmt.Errorf("init network: %w", err)
 	}
+	// Override CPU for TAP queue count — FC uses single-queue, CH uses per-vCPU queues.
+	// The network layer derives TAP queues from vmCfg.CPU.
+	origCPU := vmCfg.CPU
+	vmCfg.CPU = tapQueues
 	configs, err := netProvider.Config(ctx, vmID, nics, vmCfg)
+	vmCfg.CPU = origCPU
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure network: %w", err)
 	}
