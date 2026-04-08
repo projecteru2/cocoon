@@ -92,15 +92,13 @@ if [ -z "$GW" ]; then
     log -t cocoon-network "WARN: no gateway found; skip ndc setup"
 else
     # Register network with netd so it owns the routes and policy tables.
+    # Destroy first in case a previous run left a stale network registration.
+    ndc network destroy "$NETID" 2>/dev/null
     ndc network create "$NETID" 2>/dev/null
     ndc network interface add "$NETID" "$IFACE" 2>/dev/null
+    SUBNET="$(ip -4 route show table main 2>/dev/null | sed -n "s#^\([0-9.][0-9./]*\) dev ${IFACE} .*#\1#p" | head -1)"
+    [ -n "$SUBNET" ] && ndc network route add "$NETID" "$IFACE" "$SUBNET" 2>/dev/null
     ndc network route add "$NETID" "$IFACE" 0.0.0.0/0 "$GW" 2>/dev/null
-    SRC="$(iface_src)"
-    if [ -n "$SRC" ]; then
-        # Add subnet route so netd can resolve L2 for local destinations.
-        SUBNET="$(ip -4 route show table main 2>/dev/null | sed -n "s#^\([0-9.][0-9./]*\) dev ${IFACE} .*#\1#p" | head -1)"
-        [ -n "$SUBNET" ] && ndc network route add "$NETID" "$IFACE" "$SUBNET" 2>/dev/null
-    fi
     ndc network default set "$NETID" 2>/dev/null
     ndc network permission user set NETWORK "$NETID" 2>/dev/null
 fi
