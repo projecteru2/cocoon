@@ -143,3 +143,13 @@ This is a fundamental Firecracker design limitation. Cloud Hypervisor snapshots 
 ## Firecracker virtio-blk serial numbers
 
 Firecracker does not support virtio-blk serial numbers. Cocoon's OCI init script (`overlay.sh`) uses device paths (`/dev/vdX`) instead of serial names to identify disks when booting under Firecracker. OCI images built from `os-image/ubuntu/overlay.sh` (v0.3+) support both formats automatically. Older images must be rebuilt to work with `--fc`.
+
+## Firecracker clone guest MAC address
+
+Firecracker does not support overriding the guest MAC address during snapshot/load. Cloned FC VMs retain the source VM's guest MAC (baked into the vmstate binary). In Cocoon's TC redirect architecture, each VM runs in an isolated network namespace, so MAC identity is not visible to other VMs or the host bridge — **no MAC conflict occurs in practice**.
+
+On CNI plugins with strict per-veth MAC enforcement (Cilium eBPF, Calico eBPF), the guest MAC vs veth MAC mismatch could theoretically cause packet drops. This has not been observed in testing with the standard bridge CNI.
+
+**Upstream status**: FC's `NetworkOverride` struct only has `iface_id` and `host_dev_name` — no `guest_mac` field. Adding it would follow the existing `VsockOverride` pattern. No issue or PR exists yet.
+
+**Workaround**: If MAC matching is required, run `ip link set dev ethX address <new-mac>` inside the guest after clone (the post-clone hints print the expected MAC values).
