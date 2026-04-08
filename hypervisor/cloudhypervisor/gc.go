@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"time"
 
@@ -11,8 +10,6 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
-
-const creatingStateGCGrace = 24 * time.Hour
 
 type chSnapshot struct {
 	blobIDs     map[string]struct{} // union of all VMs' ImageBlobIDs
@@ -29,11 +26,11 @@ func (s chSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
 func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 	return gc.Module[chSnapshot]{
 		Name:   typ,
-		Locker: ch.locker,
+		Locker: ch.Locker,
 		ReadDB: func(_ context.Context) (chSnapshot, error) {
 			var snap chSnapshot
-			cutoff := time.Now().Add(-creatingStateGCGrace)
-			if err := ch.store.ReadRaw(func(idx *hypervisor.VMIndex) error {
+			cutoff := time.Now().Add(-hypervisor.CreatingStateGCGrace)
+			if err := ch.DB.ReadRaw(func(idx *hypervisor.VMIndex) error {
 				snap.blobIDs = make(map[string]struct{})
 				snap.vmIDs = make(map[string]struct{})
 				for id, rec := range idx.VMs {
@@ -72,47 +69,11 @@ func (ch *CloudHypervisor) GCModule() gc.Module[chSnapshot] {
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		Collect: func(ctx context.Context, ids []string) error {
-			var errs []error
-			for _, id := range ids {
-				// Try loading the DB record so we use stored RunDir/LogDir;
-				// for true orphans (no record) fall back to config-derived paths.
-				runDir, logDir := ch.conf.VMRunDir(id), ch.conf.VMLogDir(id)
-				if rec, loadErr := ch.loadRecord(ctx, id); loadErr == nil {
-					runDir, logDir = rec.RunDir, rec.LogDir
-				}
-				if err := removeVMDirs(runDir, logDir); err != nil {
-					errs = append(errs, err)
-				}
-			}
-			// Clean up stale "creating" DB records from this GC snapshot.
-			if err := ch.cleanStalePlaceholders(ctx, ids); err != nil {
-				errs = append(errs, err)
-			}
-			return errors.Join(errs...)
-		},
+		Collect: ch.GCCollect,
 	}
 }
 
 // RegisterGC registers the Cloud Hypervisor GC module with the given Orchestrator.
 func (ch *CloudHypervisor) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, ch.GCModule())
-}
-
-// cleanStalePlaceholders removes selected DB records stuck in stale "creating"
-// state. IDs not found (or no longer stale) are skipped.
-func (ch *CloudHypervisor) cleanStalePlaceholders(_ context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	cutoff := time.Now().Add(-creatingStateGCGrace)
-	return ch.store.WriteRaw(func(idx *hypervisor.VMIndex) error {
-		utils.CleanStaleRecords(idx.VMs, idx.Names, ids,
-			func(r *hypervisor.VMRecord) string { return r.Config.Name },
-			func(r *hypervisor.VMRecord) bool {
-				return r.State == types.VMStateCreating && r.UpdatedAt.Before(cutoff)
-			},
-		)
-		return nil
-	})
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/hypervisor/cloudhypervisor"
+	"github.com/cocoonstack/cocoon/hypervisor/firecracker"
 	imagebackend "github.com/cocoonstack/cocoon/images"
 	"github.com/cocoonstack/cocoon/images/cloudimg"
 	"github.com/cocoonstack/cocoon/images/oci"
@@ -25,6 +26,12 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
+
+// hypervisorConstructors maps backend type to its constructor.
+var hypervisorConstructors = map[config.HypervisorType]func(*config.Config) (hypervisor.Hypervisor, error){
+	config.HypervisorCH:          func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) },
+	config.HypervisorFirecracker: func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) },
+}
 
 // BaseHandler provides shared config access for all command handlers.
 type BaseHandler struct {
@@ -71,11 +78,11 @@ func InitBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Imag
 	if err != nil {
 		return nil, nil, err
 	}
-	ch, err := cloudhypervisor.New(conf)
+	hyper, err := InitHypervisor(conf)
 	if err != nil {
-		return nil, nil, fmt.Errorf("init hypervisor: %w", err)
+		return nil, nil, err
 	}
-	return backends, ch, nil
+	return backends, hyper, nil
 }
 
 // InitImageBackends initializes only image backends (no hypervisor needed).
@@ -100,13 +107,80 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 	return ociStore, cloudimgStore, nil
 }
 
-// InitHypervisor initializes only the hypervisor.
+// InitHypervisor initializes the selected hypervisor backend.
 func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
-	ch, err := cloudhypervisor.New(conf)
+	ctor, ok := hypervisorConstructors[conf.Hypervisor()]
+	if !ok {
+		return nil, fmt.Errorf("unknown hypervisor type: %s", conf.Hypervisor())
+	}
+	h, err := ctor(conf)
 	if err != nil {
 		return nil, fmt.Errorf("init hypervisor: %w", err)
 	}
-	return ch, nil
+	return h, nil
+}
+
+// InitAllHypervisors initializes all registered backends for GC.
+// Returns error if any backend fails — GC must not proceed without
+// full blob pinning or it risks deleting referenced layers.
+func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
+	result := make([]hypervisor.Hypervisor, 0, len(hypervisorConstructors))
+	for typ, ctor := range hypervisorConstructors {
+		h, err := ctor(conf)
+		if err != nil {
+			return nil, fmt.Errorf("init %s for GC: %w", typ, err)
+		}
+		result = append(result, h)
+	}
+	return result, nil
+}
+
+// FindHypervisor returns the backend that owns the given VM ref.
+// Tries all registered backends; returns ErrNotFound if no backend has it.
+func FindHypervisor(ctx context.Context, conf *config.Config, ref string) (hypervisor.Hypervisor, error) {
+	hypers, err := InitAllHypervisors(conf)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range hypers {
+		if _, resolveErr := h.Inspect(ctx, ref); resolveErr == nil {
+			return h, nil
+		}
+	}
+	return nil, fmt.Errorf("VM %q: %w", ref, hypervisor.ErrNotFound)
+}
+
+// ListAllVMs returns VMs from all registered backends, merged.
+func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.VM, error) {
+	var all []*types.VM
+	for _, h := range hypers {
+		vms, listErr := h.List(ctx)
+		if listErr != nil {
+			continue
+		}
+		all = append(all, vms...)
+	}
+	return all, nil
+}
+
+// RouteRefs groups VM refs by their owning backend.
+// Returns a map from hypervisor to refs it owns, or error if any ref is unresolvable.
+func RouteRefs(ctx context.Context, hypers []hypervisor.Hypervisor, refs []string) (map[hypervisor.Hypervisor][]string, error) {
+	result := map[hypervisor.Hypervisor][]string{}
+	for _, ref := range refs {
+		found := false
+		for _, h := range hypers {
+			if _, resolveErr := h.Inspect(ctx, ref); resolveErr == nil {
+				result[h] = append(result[h], ref)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("VM %q: %w", ref, hypervisor.ErrNotFound)
+		}
+	}
+	return result, nil
 }
 
 // InitNetwork creates the CNI network provider.

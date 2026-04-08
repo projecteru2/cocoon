@@ -9,6 +9,14 @@ import (
 	coretypes "github.com/projecteru2/core/types"
 )
 
+// HypervisorType identifies the selected hypervisor backend.
+type HypervisorType string
+
+const (
+	HypervisorCH          HypervisorType = "cloud-hypervisor"
+	HypervisorFirecracker HypervisorType = "firecracker"
+)
+
 // Config holds global Cocoon configuration.
 type Config struct {
 	// RootDir is the base directory for persistent data (images, firmware, VM DB).
@@ -24,6 +32,12 @@ type Config struct {
 	// CHBinary is the path or name of the cloud-hypervisor executable.
 	// Default: "cloud-hypervisor".
 	CHBinary string `json:"ch_binary" mapstructure:"ch_binary"`
+	// FCBinary is the path or name of the firecracker executable.
+	// Default: "firecracker".
+	FCBinary string `json:"fc_binary" mapstructure:"fc_binary"`
+	// UseFirecracker selects Firecracker as the hypervisor backend.
+	// Set via --fc flag. Default: false (use Cloud Hypervisor).
+	UseFirecracker bool `json:"use_firecracker,omitempty" mapstructure:"use_firecracker"`
 	// StopTimeoutSeconds is how long to wait for a guest to respond to an
 	// ACPI power-button before falling back to SIGTERM/SIGKILL.
 	// Default: 30.
@@ -52,6 +66,14 @@ type Config struct {
 	TerminateGracePeriodSeconds int `json:"terminate_grace_period_seconds,omitempty" mapstructure:"terminate_grace_period_seconds"`
 	// Log configuration, uses eru core's ServerLogConfig.
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
+}
+
+// Hypervisor returns the selected hypervisor backend type.
+func (c *Config) Hypervisor() HypervisorType {
+	if c.UseFirecracker {
+		return HypervisorFirecracker
+	}
+	return HypervisorCH
 }
 
 // EffectivePoolSize returns PoolSize if set, otherwise runtime.NumCPU().

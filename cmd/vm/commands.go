@@ -112,7 +112,7 @@ func Command(h Actions) *cobra.Command {
 
 	debugCmd := &cobra.Command{
 		Use:   "debug [flags] IMAGE",
-		Short: "Generate cloud-hypervisor launch command (dry run)",
+		Short: "Generate hypervisor launch command (dry run)",
 		Args:  cobra.ExactArgs(1),
 		RunE:  h.Debug,
 	}
@@ -149,6 +149,7 @@ func Command(h Actions) *cobra.Command {
 }
 
 func addVMFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool("fc", false, "use Firecracker backend instead of Cloud Hypervisor (OCI images only)")
 	cmd.Flags().String("name", "", "VM name")
 	cmd.Flags().Int("cpu", 2, "boot CPUs")                //nolint:mnd
 	cmd.Flags().String("memory", "1G", "memory size")     //nolint:mnd

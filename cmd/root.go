@@ -59,6 +59,7 @@ var (
 		viper.SetDefault("run_dir", "/var/lib/cocoon/run")
 		viper.SetDefault("log_dir", "/var/log/cocoon")
 		viper.SetDefault("ch_binary", "cloud-hypervisor")
+		viper.SetDefault("fc_binary", "firecracker")
 		viper.SetDefault("cni_conf_dir", "/etc/cni/net.d")
 		viper.SetDefault("cni_bin_dir", "/opt/cni/bin")
 		viper.SetDefault("dns", "8.8.8.8,1.1.1.1")
@@ -83,8 +84,8 @@ var (
 )
 
 // Execute is the main entry point called from main.go.
-func Execute() error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+func Execute(ctx context.Context) error {
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	return rootCmd.ExecuteContext(ctx)
 }

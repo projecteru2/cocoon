@@ -1,4 +1,4 @@
-package cloudhypervisor
+package firecracker
 
 import (
 	"context"
@@ -13,21 +13,22 @@ import (
 
 // compile-time interface checks.
 var (
-	_ hypervisor.Hypervisor = (*CloudHypervisor)(nil)
-	_ hypervisor.Direct     = (*CloudHypervisor)(nil)
-	_ hypervisor.Watchable  = (*CloudHypervisor)(nil)
+	_ hypervisor.Hypervisor = (*Firecracker)(nil)
+	_ hypervisor.Watchable  = (*Firecracker)(nil)
+	_ hypervisor.Direct     = (*Firecracker)(nil)
 )
 
-const typ = "cloud-hypervisor"
+const typ = "firecracker"
 
-// CloudHypervisor implements hypervisor.Hypervisor.
-type CloudHypervisor struct {
+// Firecracker implements hypervisor.Hypervisor using the Firecracker VMM.
+// Only OCI images (direct kernel boot) are supported — no UEFI, no cloudimg, no Windows.
+type Firecracker struct {
 	*hypervisor.Backend
 	conf *Config
 }
 
-// New creates a CloudHypervisor backend.
-func New(conf *config.Config) (*CloudHypervisor, error) {
+// New creates a Firecracker backend.
+func New(conf *config.Config) (*Firecracker, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -37,7 +38,7 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 	}
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[hypervisor.VMIndex](cfg.IndexFile(), locker)
-	return &CloudHypervisor{
+	return &Firecracker{
 		Backend: &hypervisor.Backend{
 			Typ:    typ,
 			Conf:   cfg,
@@ -49,31 +50,28 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 }
 
 // Delete removes VMs. Running VMs require force=true (stops them first).
-func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
-	ids, err := ch.ResolveRefs(ctx, refs)
+func (fc *Firecracker) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
+	ids, err := fc.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	return ch.ForEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
-		rec, loadErr := ch.LoadRecord(ctx, id)
+	return fc.ForEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
+		rec, loadErr := fc.LoadRecord(ctx, id)
 		if loadErr != nil {
 			return loadErr
 		}
-		if err := ch.WithRunningVM(ctx, &rec, func(_ int) error {
+		if err := fc.WithRunningVM(ctx, &rec, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}
-			return ch.stopOne(ctx, id)
+			return fc.stopOne(ctx, id)
 		}); err != nil && !errors.Is(err, hypervisor.ErrNotRunning) {
 			return fmt.Errorf("stop before delete: %w", err)
 		}
-		// Remove dirs BEFORE deleting the DB record so that a dir-cleanup
-		// failure keeps the record intact and the user can retry vm rm.
-		// This also ensures the ID lands in the succeeded list for network cleanup.
 		if err := hypervisor.RemoveVMDirs(rec.RunDir, rec.LogDir); err != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", err)
 		}
-		return ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
+		return fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 			r := idx.VMs[id]
 			if r == nil {
 				return hypervisor.ErrNotFound

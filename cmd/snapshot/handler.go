@@ -30,16 +30,15 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	}
 	logger := log.WithFunc("cmd.snapshot.save")
 
-	hyper, err := cmdcore.InitHypervisor(conf)
+	vmRef := args[0]
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
 	if err != nil {
-		return err
+		return fmt.Errorf("find VM %s: %w", vmRef, err)
 	}
 	snapBackend, err := cmdcore.InitSnapshot(conf)
 	if err != nil {
 		return err
 	}
-
-	vmRef := args[0]
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
 
@@ -95,7 +94,7 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	vmRef, _ := cmd.Flags().GetString("vm")
 	var filterIDs map[string]struct{}
 	if vmRef != "" {
-		hyper, hyperErr := cmdcore.InitHypervisor(conf)
+		hyper, hyperErr := cmdcore.FindHypervisor(ctx, conf, vmRef)
 		if hyperErr != nil {
 			return hyperErr
 		}

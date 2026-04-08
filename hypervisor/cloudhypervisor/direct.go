@@ -3,11 +3,11 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -44,12 +44,12 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 
 	// Clean old snapshot files from runDir before linking/copying new ones.
 	if cleanErr := cleanSnapshotFiles(rec.RunDir); cleanErr != nil {
-		ch.markError(ctx, vmID)
+		ch.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("clean old snapshot files: %w", cleanErr)
 	}
 
 	if cloneErr := cloneSnapshotFiles(rec.RunDir, srcDir); cloneErr != nil {
-		ch.markError(ctx, vmID)
+		ch.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("clone snapshot files: %w", cloneErr)
 	}
 
@@ -91,7 +91,7 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 				return fmt.Errorf("reflink copy %s: %w", name, err)
 			}
 		default:
-			if err := copyFile(dst, src); err != nil {
+			if err := hypervisor.CopyFile(dst, src); err != nil {
 				return fmt.Errorf("copy %s: %w", name, err)
 			}
 		}
@@ -132,27 +132,4 @@ func identifyCOWFiles(cfg *chVMConfig) map[string]bool {
 		}
 	}
 	return m
-}
-
-// copyFile copies a single file (used for small metadata files).
-func copyFile(dst, src string) error {
-	srcFile, err := os.Open(src) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close() //nolint:errcheck
-
-	fi, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode()) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close() //nolint:errcheck
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
 }

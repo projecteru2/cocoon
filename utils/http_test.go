@@ -197,7 +197,7 @@ func TestDoAPI_ContextCanceled(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // cancel immediately
 
 	_, err := DoAPI(ctx, srv.Client(), http.MethodGet, srv.URL+"/slow", nil, http.StatusOK)
@@ -348,7 +348,7 @@ func TestDoWithRetry_429_IsRetryable(t *testing.T) {
 }
 
 func TestDoWithRetry_ContextCanceled_DuringBackoff(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	calls := 0
 	go func() {
 		time.Sleep(50 * time.Millisecond)

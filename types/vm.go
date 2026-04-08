@@ -51,9 +51,10 @@ func (cfg *VMConfig) Validate() error {
 
 // VM is the runtime record for a VM, persisted by the hypervisor backend.
 type VM struct {
-	ID     string   `json:"id"`
-	State  VMState  `json:"state"`
-	Config VMConfig `json:"config"`
+	ID         string   `json:"id"`
+	Hypervisor string   `json:"hypervisor,omitempty"`
+	State      VMState  `json:"state"`
+	Config     VMConfig `json:"config"`
 
 	// Runtime — populated only while State == VMStateRunning.
 	PID        int    `json:"pid,omitempty"`
@@ -65,7 +66,7 @@ type VM struct {
 
 	// FirstBooted is true after the VM has been started at least once.
 	// Used to skip cidata attachment on subsequent starts (cloudimg only).
-	FirstBooted bool `json:"first_booted"`
+	FirstBooted bool `json:"first_booted,omitempty"`
 
 	// SnapshotIDs tracks snapshots created from this VM.
 	// Populated at runtime by toVM() from VMRecord.SnapshotIDs.

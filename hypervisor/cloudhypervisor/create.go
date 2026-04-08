@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,8 +14,8 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// CowSerial is the well-known virtio serial for the COW disk attached to OCI VMs.
-const CowSerial = "cocoon-cow"
+// CowSerial is re-exported for backward compatibility with cmd/vm/debug.go.
+const CowSerial = hypervisor.CowSerial
 
 // Create registers a new VM, prepares the COW disk, and persists the record.
 // The VM is left in Created state — call Start to launch it.
@@ -29,19 +28,19 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 	runDir := ch.conf.VMRunDir(id)
 	logDir := ch.conf.VMLogDir(id)
 
-	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
 
 	// Rollback on any failure after the placeholder is written.
 	// All cleanup ops are idempotent — safe even if dirs/records don't exist yet.
 	defer func() {
 		if err != nil {
-			_ = removeVMDirs(runDir, logDir)
-			ch.rollbackCreate(ctx, id, vmCfg.Name)
+			_ = hypervisor.RemoveVMDirs(runDir, logDir)
+			ch.RollbackCreate(ctx, id, vmCfg.Name)
 		}
 	}()
 
 	// Step 1: write a placeholder record so GC won't treat our dirs as orphans.
-	if err = ch.reserveVM(ctx, id, vmCfg, blobIDs, runDir, logDir); err != nil {
+	if err = ch.ReserveVM(ctx, id, vmCfg, blobIDs, runDir, logDir); err != nil {
 		return nil, fmt.Errorf("reserve VM record: %w", err)
 	}
 
@@ -68,7 +67,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 
 	// Step 3: finalize the record with full data and Created state.
 	info := types.VM{
-		ID: id, State: types.VMStateCreated,
+		ID: id, Hypervisor: typ, State: types.VMStateCreated,
 		Config:         *vmCfg,
 		StorageConfigs: preparedStorage,
 		NetworkConfigs: networkConfigs,
@@ -81,7 +80,7 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 		RunDir:       runDir,
 		LogDir:       logDir,
 	}
-	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err := ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		idx.VMs[id] = &rec
 		return nil
 	}); err != nil {
@@ -174,29 +173,6 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		{Path: overlayPath, RO: false},
 		{Path: cidataPath, RO: true},
 	}, nil
-}
-
-// extractBlobIDs extracts digest hexes from the original image StorageConfigs
-// and BootConfig paths. Must be called before prepare transforms them.
-func extractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfig) map[string]struct{} {
-	ids := make(map[string]struct{})
-	if boot != nil && boot.KernelPath != "" {
-		// OCI: erofs layer blobs + boot dir hexes.
-		for _, s := range storageConfigs {
-			if s.RO {
-				ids[blobHexFromPath(s.Path)] = struct{}{}
-			}
-		}
-		// boot/{hex}/vmlinuz → hex
-		ids[filepath.Base(filepath.Dir(boot.KernelPath))] = struct{}{}
-		if boot.InitrdPath != "" {
-			ids[filepath.Base(filepath.Dir(boot.InitrdPath))] = struct{}{}
-		}
-	} else if len(storageConfigs) > 0 {
-		// Cloudimg: base qcow2 blob hex (before overlay replaces it).
-		ids[blobHexFromPath(storageConfigs[0].Path)] = struct{}{}
-	}
-	return ids
 }
 
 // generateCidata creates a fresh cloud-init NoCloud cidata disk image (FAT12)

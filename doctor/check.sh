@@ -19,6 +19,7 @@ COCOON_CNI_BIN_DIR="${COCOON_CNI_BIN_DIR:-/opt/cni/bin}"
 
 # Dependency versions
 CH_VERSION="${CH_VERSION:-v51.1}"
+FC_VERSION="${FC_VERSION:-v1.15.0}"
 FW_VERSION="${FW_VERSION:-0.5.0}"
 CNI_VERSION="${CNI_VERSION:-v1.9.0}"
 
@@ -146,7 +147,9 @@ check_binary() {
         case "$name" in
             cloud-hypervisor) ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             ch-remote)        ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            firecracker)      ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             qemu-img)         ver=$("$name" --version 2>/dev/null | head -1) || true ;;
+            zstd)             ver=$("$name" --version 2>/dev/null | head -1) || true ;;
             mkfs.ext4)        ver=$("$name" -V 2>&1 | head -1) || true ;;
             mkfs.erofs)       ver=$("$name" --version 2>&1 | head -1) || true ;;
         esac
@@ -165,7 +168,19 @@ check_binary() {
 
 check_binary cloud-hypervisor
 check_binary ch-remote
+# Firecracker is optional — only needed for --fc backend.
+if command -v firecracker &>/dev/null; then
+    check_binary firecracker
+else
+    warn "firecracker not found (optional, needed for --fc backend)"
+fi
 check_binary qemu-img
+# zstd is optional — only needed for FC kernel decompression on some distros.
+if command -v zstd &>/dev/null; then
+    check_binary zstd
+else
+    warn "zstd not found (optional, needed for --fc kernel decompression)"
+fi
 check_binary mkfs.ext4
 check_binary mkfs.erofs
 
@@ -432,6 +447,22 @@ if $UPGRADE; then
         fail "failed to download ch-remote from ${chr_url}"
     fi
 
+    # -- firecracker --------------------------------------------------------
+    header "Install firecracker ${FC_VERSION}"
+
+    fc_tgz="firecracker-${FC_VERSION}-${ARCH}.tgz"
+    fc_url="https://github.com/firecracker-microvm/firecracker/releases/download/${FC_VERSION}/${fc_tgz}"
+    fc_dest="/usr/local/bin/firecracker"
+    info "downloading ${fc_url}"
+    if curl -fsSL -o "${tmpdir}/${fc_tgz}" "$fc_url"; then
+        tar -xzf "${tmpdir}/${fc_tgz}" -C "${tmpdir}"
+        install -m 0755 "${tmpdir}/release-${FC_VERSION}-${ARCH}/firecracker-${FC_VERSION}-${ARCH}" "$fc_dest"
+        setcap cap_net_admin+ep "$fc_dest" 2>/dev/null || true
+        fixed "firecracker ${FC_VERSION} -> ${fc_dest}"
+    else
+        fail "failed to download firecracker from ${fc_url}"
+    fi
+
     # -- firmware -----------------------------------------------------------
     header "Install hypervisor-fw ${FW_VERSION}"
 
@@ -442,6 +473,18 @@ if $UPGRADE; then
         fixed "hypervisor-fw ${FW_VERSION} -> ${FIRMWARE_PATH}"
     else
         fail "failed to download firmware from ${fw_url}"
+    fi
+
+    # -- zstd (for FC kernel decompression) -----------------------------------
+    if ! command -v zstd &>/dev/null; then
+        header "Install zstd"
+        if command -v apt-get &>/dev/null; then
+            apt-get install -y -qq zstd &>/dev/null && fixed "zstd installed via apt-get" || warn "failed to install zstd"
+        elif command -v yum &>/dev/null; then
+            yum install -y -q zstd &>/dev/null && fixed "zstd installed via yum" || warn "failed to install zstd"
+        else
+            warn "zstd not installed (install manually for --fc kernel decompression)"
+        fi
     fi
 
     # -- CNI plugins --------------------------------------------------------

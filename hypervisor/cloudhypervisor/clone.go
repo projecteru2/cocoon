@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -50,11 +49,11 @@ func (ch *CloudHypervisor) cloneSetup(ctx context.Context, vmID string, vmCfg *t
 	logDir = ch.conf.VMLogDir(vmID)
 
 	cleanup = func() {
-		_ = removeVMDirs(runDir, logDir)
-		ch.rollbackCreate(ctx, vmID, vmCfg.Name)
+		_ = hypervisor.RemoveVMDirs(runDir, logDir)
+		ch.RollbackCreate(ctx, vmID, vmCfg.Name)
 	}
 
-	if err = ch.reserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
+	if err = ch.ReserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
 		return "", "", time.Time{}, nil, fmt.Errorf("reserve VM record: %w", err)
 	}
 	if err = utils.EnsureDirs(runDir, logDir); err != nil {
@@ -77,7 +76,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 
 	storageConfigs := rebuildStorageConfigs(chCfg)
 	bootCfg := rebuildBootConfig(chCfg)
-	blobIDs := extractBlobIDs(storageConfigs, bootCfg)
+	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
 	directBoot := isDirectBoot(bootCfg)
 
 	cowPath := ch.cowPath(vmID, directBoot)
@@ -88,7 +87,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	// Update cidata path (cloudimg only; may be absent if snapshot was taken after restart).
 	hadCidataInSnapshot := updateCloneCidataPath(storageConfigs, directBoot, ch.conf.CidataPath(vmID))
 
-	if err = verifyBaseFiles(storageConfigs, bootCfg); err != nil {
+	if err = hypervisor.VerifyBaseFiles(storageConfigs, bootCfg); err != nil {
 		return nil, fmt.Errorf("verify base files: %w", err)
 	}
 	if vmCfg.Storage > 0 {
@@ -110,7 +109,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	// Windows VMs never have cidata, so skip the trim entirely.
 	patchStorageConfigs := restorePatchStorageConfigs(storageConfigs, directBoot, vmCfg.Windows || hadCidataInSnapshot)
 
-	consoleSock := consoleSockPath(runDir)
+	consoleSock := hypervisor.ConsoleSockPath(runDir)
 	if err = patchCHConfig(chConfigPath, &patchOptions{
 		storageConfigs: patchStorageConfigs,
 		consoleSock:    consoleSock,
@@ -137,7 +136,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	}
 
 	// Launch CH, restore, finalize.
-	sockPath := socketPath(runDir)
+	sockPath := hypervisor.SocketPath(runDir)
 	args := []string{"--api-socket", sockPath}
 	ch.saveCmdline(ctx, &hypervisor.VMRecord{RunDir: runDir}, args)
 
@@ -148,7 +147,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		LogDir: logDir,
 	}, sockPath, args, withNetwork)
 	if err != nil {
-		ch.markError(ctx, vmID)
+		ch.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("launch CH: %w", err)
 	}
 
@@ -159,6 +158,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	// Finalize record → Running.
 	info := types.VM{
 		ID:             vmID,
+		Hypervisor:     typ,
 		State:          types.VMStateRunning,
 		Config:         *vmCfg,
 		StorageConfigs: storageConfigs,
@@ -167,7 +167,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		UpdatedAt:      now,
 		StartedAt:      &now,
 	}
-	if err := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if err := ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
 			return fmt.Errorf("vm %s disappeared from index", vmID)
@@ -181,7 +181,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		r.FirstBooted = true
 		return nil
 	}); err != nil {
-		ch.abortLaunch(ctx, pid, sockPath, runDir)
+		ch.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
 
@@ -201,7 +201,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 ) (err error) {
 	defer func() {
 		if err != nil {
-			ch.abortLaunch(ctx, pid, sockPath, runDir)
+			ch.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		}
 	}()
 
@@ -311,33 +311,6 @@ func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoo
 	return storageConfigs[:len(storageConfigs)-1]
 }
 
-func verifyBaseFiles(storageConfigs []*types.StorageConfig, boot *types.BootConfig) error {
-	for _, sc := range storageConfigs {
-		if !sc.RO {
-			continue
-		}
-		if _, err := os.Stat(sc.Path); err != nil {
-			return fmt.Errorf("base layer %s: %w", sc.Path, err)
-		}
-	}
-	if boot == nil {
-		return nil
-	}
-	for _, check := range []struct{ name, path string }{
-		{"kernel", boot.KernelPath},
-		{"initrd", boot.InitrdPath},
-		{"firmware", boot.FirmwarePath},
-	} {
-		if check.path == "" {
-			continue
-		}
-		if _, err := os.Stat(check.path); err != nil {
-			return fmt.Errorf("%s %s: %w", check.name, check.path, err)
-		}
-	}
-	return nil
-}
-
 func updateCOWPath(configs []*types.StorageConfig, newCOWPath string, directBoot bool) error {
 	if directBoot {
 		found := false
@@ -369,42 +342,10 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 
 	if len(networkConfigs) > 0 {
 		cmdline.WriteString(" net.ifnames=0")
-		cmdline.WriteString(buildIPParams(networkConfigs, vmName, dnsServers))
+		cmdline.WriteString(hypervisor.BuildIPParams(networkConfigs, vmName, dnsServers))
 	}
 
 	return cmdline.String()
-}
-
-// buildIPParams generates kernel ip= parameters for all NICs with static IPs
-// and a cocoon.hostname= parameter for the initramfs hostname script.
-// DHCP-only NICs get no ip= param — the initramfs detects the absence of
-// static config and generates DHCP systemd-networkd units per MAC.
-func buildIPParams(networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
-	var params strings.Builder
-	fmt.Fprintf(&params, " cocoon.hostname=%s", vmName)
-	var dns0, dns1 string
-	if len(dnsServers) > 0 {
-		dns0 = dnsServers[0]
-	}
-	if len(dnsServers) > 1 {
-		dns1 = dnsServers[1]
-	}
-	for i, n := range networkConfigs {
-		if n.Network == nil || n.Network.IP == "" {
-			continue
-		}
-		param := fmt.Sprintf(" ip=%s::%s:%s:%s:eth%d:off",
-			n.Network.IP, n.Network.Gateway,
-			prefixToNetmask(n.Network.Prefix), vmName, i)
-		if dns0 != "" {
-			param += ":" + dns0
-			if dns1 != "" {
-				param += ":" + dns1
-			}
-		}
-		params.WriteString(param)
-	}
-	return params.String()
 }
 
 // buildStateReplacements builds old→new string mappings for state.json patching.
@@ -445,10 +386,4 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 		logger.Infof(ctx, "added NIC with MAC %s on TAP %s", nc.Mac, nc.Tap)
 	}
 	return nil
-}
-
-// prefixToNetmask converts a CIDR prefix length to a dotted-decimal netmask string.
-func prefixToNetmask(prefix int) string {
-	mask := net.CIDRMask(prefix, 32)
-	return net.IP(mask).String()
 }

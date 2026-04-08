@@ -1,4 +1,4 @@
-package cloudhypervisor
+package firecracker
 
 import (
 	"path/filepath"
@@ -8,23 +8,17 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// BinaryName returns the base name of the Cloud Hypervisor binary.
-func (c *Config) BinaryName() string { return filepath.Base(c.CHBinary) }
-
-// PIDFileName returns the PID file name for the Cloud Hypervisor backend.
-func (c *Config) PIDFileName() string { return "ch.pid" }
-
 const (
 	defaultSocketWaitTimeout    = 5 * time.Second
 	defaultTerminateGracePeriod = 5 * time.Second
 )
 
-// Config holds Cloud Hypervisor specific configuration, embedding the global config.
+// Config holds Firecracker specific configuration, embedding the global config.
 type Config struct {
 	*config.Config
 }
 
-// EnsureDirs creates all static directories required by the Cloud Hypervisor backend.
+// EnsureDirs creates all static directories required by the Firecracker backend.
 func (c *Config) EnsureDirs() error {
 	return utils.EnsureDirs(
 		c.dbDir(),
@@ -33,11 +27,11 @@ func (c *Config) EnsureDirs() error {
 	)
 }
 
-// RunDir returns the top-level CH runtime directory.
-func (c *Config) RunDir() string { return filepath.Join(c.Config.RunDir, "cloudhypervisor") }
+// RunDir returns the top-level FC runtime directory.
+func (c *Config) RunDir() string { return filepath.Join(c.Config.RunDir, "firecracker") }
 
-// LogDir returns the top-level CH log directory.
-func (c *Config) LogDir() string { return filepath.Join(c.Config.LogDir, "cloudhypervisor") }
+// LogDir returns the top-level FC log directory.
+func (c *Config) LogDir() string { return filepath.Join(c.Config.LogDir, "firecracker") }
 
 // IndexFile returns the VM index store path.
 func (c *Config) IndexFile() string { return filepath.Join(c.dbDir(), "vms.json") }
@@ -53,17 +47,7 @@ func (c *Config) VMLogDir(vmID string) string { return filepath.Join(c.LogDir(),
 
 // COWRawPath returns the path for the OCI COW raw disk.
 func (c *Config) COWRawPath(vmID string) string {
-	return filepath.Join(c.VMRunDir(vmID), "cow.raw")
-}
-
-// OverlayPath returns the path for the cloudimg qcow2 overlay.
-func (c *Config) OverlayPath(vmID string) string {
-	return filepath.Join(c.VMRunDir(vmID), "overlay.qcow2")
-}
-
-// CidataPath returns the path for the cloud-init NoCloud cidata disk.
-func (c *Config) CidataPath(vmID string) string {
-	return filepath.Join(c.VMRunDir(vmID), "cidata.img")
+	return filepath.Join(c.VMRunDir(vmID), cowFileName)
 }
 
 // SocketWaitTimeout returns the configured socket wait timeout or the default.
@@ -82,5 +66,11 @@ func (c *Config) TerminateGracePeriod() time.Duration {
 	return defaultTerminateGracePeriod
 }
 
-func (c *Config) dir() string   { return filepath.Join(c.RootDir, "cloudhypervisor") }
+// BinaryName returns the base name of the Firecracker binary.
+func (c *Config) BinaryName() string { return filepath.Base(c.FCBinary) }
+
+// PIDFileName returns the PID file name for the Firecracker backend.
+func (c *Config) PIDFileName() string { return pidFileName }
+
+func (c *Config) dir() string   { return filepath.Join(c.RootDir, "firecracker") }
 func (c *Config) dbDir() string { return filepath.Join(c.dir(), "db") }

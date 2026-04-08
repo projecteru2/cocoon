@@ -54,7 +54,7 @@ func TestWaitFor_CheckError(t *testing.T) {
 }
 
 func TestWaitFor_ContextCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	err := WaitFor(ctx, time.Second, 10*time.Millisecond, func() (bool, error) {
@@ -66,7 +66,7 @@ func TestWaitFor_ContextCanceled(t *testing.T) {
 }
 
 func TestWaitFor_ContextDeadlineExceeded(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
 	err := WaitFor(ctx, 10*time.Second, 10*time.Millisecond, func() (bool, error) {

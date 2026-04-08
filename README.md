@@ -1,6 +1,6 @@
 # Cocoon
 
-Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor).
+Lightweight MicroVM engine with dual hypervisor backends: [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) (default) and [Firecracker](https://github.com/firecracker-microvm/firecracker).
 
 ## Features
 
@@ -24,7 +24,8 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 - **Docker-like CLI** — `create`, `run`, `start`, `stop`, `list`, `inspect`, `console`, `rm`, `debug`, `clone`, `status`
 - **Structured logging** — configurable log level (`--log-level`), log rotation (max size / age / backups)
 - **Debug command** — `cocoon vm debug` generates a copy-pasteable `cloud-hypervisor` command for manual debugging
-- **Zero-daemon architecture** — one Cloud Hypervisor process per VM, no long-running daemon
+- **Firecracker backend** — `--fc` flag selects Firecracker for OCI images: ~125ms boot, <5 MiB overhead, minimal attack surface (no UEFI, no qcow2, no Windows)
+- **Zero-daemon architecture** — one hypervisor process per VM, no long-running daemon
 - **Garbage collection** — modular lock-safe GC with cross-module snapshot resolution; protects blobs referenced by running VMs and snapshots
 - **Doctor script** — pre-flight environment check and one-command dependency installation
 
@@ -33,8 +34,9 @@ Lightweight MicroVM engine built on [Cloud Hypervisor](https://github.com/cloud-
 - Linux with KVM (x86_64 or aarch64)
 - Root access (sudo)
 - [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) v51.0+ (for Windows VMs, use our [CH fork](https://github.com/cocoonstack/cloud-hypervisor/tree/dev) and [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) for full compatibility — see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- [Firecracker](https://github.com/firecracker-microvm/firecracker) v1.12+ (optional, for `--fc` backend)
 - `qemu-img` (from qemu-utils, for cloud images)
-- UEFI firmware (`CLOUDHV.fd`, for cloud images)
+- UEFI firmware (`CLOUDHV.fd`, for cloud images, not needed with `--fc`)
 - CNI plugins (`bridge`, `host-local`, `loopback`)
 - Go 1.25+ (build only)
 
@@ -85,6 +87,7 @@ cocoon-check --upgrade
 
 The `--upgrade` flag downloads and installs:
 - Cloud Hypervisor + ch-remote (static binaries)
+- Firecracker (static binary)
 - CLOUDHV.fd firmware (rust-hypervisor-firmware)
 - CNI plugins (bridge, host-local, loopback, etc.)
 
@@ -136,7 +139,7 @@ cocoon
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
 │   ├── restore [flags] VM SNAP   Restore a running VM to a snapshot
 │   ├── status [VM...]             Watch VM status in real time
-│   └── debug [flags] IMAGE        Generate CH launch command (dry run)
+│   └── debug [flags] IMAGE        Generate hypervisor launch command (dry run)
 ├── snapshot
 │   ├── save [flags] VM            Create a snapshot from a running VM
 │   ├── list (alias: ls)           List all snapshots
@@ -169,6 +172,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 
 | Flag        | Default          | Description                                   |
 | ----------- | ---------------- | --------------------------------------------- |
+| `--fc`      | `false`          | Use Firecracker backend (OCI images only)      |
 | `--name`    | `cocoon-<image>` | VM name                                       |
 | `--cpu`     | `2`              | Boot CPUs                                     |
 | `--memory`  | `1G`             | Memory size (e.g., 512M, 2G)                  |
@@ -356,22 +360,71 @@ cocoon image import win11-25h2 windows-11-25h2.qcow2
 
 For more details, see the [Cloud Hypervisor Windows documentation](https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/docs/windows.md).
 
+## Firecracker Backend
+
+Cocoon supports [Firecracker](https://github.com/firecracker-microvm/firecracker) as an alternative hypervisor for workloads that prioritize boot speed and resource density.
+
+```bash
+# Run with Firecracker (--fc only needed for create/run/debug)
+cocoon vm run --fc --name fast-vm ghcr.io/cocoonstack/cocoon/ubuntu:24.04
+
+# Other commands auto-detect the backend — no --fc needed
+cocoon vm list              # shows both CH and FC VMs
+cocoon vm console fast-vm
+cocoon vm stop fast-vm
+
+# Clone infers backend from the snapshot
+cocoon snapshot save fast-vm --name my-snap
+cocoon vm clone my-snap --name clone-vm
+```
+
+### Feature Comparison
+
+| Feature | Cloud Hypervisor | Firecracker |
+|---------|:---:|:---:|
+| OCI images (direct boot) | Y | Y |
+| Cloud images (UEFI boot) | Y | N |
+| Windows guests | Y | N |
+| Snapshot / Clone / Restore | Y | Y |
+| CPU/memory override on clone/restore | Y | N |
+| Multi-queue networking | Y | N |
+| Memory balloon | Y | Y |
+| qcow2 storage | Y | N |
+| Interactive console | Y | Y |
+| HugePages | Y | Y |
+| Boot time | ~200-500ms | ~125ms |
+| Memory overhead | ~10-20 MiB/VM | <5 MiB/VM |
+
+### Limitations
+
+- **OCI images only**: `--fc` is mutually exclusive with `--windows` and rejects cloudimg (UEFI boot) images
+- **Raw disks only**: Firecracker uses raw virtio-blk without serial support; disks are referenced by device path (`/dev/vdX`)
+- **Single-queue networking**: `NetworkConfig.NumQueues` is ignored
+- **No CPU/memory override on clone/restore**: Firecracker cannot change machine config after snapshot/load
+- **Snapshot portability requires same directory layout**: FC snapshots store absolute paths in the vmstate binary (not patchable); cross-host export/import requires the target host to use the same `root_dir`/`run_dir` and have the same OCI image pulled
+- **Console via PTY relay**: a background relay process bridges FC's serial (stdin/stdout) to `console.sock`
+
+### OCI Image Compatibility
+
+OCI images must include a `resolve_disk()` init script that supports device paths (e.g., `/dev/vda`) in addition to virtio serial names. Images built from `os-image/ubuntu/overlay.sh` (v0.3+) support both formats automatically.
+
 ## VM Lifecycle
 
 | State      | Description                                              |
 | ---------- | -------------------------------------------------------- |
 | `creating` | DB placeholder written, disks being prepared             |
-| `created`  | Registered, cloud-hypervisor process not yet started     |
-| `running`  | Cloud-hypervisor process alive, guest is up              |
-| `stopped`  | Cloud-hypervisor process exited cleanly                  |
+| `created`  | Registered, hypervisor process not yet started           |
+| `running`  | Hypervisor process alive, guest is up                    |
+| `stopped`  | Hypervisor process exited cleanly                        |
 | `error`    | Start or stop failed                                     |
 
 ### Shutdown Behavior
 
 - **UEFI VMs (cloudimg)**: ACPI power-button → poll for graceful exit → timeout (default 30s, configurable via `stop_timeout_seconds` in config or `--timeout` flag) → SIGTERM → 5s → SIGKILL
 - **Windows VMs**: ACPI power-button works with our [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) (~13.5s shutdown); with upstream firmware, use `ssh shutdown /s /t 0` before stopping, or `--force` to skip the ACPI timeout (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
-- **Direct-boot VMs (OCI)**: `vm.shutdown` API → SIGTERM → 5s → SIGKILL (no ACPI support)
-- **Force stop** (`--force`): skip ACPI, immediate `vm.shutdown` → SIGTERM → SIGKILL
+- **Direct-boot VMs (CH, OCI)**: `vm.shutdown` API → SIGTERM → 5s → SIGKILL (no ACPI support)
+- **Firecracker VMs**: `SendCtrlAltDel` → SIGTERM → 5s → SIGKILL
+- **Force stop** (`--force`): skip ACPI, immediate SIGTERM → SIGKILL
 - PID ownership is verified before sending signals to prevent killing unrelated processes
 
 ### Stop Flags

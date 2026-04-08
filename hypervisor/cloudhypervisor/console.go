@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/projecteru2/core/log"
+
+	"github.com/cocoonstack/cocoon/hypervisor"
 )
 
 // Console connects to the VM's console output and returns a bidirectional stream.
@@ -20,21 +22,21 @@ import (
 // Clone and Start don't need to query it upfront.
 // The caller is responsible for closing the returned ReadWriteCloser.
 func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWriteCloser, error) {
-	id, err := ch.resolveRef(ctx, ref)
+	id, err := ch.ResolveRef(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
-	rec, err := ch.loadRecord(ctx, id)
+	rec, err := ch.LoadRecord(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	var conn io.ReadWriteCloser
-	if err := ch.withRunningVM(ctx, &rec, func(_ int) error {
+	if err := ch.WithRunningVM(ctx, &rec, func(_ int) error {
 		// Resolve on demand: query CH API for PTY (OCI) or use deterministic socket (UEFI).
-		path := resolveConsole(ctx, id, socketPath(rec.RunDir),
-			consoleSockPath(rec.RunDir),
+		path := resolveConsole(ctx, id, hypervisor.SocketPath(rec.RunDir),
+			hypervisor.ConsoleSockPath(rec.RunDir),
 			isDirectBoot(rec.BootConfig))
 		if path == "" {
 			return fmt.Errorf("no console path for VM %s", id)

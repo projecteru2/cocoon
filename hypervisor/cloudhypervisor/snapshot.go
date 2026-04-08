@@ -21,17 +21,17 @@ import (
 func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
 	logger := log.WithFunc("cloudhypervisor.Snapshot")
 
-	vmID, err := ch.resolveRef(ctx, ref)
+	vmID, err := ch.ResolveRef(ctx, ref)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	rec, err := ch.loadRecord(ctx, vmID)
+	rec, err := ch.LoadRecord(ctx, vmID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 	hc := utils.NewSocketHTTPClient(sockPath)
 
 	// Determine COW file path and name inside the tar archive.
@@ -48,9 +48,9 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	// withRunningVM verifies the process is alive, then runs the callback.
+	// WithRunningVM verifies the process is alive, then runs the callback.
 	// Inside the callback: pause → CH snapshot → SparseCopy COW → resume.
-	if err := ch.withRunningVM(ctx, &rec, func(_ int) error {
+	if err := ch.WithRunningVM(ctx, &rec, func(_ int) error {
 		if err := pauseVM(ctx, hc); err != nil {
 			return fmt.Errorf("pause: %w", err)
 		}
@@ -107,7 +107,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("generate snapshot ID: %w", genErr)
 	}
-	if updateErr := ch.store.Update(ctx, func(idx *hypervisor.VMIndex) error {
+	if updateErr := ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
 		r := idx.VMs[vmID]
 		if r == nil {
 			return fmt.Errorf("vm %s disappeared from index", vmID)
@@ -124,14 +124,15 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 
 	// Build SnapshotConfig from the VM record.
 	cfg := &types.SnapshotConfig{
-		ID:      snapID,
-		Image:   rec.Config.Image,
-		CPU:     rec.Config.CPU,
-		Memory:  rec.Config.Memory,
-		Storage: rec.Config.Storage,
-		NICs:    len(rec.NetworkConfigs),
-		Network: rec.Config.Network,
-		Windows: rec.Config.Windows,
+		ID:         snapID,
+		Image:      rec.Config.Image,
+		Hypervisor: typ,
+		CPU:        rec.Config.CPU,
+		Memory:     rec.Config.Memory,
+		Storage:    rec.Config.Storage,
+		NICs:       len(rec.NetworkConfigs),
+		Network:    rec.Config.Network,
+		Windows:    rec.Config.Windows,
 	}
 	if rec.ImageBlobIDs != nil {
 		cfg.ImageBlobIDs = make(map[string]struct{}, len(rec.ImageBlobIDs))

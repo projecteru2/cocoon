@@ -95,6 +95,13 @@ func tcRedirectInNS(ifName, tapName string, queues int, overrideMAC string) (str
 		}
 	}
 
+	// Re-read MAC after potential override (link.Attrs() is stale after LinkSetHardwareAddr).
+	if overrideMAC != "" {
+		link, err = netlink.LinkByName(ifName)
+		if err != nil {
+			return "", fmt.Errorf("re-read link %s: %w", ifName, err)
+		}
+	}
 	mac := link.Attrs().HardwareAddr.String()
 
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
@@ -111,7 +118,9 @@ func tcRedirectInNS(ifName, tapName string, queues int, overrideMAC string) (str
 	// VNET_HDR: allows kernel to parse virtio_net headers for checksum/GSO offload.
 	// Multi-queue: match CH num_queues so each vCPU gets its own TX/RX ring.
 	// Single-queue: ONE_QUEUE prevents packet drops on older kernels.
-	flags := netlink.TUNTAP_VNET_HDR
+	// IFF_NO_PI: both CH and FC open TAPs with IFF_NO_PI; the flag must
+	// match at attach time or TUNSETIFF returns EINVAL.
+	flags := netlink.TUNTAP_VNET_HDR | netlink.TUNTAP_NO_PI
 	if queues <= 1 {
 		queues = 1
 		flags |= netlink.TUNTAP_ONE_QUEUE

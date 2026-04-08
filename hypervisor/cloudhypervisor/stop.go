@@ -24,28 +24,28 @@ const acpiPollInterval = 500 * time.Millisecond
 //
 // Returns the IDs that were successfully stopped.
 func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := ch.resolveRefs(ctx, refs)
+	ids, err := ch.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	succeeded, forEachErr := ch.forEachVM(ctx, ids, "Stop", ch.stopOne)
-	if batchErr := ch.updateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
+	succeeded, forEachErr := ch.ForEachVM(ctx, ids, "Stop", ch.stopOne)
+	if batchErr := ch.UpdateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
 		log.WithFunc("cloudhypervisor.Stop").Warnf(ctx, "batch state update: %v", batchErr)
 	}
 	return succeeded, forEachErr
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
-	rec, err := ch.loadRecord(ctx, id)
+	rec, err := ch.LoadRecord(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	sockPath := socketPath(rec.RunDir)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
 	hc := utils.NewSocketHTTPClient(sockPath)
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
 
-	shutdownErr := ch.withRunningVM(ctx, &rec, func(pid int) error {
+	shutdownErr := ch.WithRunningVM(ctx, &rec, func(pid int) error {
 		if isDirectBoot(rec.BootConfig) || stopTimeout < 0 /* --force */ {
 			return ch.forceTerminate(ctx, hc, id, sockPath, pid)
 		}
@@ -54,13 +54,13 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 
 	switch {
 	case errors.Is(shutdownErr, hypervisor.ErrNotRunning):
-		cleanupRuntimeFiles(ctx, rec.RunDir)
+		hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 		return nil
 	case shutdownErr != nil:
-		ch.markError(ctx, id)
+		ch.MarkError(ctx, id)
 		return shutdownErr
 	default:
-		cleanupRuntimeFiles(ctx, rec.RunDir)
+		hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 		return nil
 	}
 }
@@ -100,7 +100,7 @@ func (ch *CloudHypervisor) forceTerminate(ctx context.Context, hc *http.Client, 
 	if err := shutdownVM(ctx, hc); err != nil {
 		log.WithFunc("cloudhypervisor.forceTerminate").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)
 	}
-	return utils.TerminateProcess(ctx, pid, ch.chBinaryName(), socketPath, ch.conf.TerminateGracePeriod())
+	return utils.TerminateProcess(ctx, pid, ch.conf.BinaryName(), socketPath, ch.conf.TerminateGracePeriod())
 }
 
 // isDirectBoot returns true when the VM was started with a direct kernel boot
