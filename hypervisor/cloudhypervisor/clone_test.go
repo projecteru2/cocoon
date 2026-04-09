@@ -353,6 +353,48 @@ func TestPatchCHConfig_BalloonCreated(t *testing.T) {
 	}
 }
 
+func TestPatchCHConfig_WindowsBalloonRemoved(t *testing.T) {
+	dir := t.TempDir()
+	cfg := baseCHConfig()
+	cfg["balloon"] = nil
+	path := writeCHConfig(t, dir, cfg)
+
+	opts := basePatchOpts()
+	opts.windows = true
+	opts.memory = 4 << 30
+	if err := patchCHConfig(path, opts, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	result := readRawJSON(t, path)
+	if _, ok := result["balloon"]; ok {
+		t.Fatal("balloon should be removed for Windows")
+	}
+}
+
+func TestPatchCHConfig_BalloonNullCreated(t *testing.T) {
+	dir := t.TempDir()
+	cfg := baseCHConfig()
+	cfg["balloon"] = nil
+	path := writeCHConfig(t, dir, cfg)
+
+	opts := basePatchOpts()
+	opts.memory = 1 << 30
+	if err := patchCHConfig(path, opts, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	result := readRawJSON(t, path)
+	balloon, ok := result["balloon"].(map[string]any)
+	if !ok {
+		t.Fatal("balloon should be created when raw balloon is null")
+	}
+	expectedSize := float64(1 << 30 / 4)
+	if balloon["size"] != expectedSize {
+		t.Errorf("balloon.size: got %v, want %v", balloon["size"], expectedSize)
+	}
+}
+
 func TestPatchCHConfig_DiskCountMismatch(t *testing.T) {
 	dir := t.TempDir()
 	path := writeCHConfig(t, dir, baseCHConfig())

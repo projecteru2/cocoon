@@ -1,6 +1,7 @@
 package cloudhypervisor
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ type patchOptions struct {
 	storageConfigs []*types.StorageConfig
 	consoleSock    string
 	directBoot     bool
+	windows        bool
 	cpu            int
 	memory         int64
 }
@@ -69,7 +71,7 @@ func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData [
 	}
 
 	if opts.memory > 0 {
-		if memErr := patchMemoryAndBalloon(raw, chCfg, opts.memory); memErr != nil {
+		if memErr := patchMemoryAndBalloon(raw, chCfg, opts.memory, opts.windows); memErr != nil {
 			return memErr
 		}
 	}
@@ -81,7 +83,7 @@ func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData [
 	return os.WriteFile(path, out, 0o600) //nolint:gosec
 }
 
-func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, memory int64) error {
+func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, memory int64, windows bool) error {
 	if memRaw, ok := raw["memory"]; ok {
 		patched, err := patchRawObject(memRaw, func(obj map[string]json.RawMessage) error {
 			return setField(obj, "size", memory)
@@ -91,9 +93,14 @@ func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, me
 		}
 		raw["memory"] = patched
 	}
+	if windows {
+		delete(raw, "balloon")
+		return nil
+	}
 	hasBalloon := chCfg != nil && chCfg.Balloon != nil
 	if !hasBalloon {
-		_, hasBalloon = raw["balloon"]
+		balloonRaw, ok := raw["balloon"]
+		hasBalloon = ok && rawObjectPresent(balloonRaw)
 	}
 	if err := patchBalloonRaw(raw, hasBalloon, memory); err != nil {
 		return fmt.Errorf("patch balloon: %w", err)
@@ -124,6 +131,11 @@ func patchBalloonRaw(raw map[string]json.RawMessage, hasBalloon bool, memory int
 		DeflateOnOOM:      true,
 		FreePageReporting: true,
 	})
+}
+
+func rawObjectPresent(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	return len(raw) > 0 && !bytes.Equal(raw, []byte("null"))
 }
 
 func rawArrayLen(raw json.RawMessage) int {
@@ -237,6 +249,9 @@ func patchRawObject(raw json.RawMessage, fn func(map[string]json.RawMessage) err
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return nil, fmt.Errorf("decode object: %w", err)
+	}
+	if obj == nil {
+		obj = map[string]json.RawMessage{}
 	}
 	if err := fn(obj); err != nil {
 		return nil, err

@@ -114,6 +114,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		storageConfigs: patchStorageConfigs,
 		consoleSock:    consoleSock,
 		directBoot:     directBoot,
+		windows:        vmCfg.Windows,
 		cpu:            vmCfg.CPU,
 		memory:         vmCfg.Memory,
 	}, chCfg, chConfigRaw); err != nil {

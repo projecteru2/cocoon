@@ -84,6 +84,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 		storageConfigs: rec.StorageConfigs,
 		consoleSock:    hypervisor.ConsoleSockPath(rec.RunDir),
 		directBoot:     directBoot,
+		windows:        vmCfg.Windows,
 		cpu:            vmCfg.CPU,
 		memory:         vmCfg.Memory,
 	}, nil, nil); err != nil {
