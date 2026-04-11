@@ -28,3 +28,12 @@ func (c *Config) EnsureDirs() error {
 func (c *Config) FirmwarePath() string {
 	return filepath.Join(c.Root.RootDir, "firmware", "CLOUDHV.fd")
 }
+
+// tmpBlobPath returns the digest-derived intermediate temp blob path
+// used by both the fast-path rename and the slow-path convert target
+// in commit.go. Naming lives in one place so the collision-benign
+// reasoning (identical digest → identical content → safe
+// last-writer-wins) applies uniformly across both paths.
+func (c *Config) tmpBlobPath(digestHex string) string {
+	return filepath.Join(c.TempDir(), ".tmp-"+digestHex+".qcow2")
+}

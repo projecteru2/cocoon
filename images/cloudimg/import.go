@@ -1,44 +1,41 @@
 package cloudimg
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"strings"
-	"time"
 
 	"github.com/projecteru2/core/log"
 
-	"github.com/cocoonstack/cocoon/images"
 	"github.com/cocoonstack/cocoon/progress"
 	cloudimgProgress "github.com/cocoonstack/cocoon/progress/cloudimg"
 	"github.com/cocoonstack/cocoon/storage"
-	"github.com/cocoonstack/cocoon/utils"
 )
 
-// IsQcow2File checks if a file starts with the qcow2 magic bytes "QFI\xfb".
-func IsQcow2File(path string) bool {
-	f, err := os.Open(path) //nolint:gosec
-	if err != nil {
-		return false
-	}
-	defer f.Close() //nolint:errcheck
-
-	var magic [4]byte
-	if _, err := io.ReadFull(f, magic[:]); err != nil {
-		return false
-	}
-	return magic[0] == 'Q' && magic[1] == 'F' && magic[2] == 'I' && magic[3] == 0xfb //nolint:gosec
-}
-
+// importQcow2File imports a qcow2 file already on disk under name.
+// The source file is user-owned and is not moved or modified — commit
+// runs with canRename=false so the fast path copies rather than renames.
 func importQcow2File(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, filePath string) error {
 	logger := log.WithFunc("cloudimg.import")
 
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDownload})
+
+	// Sniff the user-owned file before touching it. Opens a separate
+	// handle because hashFile will reopen for the sha256 pass.
+	f, err := os.Open(filePath) //nolint:gosec // filePath is caller input
+	if err != nil {
+		return fmt.Errorf("import %s: %w", filePath, err)
+	}
+	sniffErr := sniffImageSource(f)
+	f.Close() //nolint:errcheck,gosec
+	if sniffErr != nil {
+		return fmt.Errorf("import %s: %w", filePath, sniffErr)
+	}
 
 	digestHex, err := hashFile(filePath)
 	if err != nil {
@@ -46,106 +43,68 @@ func importQcow2File(ctx context.Context, conf *Config, store storage.Store[imag
 	}
 	logger.Debugf(ctx, "hashed %s -> sha256:%s", filePath, digestHex[:12])
 
-	return convertAndCommit(ctx, conf, store, name, tracker, digestHex, filePath)
+	if err := commit(ctx, conf, store, name, tracker, filePath, digestHex, false); err != nil {
+		return err
+	}
+	logger.Infof(ctx, "import complete: %s -> sha256:%s", name, digestHex)
+	return nil
 }
 
+// importQcow2Reader buffers a stream to a cocoon-owned temp file, then
+// imports it under name. canRename=true — the temp file is consumable.
+//
+// The stream's first 8 bytes are sniffed BEFORE buffering the rest so
+// a bad upstream (HTML error page, gzip-wrapped image, etc.) is
+// rejected without incurring a GB-scale write+hash pass.
 func importQcow2Reader(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, r io.Reader) error {
 	logger := log.WithFunc("cloudimg.import")
 
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDownload})
+
+	// Sniff-first: peek the first 8 bytes off the reader and reject
+	// obvious non-images before touching disk. The consumed bytes are
+	// stitched back onto the reader via MultiReader so the subsequent
+	// io.Copy sees the full stream.
+	var head [8]byte
+	n, err := io.ReadFull(r, head[:])
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("import %s: read stream: %w", name, err)
+	}
+	if sniffErr := sniffHead(head[:n]); sniffErr != nil {
+		return fmt.Errorf("import %s: %w", name, sniffErr)
+	}
+	full := io.MultiReader(bytes.NewReader(head[:n]), r)
 
 	tmpFile, err := os.CreateTemp(conf.TempDir(), "import-*.img")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) //nolint:errcheck
+	defer os.Remove(tmpPath) //nolint:errcheck,gosec
+	defer tmpFile.Close()    //nolint:errcheck,gosec
 
 	h := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmpFile, h), r); err != nil {
-		tmpFile.Close() //nolint:errcheck,gosec
+	if _, err := io.Copy(io.MultiWriter(tmpFile, h), full); err != nil {
 		return fmt.Errorf("copy to temp: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
 	}
 
 	digestHex := hex.EncodeToString(h.Sum(nil))
 	logger.Debugf(ctx, "buffered stream -> sha256:%s", digestHex[:12])
 
-	return convertAndCommit(ctx, conf, store, name, tracker, digestHex, tmpPath)
-}
-
-func convertAndCommit(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, digestHex, sourcePath string) error {
-	logger := log.WithFunc("cloudimg.import")
-
-	blobPath := conf.BlobPath(digestHex)
-	var tmpBlobPath string
-
-	if !utils.ValidFile(blobPath) {
-		tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseConvert})
-
-		format, detectErr := detectImageFormat(ctx, sourcePath)
-		if detectErr != nil {
-			return fmt.Errorf("detect format: %w", detectErr)
-		}
-		logger.Debugf(ctx, "detected source format: %s", format)
-
-		tmpBlob, createErr := os.CreateTemp(conf.TempDir(), ".tmp-*.qcow2")
-		if createErr != nil {
-			return fmt.Errorf("create temp blob: %w", createErr)
-		}
-		tmpBlobPath = tmpBlob.Name()
-		tmpBlob.Close() //nolint:errcheck,gosec
-
-		cmd := exec.CommandContext(ctx, "qemu-img", "convert", //nolint:gosec
-			"-f", format, "-O", "qcow2", "-o", "compat=1.1",
-			sourcePath, tmpBlobPath)
-		if out, convertErr := cmd.CombinedOutput(); convertErr != nil {
-			os.Remove(tmpBlobPath) //nolint:errcheck,gosec
-			return fmt.Errorf("qemu-img convert: %s: %w", strings.TrimSpace(string(out)), convertErr)
-		}
-		defer os.Remove(tmpBlobPath) //nolint:errcheck
+	if err := commit(ctx, conf, store, name, tracker, tmpPath, digestHex, true); err != nil {
+		return err
 	}
-
-	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseCommit})
-
-	if err := store.Update(ctx, func(idx *imageIndex) error {
-		if tmpBlobPath != "" && !utils.ValidFile(blobPath) {
-			if renameErr := os.Rename(tmpBlobPath, blobPath); renameErr != nil {
-				return fmt.Errorf("rename blob: %w", renameErr)
-			}
-			if chmodErr := os.Chmod(blobPath, 0o444); chmodErr != nil { //nolint:gosec
-				logger.Warnf(ctx, "chmod blob %s: %v", blobPath, chmodErr)
-			}
-		}
-
-		info, statErr := os.Stat(blobPath)
-		if statErr != nil {
-			return fmt.Errorf("stat blob %s: %w", blobPath, statErr)
-		}
-
-		idx.Images[name] = &imageEntry{
-			Ref:        name,
-			ContentSum: images.NewDigest(digestHex),
-			Size:       info.Size(),
-			CreatedAt:  time.Now(),
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("update index: %w", err)
-	}
-
-	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDone})
 	logger.Infof(ctx, "import complete: %s -> sha256:%s", name, digestHex)
 	return nil
 }
 
+// importQcow2Concat concatenates multiple source files into a cocoon-owned
+// temp file and imports the result under name. canRename=true.
 func importQcow2Concat(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, file ...string) error {
 	logger := log.WithFunc("cloudimg.import")
 
 	if len(file) == 0 {
-		return fmt.Errorf("no qcow2 files provided")
+		return errors.New("no qcow2 files provided")
 	}
 	for _, f := range file {
 		if _, err := os.Stat(f); err != nil {
@@ -160,34 +119,39 @@ func importQcow2Concat(ctx context.Context, conf *Config, store storage.Store[im
 		return fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) //nolint:errcheck
+	defer os.Remove(tmpPath) //nolint:errcheck,gosec
+	defer tmpFile.Close()    //nolint:errcheck,gosec
 
 	h := sha256.New()
 	w := io.MultiWriter(tmpFile, h)
 
 	for _, filePath := range file {
-		f, openErr := os.Open(filePath) //nolint:gosec
+		src, openErr := os.Open(filePath) //nolint:gosec
 		if openErr != nil {
-			tmpFile.Close() //nolint:errcheck,gosec
 			return fmt.Errorf("open %s: %w", filePath, openErr)
 		}
-		if _, copyErr := io.Copy(w, f); copyErr != nil {
-			f.Close()       //nolint:errcheck,gosec
-			tmpFile.Close() //nolint:errcheck,gosec
+		_, copyErr := io.Copy(w, src)
+		src.Close() //nolint:errcheck,gosec
+		if copyErr != nil {
 			return fmt.Errorf("copy %s: %w", filePath, copyErr)
 		}
-		f.Close() //nolint:errcheck,gosec
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
 	}
 
 	digestHex := hex.EncodeToString(h.Sum(nil))
 	logger.Debugf(ctx, "concatenated %d file(s) -> sha256:%s", len(file), digestHex[:12])
 
-	return convertAndCommit(ctx, conf, store, name, tracker, digestHex, tmpPath)
+	if err := sniffImageSource(tmpFile); err != nil {
+		return fmt.Errorf("import %s: %w", name, err)
+	}
+
+	if err := commit(ctx, conf, store, name, tracker, tmpPath, digestHex, true); err != nil {
+		return err
+	}
+	logger.Infof(ctx, "import complete: %s -> sha256:%s", name, digestHex)
+	return nil
 }
 
+// hashFile computes the sha256 digest of a file.
 func hashFile(path string) (string, error) {
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {
