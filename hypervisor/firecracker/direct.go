@@ -16,7 +16,7 @@ import (
 // Files are handled per-type: hardlink for mem, reflink/copy for
 // the COW disk, plain copy for small metadata (vmstate).
 func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (_ *types.VM, err error) {
-	runDir, logDir, now, cleanup, err := fc.cloneSetup(ctx, vmID, vmCfg, snapshotConfig)
+	runDir, logDir, now, cleanup, err := fc.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
 	if err != nil {
 		return nil, err
 	}

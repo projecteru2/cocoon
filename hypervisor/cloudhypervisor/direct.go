@@ -16,7 +16,7 @@ import (
 // Files are handled per-type: hardlink for memory-range-*, reflink/copy for
 // the COW disk, plain copy for small metadata, and cidata is regenerated.
 func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (_ *types.VM, err error) {
-	runDir, logDir, now, cleanup, err := ch.cloneSetup(ctx, vmID, vmCfg, snapshotConfig)
+	runDir, logDir, now, cleanup, err := ch.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
 	if err != nil {
 		return nil, err
 	}

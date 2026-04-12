@@ -21,7 +21,7 @@ import (
 
 // Clone creates a new VM from a snapshot tar stream.
 func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (_ *types.VM, err error) {
-	runDir, logDir, now, cleanup, err := ch.cloneSetup(ctx, vmID, vmCfg, snapshotConfig)
+	runDir, logDir, now, cleanup, err := ch.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -36,35 +36,6 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 	}
 
 	return ch.cloneAfterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
-}
-
-func (ch *CloudHypervisor) cloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
-	// Shared validation for stream and direct clone.
-	if err = hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
-		return "", "", time.Time{}, nil, err
-	}
-
-	if vmCfg.Image == "" && snapshotConfig.Image != "" {
-		vmCfg.Image = snapshotConfig.Image
-	}
-
-	now = time.Now()
-	runDir = ch.conf.VMRunDir(vmID)
-	logDir = ch.conf.VMLogDir(vmID)
-
-	cleanup = func() {
-		_ = hypervisor.RemoveVMDirs(runDir, logDir)
-		ch.RollbackCreate(ctx, vmID, vmCfg.Name)
-	}
-
-	if err = ch.ReserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
-		return "", "", time.Time{}, nil, fmt.Errorf("reserve VM record: %w", err)
-	}
-	if err = utils.EnsureDirs(runDir, logDir); err != nil {
-		cleanup()
-		return "", "", time.Time{}, nil, fmt.Errorf("ensure dirs: %w", err)
-	}
-	return runDir, logDir, now, cleanup, nil
 }
 
 // cloneAfterExtract resumes from snapshot data already placed in runDir.

@@ -194,6 +194,37 @@ func (b *Backend) ReserveVM(ctx context.Context, id string, vmCfg *types.VMConfi
 	})
 }
 
+// CloneSetup handles the shared pre-clone sequence used by both
+// backends' Clone and DirectClone entry points: validate CPU, backfill
+// image ref from snapshot, reserve a placeholder record, create dirs,
+// and return a cleanup function.
+func (b *Backend) CloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
+	if err = ValidateHostCPU(vmCfg.CPU); err != nil {
+		return "", "", time.Time{}, nil, err
+	}
+	if vmCfg.Image == "" && snapshotConfig.Image != "" {
+		vmCfg.Image = snapshotConfig.Image
+	}
+
+	now = time.Now()
+	runDir = b.Conf.VMRunDir(vmID)
+	logDir = b.Conf.VMLogDir(vmID)
+
+	cleanup = func() {
+		_ = RemoveVMDirs(runDir, logDir)
+		b.RollbackCreate(ctx, vmID, vmCfg.Name)
+	}
+
+	if err = b.ReserveVM(ctx, vmID, vmCfg, snapshotConfig.ImageBlobIDs, runDir, logDir); err != nil {
+		return "", "", time.Time{}, nil, fmt.Errorf("reserve VM record: %w", err)
+	}
+	if err = utils.EnsureDirs(runDir, logDir); err != nil {
+		cleanup()
+		return "", "", time.Time{}, nil, fmt.Errorf("ensure dirs: %w", err)
+	}
+	return runDir, logDir, now, cleanup, nil
+}
+
 // RollbackCreate removes a placeholder VM record from the DB.
 func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
