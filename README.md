@@ -174,7 +174,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | ----------- | ---------------- | --------------------------------------------- |
 | `--fc`      | `false`          | Use Firecracker backend (OCI images only)      |
 | `--name`    | `cocoon-<image>` | VM name                                       |
-| `--cpu`     | `2`              | Boot CPUs                                     |
+| `--cpu`     | `2`              | Boot CPUs (must not exceed host core count)   |
 | `--memory`  | `1G`             | Memory size (e.g., 512M, 2G)                  |
 | `--storage` | `10G`            | COW disk size (e.g., 10G, 20G)                |
 | `--nics`    | `1`              | Number of network interfaces (0 = no network) |
@@ -549,7 +549,7 @@ cocoon vm restore my-vm my-snap
 cocoon vm restore --cpu 4 --memory 4G my-vm my-snap
 ```
 
-Cocoon internally restarts the Cloud Hypervisor process with the snapshot's memory and disk state. Network is fully preserved — same IP, same MAC, same network namespace. No guest-side reconfiguration is needed (unlike clone).
+Cocoon stages the snapshot into a scratch directory first, then restarts the hypervisor process only after the full extraction succeeds — a truncated or corrupt snapshot stream errors out with the running VM still intact. Network is fully preserved — same IP, same MAC, same network namespace. No guest-side reconfiguration is needed (unlike clone).
 
 ### Restore Constraints
 
