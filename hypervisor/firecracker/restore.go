@@ -21,6 +21,11 @@ import (
 // The FC process is killed and restarted with the snapshot's memory and disk state.
 // Network is preserved -- same netns, same tap, same MAC/IP.
 // vmCfg carries the final resource config (already validated >= snapshot values).
+//
+// The incoming snapshot is extracted into a scratch staging directory
+// BEFORE the running VM is killed. A truncated or corrupt snapshot
+// stream therefore errors out with the previous runnable state still
+// intact; only a fully extracted snapshot is swapped into rec.RunDir.
 func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
 	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
 		return nil, err
@@ -31,17 +36,35 @@ func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.V
 		return nil, checkErr
 	}
 
-	vmID, rec, cowPath, err := fc.prepareRestore(ctx, vmRef)
+	vmID, rec, cowPath, err := fc.resolveForRestore(ctx, vmRef)
 	if err != nil {
 		return nil, err
+	}
+
+	// Stage: extract into a sibling scratch dir while the VM is still
+	// running. If extraction fails, clean up and return — the VM is
+	// untouched and the caller can retry.
+	stagingDir := rec.RunDir + ".restore-staging"
+	if mkErr := os.MkdirAll(stagingDir, 0o700); mkErr != nil {
+		return nil, fmt.Errorf("create staging dir: %w", mkErr)
+	}
+	defer os.RemoveAll(stagingDir) //nolint:errcheck
+	if extractErr := utils.ExtractTar(stagingDir, snapshot); extractErr != nil {
+		return nil, fmt.Errorf("extract snapshot: %w", extractErr)
+	}
+
+	// Commit: kill the running VM, then swap staged files into runDir.
+	// killForRestore already marked-error on partial kill failures.
+	if killErr := fc.killForRestore(ctx, vmID, rec); killErr != nil {
+		return nil, killErr
 	}
 
 	var result *types.VM
 	if lockErr := withCOWPathLocked(cowPath, func() error {
 		_ = os.Remove(cowPath)
-		if extractErr := utils.ExtractTar(rec.RunDir, snapshot); extractErr != nil {
+		if mergeErr := hypervisor.MergeDirInto(stagingDir, rec.RunDir); mergeErr != nil {
 			fc.MarkError(ctx, vmID)
-			return fmt.Errorf("extract snapshot: %w", extractErr)
+			return fmt.Errorf("apply staged snapshot: %w", mergeErr)
 		}
 		var restoreErr error
 		result, restoreErr = fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, cowPath)
@@ -52,34 +75,60 @@ func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.V
 	return result, nil
 }
 
-// prepareRestore handles the common setup for Restore and DirectRestore:
-// resolve ref, load record, validate state, kill current FC, cleanup.
-func (fc *Firecracker) prepareRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, string, error) {
+// resolveForRestore loads the VM record and validates the state is
+// runnable. It deliberately does NOT kill the running VM — that's
+// deferred to killForRestore, which runs only after the snapshot has
+// been successfully staged. DirectRestore uses prepareRestore
+// (below) which still does the old combined flow because it
+// consumes a pre-extracted local directory, not a streamable tar.
+func (fc *Firecracker) resolveForRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, string, error) {
 	vmID, err := fc.ResolveRef(ctx, vmRef)
 	if err != nil {
 		return "", nil, "", err
 	}
-
 	rec, err := fc.LoadRecord(ctx, vmID)
 	if err != nil {
 		return "", nil, "", err
 	}
-
 	if rec.State != types.VMStateRunning {
 		return "", nil, "", fmt.Errorf("vm %s is %s, must be running to restore", vmID, rec.State)
 	}
+	cowPath := fc.conf.COWRawPath(vmID)
+	return vmID, &rec, cowPath, nil
+}
 
+// killForRestore terminates the running FC process and cleans up
+// runtime files. Called after a snapshot has been staged successfully.
+// On partial termination failure the VM record is marked with Error
+// state so `vm ls` surfaces the broken state rather than leaving a
+// stale "running" record.
+func (fc *Firecracker) killForRestore(ctx context.Context, vmID string, rec *hypervisor.VMRecord) error {
 	sockPath := hypervisor.SocketPath(rec.RunDir)
-	killErr := fc.WithRunningVM(ctx, &rec, func(pid int) error {
+	killErr := fc.WithRunningVM(ctx, rec, func(pid int) error {
 		return fc.forceTerminate(ctx, sockPath, pid)
 	})
 	if killErr != nil && !errors.Is(killErr, hypervisor.ErrNotRunning) {
-		return "", nil, "", fmt.Errorf("stop running VM: %w", killErr)
+		fc.MarkError(ctx, vmID)
+		return fmt.Errorf("stop running VM: %w", killErr)
 	}
 	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
+	return nil
+}
 
-	cowPath := fc.conf.COWRawPath(vmID)
-	return vmID, &rec, cowPath, nil
+// prepareRestore is used by DirectRestore (local-dir-based restore
+// that doesn't go through tar streaming) and retains the legacy
+// "resolve + kill in one call" flow. For the stream-based Restore
+// path, use resolveForRestore + killForRestore so extraction can run
+// before destructive work.
+func (fc *Firecracker) prepareRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, string, error) {
+	vmID, rec, cowPath, err := fc.resolveForRestore(ctx, vmRef)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if killErr := fc.killForRestore(ctx, vmID, rec); killErr != nil {
+		return "", nil, "", killErr
+	}
+	return vmID, rec, cowPath, nil
 }
 
 // restoreAfterExtract contains all restore logic after snapshot data is in runDir.

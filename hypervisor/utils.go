@@ -122,6 +122,46 @@ func CopyFile(dst, src string) (err error) {
 	return err
 }
 
+// MergeDirInto moves every file under src into the corresponding
+// path under dst, overwriting existing entries. Used by the restore
+// path to stage a snapshot extraction to a scratch dir first, then
+// swap staged files into the live runDir only after the extraction
+// has been proven usable — without this, a truncated or corrupt
+// snapshot stream would destroy the running VM's state before the
+// replacement was in a usable form.
+//
+// Parent directories are created as needed. Files are moved via
+// os.Rename (same-filesystem assumption, which holds because the
+// staging dir lives next to the destination). Directories in src
+// that already exist in dst are merged recursively; the staging dir
+// itself is left empty on success and should be removed by the
+// caller. filepath.Walk visits each directory before its children,
+// so by the time a file is processed its parent already exists in
+// dst from the previous directory-visit step — no per-file MkdirAll
+// is needed.
+func MergeDirInto(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		if err := os.Rename(path, target); err != nil {
+			return fmt.Errorf("rename %s to %s: %w", path, target, err)
+		}
+		return nil
+	})
+}
+
 // ValidateHostCPU rejects VM configs that request more vCPUs than the
 // host has cores. Called at every entry point that accepts a new
 // VMConfig (Create, Restore, Clone, DirectClone, DirectRestore) so
