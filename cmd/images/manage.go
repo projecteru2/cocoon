@@ -103,16 +103,23 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Resolve the owning backend first so cross-backend name collisions
+	// surface as ErrAmbiguous instead of being silently hidden behind
+	// whichever backend happens to come first in the iteration order.
 	ref := args[0]
-	for _, b := range backends {
-		img, err := b.Inspect(ctx, ref)
-		if err != nil {
-			return fmt.Errorf("inspect %s: %w", b.Type(), err)
-		}
-		if img == nil {
-			continue
-		}
-		return cmdcore.OutputJSON(img)
+	owner, err := cmdcore.ResolveImageOwner(ctx, backends, ref)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("image %q not found", ref)
+	img, err := owner.Inspect(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", owner.Type(), err)
+	}
+	if img == nil {
+		// Narrow TOCTOU: ref was deleted between ResolveImageOwner's
+		// probe and this re-probe (concurrent image rm or GC). Fail
+		// explicitly instead of dumping "null" as JSON.
+		return fmt.Errorf("image %q: disappeared during resolve", ref)
+	}
+	return cmdcore.OutputJSON(img)
 }
