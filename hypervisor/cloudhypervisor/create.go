@@ -24,6 +24,14 @@ const CowSerial = hypervisor.CowSerial
 // the DB), we write a placeholder record first, then create directories and
 // prepare disks, and finally update the record to Created state.
 func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (_ *types.VM, err error) {
+	// Fail fast on CPU requests that exceed host cores. The old silent
+	// clamp in buildVMConfig desynchronized rec.Config.CPU (kept user
+	// value), network queue counts (derived from user value), and the
+	// CH boot_vcpus (clamped).
+	if err = validateHostCPU(vmCfg.CPU); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	runDir := ch.conf.VMRunDir(id)
 	logDir := ch.conf.VMLogDir(id)

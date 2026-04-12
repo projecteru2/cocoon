@@ -8,12 +8,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/projecteru2/core/log"
-
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
+
+// validateHostCPU is a local alias for hypervisor.ValidateHostCPU so
+// CH entry points (Create, cloneSetup, Restore, DirectRestore) can
+// call it without importing the parent package under a new name.
+var validateHostCPU = hypervisor.ValidateHostCPU
 
 const (
 	// defaultDiskQueueSize is the virtio-blk queue depth per device.
@@ -27,16 +30,13 @@ const (
 	cidataFile     = "cidata.img"
 )
 
-func buildVMConfig(ctx context.Context, rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {
+func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {
 	cpu := rec.Config.CPU
 	mem := rec.Config.Memory
 
+	// CPU was validated against runtime.NumCPU() at create/restore/clone
+	// time (see ValidateHostCPU). buildVMConfig trusts rec.Config.CPU.
 	maxVCPUs := runtime.NumCPU()
-	if cpu > maxVCPUs {
-		log.WithFunc("cloudhypervisor.buildVMConfig").Warnf(ctx,
-			"requested %d vCPUs exceeds host cores (%d), clamping to %d", cpu, maxVCPUs, maxVCPUs)
-		cpu = maxVCPUs
-	}
 
 	cfg := &chVMConfig{
 		CPUs:     chCPUs{BootVCPUs: cpu, MaxVCPUs: maxVCPUs, KVMHyperV: rec.Config.Windows},

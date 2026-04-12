@@ -21,6 +21,10 @@ import (
 // The VM is left in Created state — call Start to launch it.
 // FC only supports OCI images (direct kernel boot).
 func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (_ *types.VM, err error) {
+	if err = hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	runDir := fc.conf.VMRunDir(id)
 	logDir := fc.conf.VMLogDir(id)

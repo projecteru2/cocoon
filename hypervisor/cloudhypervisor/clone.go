@@ -40,6 +40,13 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 }
 
 func (ch *CloudHypervisor) cloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
+	// Validate CPU at the shared entry so both Clone (stream) and
+	// DirectClone (local dir) reject over-core requests before
+	// touching the DB.
+	if err = validateHostCPU(vmCfg.CPU); err != nil {
+		return "", "", time.Time{}, nil, err
+	}
+
 	if vmCfg.Image == "" && snapshotConfig.Image != "" {
 		vmCfg.Image = snapshotConfig.Image
 	}

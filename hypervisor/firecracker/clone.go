@@ -35,6 +35,12 @@ func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMCo
 }
 
 func (fc *Firecracker) cloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
+	// Shared validation point for Clone (stream) and DirectClone
+	// (local dir) — both enter here via cloneSetup.
+	if err = hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
+		return "", "", time.Time{}, nil, err
+	}
+
 	if vmCfg.Image == "" && snapshotConfig.Image != "" {
 		vmCfg.Image = snapshotConfig.Image
 	}

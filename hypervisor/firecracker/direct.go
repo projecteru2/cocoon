@@ -37,6 +37,9 @@ func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *type
 // Files are handled per-type: hardlink for mem, reflink/copy for
 // the COW disk, plain copy for small metadata (vmstate).
 func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
+	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
+		return nil, err
+	}
 	// Validate CPU/memory overrides before killing the running VM.
 	if checkErr := fc.validateRestoreOverrides(ctx, vmRef, vmCfg); checkErr != nil {
 		return nil, checkErr

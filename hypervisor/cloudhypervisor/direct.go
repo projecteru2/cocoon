@@ -37,6 +37,13 @@ func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *
 // Files are handled per-type: hardlink for memory-range-*, reflink/copy for
 // the COW disk, plain copy for small metadata.
 func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
+	// Validate CPU BEFORE prepareRestore kills the running VM —
+	// otherwise a bad --cpu override would tear down the VM only to
+	// reject it afterwards.
+	if err := validateHostCPU(vmCfg.CPU); err != nil {
+		return nil, err
+	}
+
 	vmID, rec, directBoot, cowPath, err := ch.prepareRestore(ctx, vmRef)
 	if err != nil {
 		return nil, err

@@ -122,6 +122,22 @@ func CopyFile(dst, src string) (err error) {
 	return err
 }
 
+// ValidateHostCPU rejects VM configs that request more vCPUs than the
+// host has cores. Called at every entry point that accepts a new
+// VMConfig (Create, Restore, Clone, DirectClone, DirectRestore) so
+// backends can trust rec.Config.CPU == runtime vCPU count. Without
+// this, the CH backend used to silently clamp in buildVMConfig, which
+// left network queue counts (derived from the unclamped vmCfg.CPU)
+// and persisted VM records (kept the original request) out of sync
+// with the actual runtime boot_vcpus value.
+func ValidateHostCPU(cpu int) error {
+	maxCPU := runtime.NumCPU()
+	if cpu > maxCPU {
+		return fmt.Errorf("requested %d vCPUs exceeds host cores (%d)", cpu, maxCPU)
+	}
+	return nil
+}
+
 // VerifyBaseFiles checks that all read-only layer files and boot files exist.
 func VerifyBaseFiles(storageConfigs []*types.StorageConfig, boot *types.BootConfig) error {
 	for _, sc := range storageConfigs {

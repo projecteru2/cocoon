@@ -22,6 +22,13 @@ import (
 // Network is preserved — same netns, same tap, same MAC/IP.
 // vmCfg carries the final resource config (already validated >= snapshot values).
 func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
+	// Validate CPU override BEFORE killing the running VM in
+	// prepareRestore — otherwise we'd tear down the VM only to reject
+	// the request afterwards.
+	if err := validateHostCPU(vmCfg.CPU); err != nil {
+		return nil, err
+	}
+
 	vmID, rec, directBoot, cowPath, err := ch.prepareRestore(ctx, vmRef)
 	if err != nil {
 		return nil, err

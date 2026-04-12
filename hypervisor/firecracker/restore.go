@@ -22,6 +22,9 @@ import (
 // Network is preserved -- same netns, same tap, same MAC/IP.
 // vmCfg carries the final resource config (already validated >= snapshot values).
 func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
+	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
+		return nil, err
+	}
 	// Validate CPU/memory overrides BEFORE killing the running VM.
 	// FC cannot PATCH machine-config after snapshot/load.
 	if checkErr := fc.validateRestoreOverrides(ctx, vmRef, vmCfg); checkErr != nil {
