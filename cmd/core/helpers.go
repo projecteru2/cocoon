@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -27,10 +28,29 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// hypervisorConstructors maps backend type to its constructor.
-var hypervisorConstructors = map[config.HypervisorType]func(*config.Config) (hypervisor.Hypervisor, error){
-	config.HypervisorCH:          func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) },
-	config.HypervisorFirecracker: func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) },
+// hypervisorFactory binds a hypervisor type to its constructor. The
+// ordered slice below is the single source of truth for iteration
+// (InitAllHypervisors) AND keyed lookup (InitHypervisor) — a map would
+// introduce non-deterministic resolution when the same VM name exists
+// in multiple backends.
+type hypervisorFactory struct {
+	typ  config.HypervisorType
+	ctor func(*config.Config) (hypervisor.Hypervisor, error)
+}
+
+var hypervisorFactories = []hypervisorFactory{
+	{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
+	{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
+}
+
+// findHypervisorFactory returns the ctor for a given type, or nil.
+func findHypervisorFactory(typ config.HypervisorType) func(*config.Config) (hypervisor.Hypervisor, error) {
+	for _, f := range hypervisorFactories {
+		if f.typ == typ {
+			return f.ctor
+		}
+	}
+	return nil
 }
 
 // BaseHandler provides shared config access for all command handlers.
@@ -109,8 +129,8 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 
 // InitHypervisor initializes the selected hypervisor backend.
 func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
-	ctor, ok := hypervisorConstructors[conf.Hypervisor()]
-	if !ok {
+	ctor := findHypervisorFactory(conf.Hypervisor())
+	if ctor == nil {
 		return nil, fmt.Errorf("unknown hypervisor type: %s", conf.Hypervisor())
 	}
 	h, err := ctor(conf)
@@ -121,14 +141,15 @@ func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
 }
 
 // InitAllHypervisors initializes all registered backends for GC.
+// Iteration order is deterministic (follows hypervisorFactories).
 // Returns error if any backend fails — GC must not proceed without
 // full blob pinning or it risks deleting referenced layers.
 func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
-	result := make([]hypervisor.Hypervisor, 0, len(hypervisorConstructors))
-	for typ, ctor := range hypervisorConstructors {
-		h, err := ctor(conf)
+	result := make([]hypervisor.Hypervisor, 0, len(hypervisorFactories))
+	for _, f := range hypervisorFactories {
+		h, err := f.ctor(conf)
 		if err != nil {
-			return nil, fmt.Errorf("init %s for GC: %w", typ, err)
+			return nil, fmt.Errorf("init %s for GC: %w", f.typ, err)
 		}
 		result = append(result, h)
 	}
@@ -136,18 +157,14 @@ func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
 }
 
 // FindHypervisor returns the backend that owns the given VM ref.
-// Tries all registered backends; returns ErrNotFound if no backend has it.
+// Errors: ErrNotFound (no match), ErrAmbiguous (>1 match), or a
+// propagated backend read error.
 func FindHypervisor(ctx context.Context, conf *config.Config, ref string) (hypervisor.Hypervisor, error) {
 	hypers, err := InitAllHypervisors(conf)
 	if err != nil {
 		return nil, err
 	}
-	for _, h := range hypers {
-		if _, resolveErr := h.Inspect(ctx, ref); resolveErr == nil {
-			return h, nil
-		}
-	}
-	return nil, fmt.Errorf("VM %q: %w", ref, hypervisor.ErrNotFound)
+	return resolveVMOwner(ctx, hypers, ref)
 }
 
 // ListAllVMs returns VMs from all registered backends, merged.
@@ -164,23 +181,54 @@ func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.V
 }
 
 // RouteRefs groups VM refs by their owning backend.
-// Returns a map from hypervisor to refs it owns, or error if any ref is unresolvable.
+// Errors: ErrNotFound (a ref has no owner), ErrAmbiguous (a ref has
+// multiple owners), or a propagated backend read error.
 func RouteRefs(ctx context.Context, hypers []hypervisor.Hypervisor, refs []string) (map[hypervisor.Hypervisor][]string, error) {
 	result := map[hypervisor.Hypervisor][]string{}
 	for _, ref := range refs {
-		found := false
-		for _, h := range hypers {
-			if _, resolveErr := h.Inspect(ctx, ref); resolveErr == nil {
-				result[h] = append(result[h], ref)
-				found = true
-				break
-			}
+		owner, err := resolveVMOwner(ctx, hypers, ref)
+		if err != nil {
+			return nil, err
 		}
-		if !found {
-			return nil, fmt.Errorf("VM %q: %w", ref, hypervisor.ErrNotFound)
-		}
+		result[owner] = append(result[owner], ref)
 	}
 	return result, nil
+}
+
+// resolveVMOwner probes every backend for ref and returns:
+//   - the sole owning backend on single match
+//   - hypervisor.ErrNotFound wrapped if no backend has it
+//   - hypervisor.ErrAmbiguous wrapped if >1 backend has it
+//
+// Real read errors (corrupted DB, transient I/O) are propagated rather
+// than swallowed as misses. Shared helper for FindHypervisor and
+// RouteRefs; stays private because it does not make sense outside the
+// cmd-layer multi-backend dispatch.
+func resolveVMOwner(ctx context.Context, hypers []hypervisor.Hypervisor, ref string) (hypervisor.Hypervisor, error) {
+	var matches []hypervisor.Hypervisor
+	for _, h := range hypers {
+		_, resolveErr := h.Inspect(ctx, ref)
+		if resolveErr == nil {
+			matches = append(matches, h)
+			continue
+		}
+		if errors.Is(resolveErr, hypervisor.ErrNotFound) {
+			continue
+		}
+		return nil, fmt.Errorf("inspect %s in %s: %w", ref, h.Type(), resolveErr)
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("VM %s: %w", ref, hypervisor.ErrNotFound)
+	case 1:
+		return matches[0], nil
+	default:
+		names := make([]string, len(matches))
+		for i, h := range matches {
+			names[i] = h.Type()
+		}
+		return nil, fmt.Errorf("VM %s: %w (backends: %s)", ref, hypervisor.ErrAmbiguous, strings.Join(names, ", "))
+	}
 }
 
 // InitNetwork creates the CNI network provider.
