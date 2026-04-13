@@ -39,7 +39,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     # [Networking] Enable networkd/resolved and configure DHCP
     systemctl enable systemd-networkd systemd-resolved systemd-timesyncd && \
     mkdir -p /etc/systemd/network && \
-    printf "[Match]\nName=e* v*\n[Network]\nDHCP=yes\n" > /etc/systemd/network/20-wired.network && \
+    printf "[Match]\nName=e* v*\n[Network]\nDHCP=yes\n\n[DHCPv4]\nClientIdentifier=mac\n" > /etc/systemd/network/20-wired.network && \
     # [Access] Set root password
     echo 'root:cocoon' | chpasswd && \
     # [Cleanup] Purge APT cache to minimize EROFS size

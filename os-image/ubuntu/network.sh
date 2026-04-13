@@ -96,7 +96,7 @@ if [ "$_has_static" = false ]; then
         case "$mac" in ""|00:00:00:00:00:00) continue ;; esac
         mac_sanitized=$(echo "$mac" | tr -d ':')
         {
-            printf "[Match]\nMACAddress=%s\n\n[Network]\nDHCP=ipv4\n" "$mac"
+            printf "[Match]\nMACAddress=%s\n\n[Network]\nDHCP=ipv4\n\n[DHCPv4]\nClientIdentifier=mac\n" "$mac"
         } > "${rootmnt}/etc/systemd/network/10-${mac_sanitized}.network"
     done
 fi
