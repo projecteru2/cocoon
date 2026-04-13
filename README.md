@@ -421,7 +421,7 @@ OCI images must include a `resolve_disk()` init script that supports device path
 ### Shutdown Behavior
 
 - **UEFI VMs (cloudimg)**: ACPI power-button → poll for graceful exit → timeout (default 30s, configurable via `stop_timeout_seconds` in config or `--timeout` flag) → SIGTERM → 5s → SIGKILL
-- **Windows VMs**: ACPI power-button works with our [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) (~13.5s shutdown); with upstream firmware, use `ssh shutdown /s /t 0` before stopping, or `--force` to skip the ACPI timeout (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- **Windows VMs**: ACPI power-button works with our [firmware fork](https://github.com/cocoonstack/rust-hypervisor-firmware/tree/dev) (~8-13s shutdown once fully booted). The guest ACPI handler needs ~60s from cold boot to initialize; stopping before that triggers the 30s timeout fallback. Clone-restored VMs inherit the ready ACPI state and shut down immediately. With upstream firmware, use `ssh shutdown /s /t 0` before stopping, or `--force` to skip the ACPI timeout (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 - **Direct-boot VMs (CH, OCI)**: `vm.shutdown` API → SIGTERM → 5s → SIGKILL (no ACPI support)
 - **Firecracker VMs**: `SendCtrlAltDel` → SIGTERM → 5s → SIGKILL
 - **Force stop** (`--force`): skip ACPI, immediate SIGTERM → SIGKILL

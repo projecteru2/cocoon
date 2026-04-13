@@ -68,6 +68,14 @@ IMAGE_NAME="ghcr.io/cocoonstack/cocoon/ubuntu:24.04" bash start.sh
 IMAGE_NAME="ghcr.io/cocoonstack/cocoon/android:14.0" bash start.sh
 ```
 
+## DHCP and VM Cloning
+
+All Ubuntu images configure systemd-networkd with `ClientIdentifier=mac` in their DHCP settings. This ensures that when a VM is cloned from a snapshot, each clone uses its unique MAC address as the DHCP client identifier instead of the machine-id-derived DUID. Without this, clones from the same snapshot share an identical DUID and dnsmasq treats them as a single client, causing IP conflicts.
+
+The setting is applied in two places:
+- `os-image/ubuntu/network.sh` — the initramfs DHCP fallback path
+- Each Dockerfile's `20-wired.network` — the default systemd-networkd config
+
 ## Prerequisites
 
 - Linux with KVM access (`/dev/kvm` must be writable)
