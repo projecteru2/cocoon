@@ -177,7 +177,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 	fcCmd.Stdin = slave
 	fcCmd.Stdout = slave
 
-	if withNetwork {
+	if withNetwork && rec.NetworkConfigs[0].NetnsPath != "" {
 		restore, enterErr := hypervisor.EnterNetns(rec.NetworkConfigs[0].NetnsPath)
 		if enterErr != nil {
 			_ = master.Close()

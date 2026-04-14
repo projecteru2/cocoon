@@ -21,6 +21,7 @@ import (
 	"github.com/cocoonstack/cocoon/images/cloudimg"
 	"github.com/cocoonstack/cocoon/images/oci"
 	"github.com/cocoonstack/cocoon/network"
+	bridgenet "github.com/cocoonstack/cocoon/network/bridge"
 	"github.com/cocoonstack/cocoon/network/cni"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/snapshot/localfile"
@@ -168,6 +169,15 @@ func InitNetwork(conf *config.Config) (network.Network, error) {
 	p, err := cni.New(conf)
 	if err != nil {
 		return nil, fmt.Errorf("init network: %w", err)
+	}
+	return p, nil
+}
+
+// InitBridgeNetwork creates a TAP-on-bridge network provider.
+func InitBridgeNetwork(conf *config.Config, bridgeDev string) (network.Network, error) {
+	p, err := bridgenet.New(conf, bridgeDev)
+	if err != nil {
+		return nil, fmt.Errorf("init bridge network: %w", err)
 	}
 	return p, nil
 }
