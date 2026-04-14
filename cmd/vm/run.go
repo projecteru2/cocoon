@@ -235,7 +235,8 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		return nil, "", nil, nil, fmt.Errorf("--nics %d below snapshot minimum %d", nics, cfg.NICs)
 	}
 
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker))
+	bridgeDev, _ := cmd.Flags().GetString("bridge")
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
@@ -288,6 +289,10 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	if conf.UseFirecracker && vmCfg.Windows {
 		return nil, nil, nil, fmt.Errorf("--fc and --windows are mutually exclusive: Firecracker does not support Windows guests")
 	}
+	bridgeDev, _ := cmd.Flags().GetString("bridge")
+	if bridgeDev != "" && vmCfg.Network != "" {
+		return nil, nil, nil, fmt.Errorf("--bridge and --network are mutually exclusive")
+	}
 
 	backends, hyper, err := cmdcore.InitBackends(ctx, conf)
 	if err != nil {
@@ -312,7 +317,7 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	}
 
 	nics, _ := cmd.Flags().GetInt("nics")
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker))
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -334,11 +339,17 @@ func tapQueues(cpu int, useFC bool) int {
 	return cpu
 }
 
-func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, queues int) (network.Network, []*types.NetworkConfig, error) {
+func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, queues int, bridgeDev string) (network.Network, []*types.NetworkConfig, error) {
 	if nics <= 0 {
 		return nil, nil, nil
 	}
-	netProvider, err := cmdcore.InitNetwork(conf)
+	var netProvider network.Network
+	var err error
+	if bridgeDev != "" {
+		netProvider, err = cmdcore.InitBridgeNetwork(conf, bridgeDev)
+	} else {
+		netProvider, err = cmdcore.InitNetwork(conf)
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("init network: %w", err)
 	}

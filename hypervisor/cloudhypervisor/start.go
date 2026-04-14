@@ -90,9 +90,9 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 		cmd.Stderr = logFile
 	}
 
-	// If the VM has network, CH must be launched inside the VM's netns
-	// so it can access the tap device. We setns before fork and restore after.
-	if withNetwork {
+	// CNI mode: TAP is inside a per-VM netns, switch before fork.
+	// Bridge mode: TAP is in host netns, no EnterNetns needed.
+	if withNetwork && rec.NetworkConfigs[0].NetnsPath != "" {
 		restore, enterErr := hypervisor.EnterNetns(rec.NetworkConfigs[0].NetnsPath)
 		if enterErr != nil {
 			return 0, fmt.Errorf("enter netns: %w", enterErr)
