@@ -122,7 +122,7 @@ cocoon vm rm my-vm
 ```
 cocoon
 ├── image
-│   ├── pull IMAGE [IMAGE...]      Pull OCI image(s) or cloud image URL(s)
+│   ├── pull [--force] IMAGE [IMAGE...]  Pull OCI image(s) or cloud image URL(s) (--force to bypass cache)
 │   ├── list (alias: ls)           List locally stored images
 │   ├── rm ID [ID...]              Delete locally stored image(s)
 │   ├── import NAME [FILE...]      Import image from file(s) or stdin
