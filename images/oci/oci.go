@@ -69,7 +69,7 @@ func (o *OCI) Type() string { return typ }
 
 // Pull downloads an OCI image from a container registry, extracts boot files
 // (kernel, initrd), and converts each layer to EROFS concurrently.
-func (o *OCI) Pull(ctx context.Context, image string, tracker progress.Tracker) error {
+func (o *OCI) Pull(ctx context.Context, image string, _ bool, tracker progress.Tracker) error {
 	_, err, _ := o.pullGroup.Do(image, func() (any, error) {
 		return nil, pull(ctx, o.conf, o.store, image, tracker)
 	})

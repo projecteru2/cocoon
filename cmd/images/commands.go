@@ -45,13 +45,16 @@ Multiple FILE arguments are treated as split qcow2 parts or multiple tar layers.
 		RunE: h.Import,
 	}
 
+	pullCmd := &cobra.Command{
+		Use:   "pull IMAGE [IMAGE...]",
+		Short: "Pull OCI image(s) or cloud image URL(s)",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  h.Pull,
+	}
+	pullCmd.Flags().Bool("force", false, "bypass cache and always re-download (useful when a mutable tag was replaced upstream)")
+
 	imageCmd.AddCommand(
-		&cobra.Command{
-			Use:   "pull IMAGE [IMAGE...]",
-			Short: "Pull OCI image(s) or cloud image URL(s)",
-			Args:  cobra.MinimumNArgs(1),
-			RunE:  h.Pull,
-		},
+		pullCmd,
 		importCmd,
 		listCmd,
 		&cobra.Command{

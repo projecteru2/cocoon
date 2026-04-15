@@ -56,25 +56,27 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 // pull downloads url and commits it as a blob under url. The URL→blob
 // mapping is idempotent: a second pull of the same URL whose blob is
 // still present is a no-op.
-func pull(ctx context.Context, conf *Config, store storage.Store[imageIndex], url string, tracker progress.Tracker) error {
+func pull(ctx context.Context, conf *Config, store storage.Store[imageIndex], url string, force bool, tracker progress.Tracker) error {
 	logger := log.WithFunc("cloudimg.pull")
 
-	// URL-level idempotency check.
-	var skip bool
-	if err := store.With(ctx, func(idx *imageIndex) error {
-		if _, entry, ok := idx.Lookup(url); ok {
-			blobPath := conf.BlobPath(entry.ContentSum.Hex())
-			if utils.ValidFile(blobPath) {
-				logger.Debugf(ctx, "image %s already cached, skipping", url)
-				skip = true
+	// URL-level idempotency check (skipped when force is true).
+	if !force {
+		var skip bool
+		if err := store.With(ctx, func(idx *imageIndex) error {
+			if _, entry, ok := idx.Lookup(url); ok {
+				blobPath := conf.BlobPath(entry.ContentSum.Hex())
+				if utils.ValidFile(blobPath) {
+					logger.Debugf(ctx, "image %s already cached, skipping", url)
+					skip = true
+				}
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if skip {
-		return nil
+		if skip {
+			return nil
+		}
 	}
 
 	return withDownload(ctx, conf, url, tracker, func(f *os.File, tmpPath, digestHex string) error {

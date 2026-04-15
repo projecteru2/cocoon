@@ -60,9 +60,9 @@ func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 func (c *CloudImg) Type() string { return typ }
 
 // Pull downloads a cloud image and stores it in the blob cache.
-func (c *CloudImg) Pull(ctx context.Context, url string, tracker progress.Tracker) error {
+func (c *CloudImg) Pull(ctx context.Context, url string, force bool, tracker progress.Tracker) error {
 	_, err, _ := c.pullGroup.Do(url, func() (any, error) {
-		return nil, pull(ctx, c.conf, c.store, url, tracker)
+		return nil, pull(ctx, c.conf, c.store, url, force, tracker)
 	})
 	return err
 }

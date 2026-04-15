@@ -26,9 +26,11 @@ func (h Handler) Pull(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	force, _ := cmd.Flags().GetBool("force")
+
 	for _, image := range args {
 		if cmdcore.IsURL(image) {
-			if err := h.pullCloudimg(ctx, cloudimgStore, image); err != nil {
+			if err := h.pullCloudimg(ctx, cloudimgStore, image, force); err != nil {
 				return err
 			}
 		} else {
@@ -54,13 +56,13 @@ func (h Handler) pullOCI(ctx context.Context, store *oci.OCI, image string) erro
 			logger.Infof(ctx, "done: %s", image)
 		}
 	})
-	if err := store.Pull(ctx, image, tracker); err != nil {
+	if err := store.Pull(ctx, image, false, tracker); err != nil {
 		return fmt.Errorf("pull %s: %w", image, err)
 	}
 	return nil
 }
 
-func (h Handler) pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url string) error {
+func (h Handler) pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url string, force bool) error {
 	logger := log.WithFunc("cmd.pullCloudimg")
 	tracker := progress.NewTracker(func(e cloudimgProgress.Event) {
 		switch e.Phase {
@@ -85,7 +87,7 @@ func (h Handler) pullCloudimg(ctx context.Context, store *cloudimg.CloudImg, url
 			logger.Infof(ctx, "done: %s", url)
 		}
 	})
-	if err := store.Pull(ctx, url, tracker); err != nil {
+	if err := store.Pull(ctx, url, force, tracker); err != nil {
 		return fmt.Errorf("pull %s: %w", url, err)
 	}
 	return nil
