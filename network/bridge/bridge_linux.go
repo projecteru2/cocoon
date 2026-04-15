@@ -20,10 +20,7 @@ import (
 // compile-time interface check.
 var _ network.Network = (*Bridge)(nil)
 
-const (
-	typ              = "bridge"
-	defaultQueueSize = 256
-)
+const typ = "bridge"
 
 // Bridge implements network.Network by creating TAP devices and adding
 // them directly to an existing Linux bridge. An external DHCP server
@@ -101,16 +98,20 @@ func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *ty
 			return nil, fmt.Errorf("find tap %s: %w", name, err)
 		}
 
-		// Add TAP to bridge — this is the only wiring needed.
 		if err := netlink.LinkSetMaster(tap, br); err != nil {
 			_ = netlink.LinkDel(tap)
 			return nil, fmt.Errorf("add %s to %s: %w", name, b.bridgeDev, err)
 		}
 
-		// Sync MTU from bridge.
+		// Disable FDB source MAC learning on this port — the TAP has
+		// exactly one MAC and learning writes add per-packet overhead.
+		_ = netlink.LinkSetLearning(tap, false)
+
 		if mtu := br.Attrs().MTU; mtu > 0 {
 			_ = netlink.LinkSetMTU(tap, mtu)
 		}
+
+		_ = network.TuneTAP(tap)
 
 		if err := netlink.LinkSetUp(tap); err != nil {
 			_ = netlink.LinkDel(tap)
@@ -121,7 +122,7 @@ func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *ty
 			Tap:       name,
 			Mac:       mac,
 			NumQueues: queues,
-			QueueSize: defaultQueueSize,
+			QueueSize: network.NetQueueSize,
 			Backend:   typ,
 			BridgeDev: b.bridgeDev,
 			// NetnsPath: empty — TAP is in host netns.
