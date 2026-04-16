@@ -46,8 +46,11 @@ type chCPUs struct {
 }
 
 type chMemory struct {
-	Size      int64 `json:"size"`
-	HugePages bool  `json:"hugepages,omitempty"`
+	Size           int64  `json:"size"`
+	HugePages      bool   `json:"hugepages,omitempty"`
+	HotplugMethod  string `json:"hotplug_method,omitempty"`
+	HotplugSize    int64  `json:"hotplug_size,omitempty"`
+	HotpluggedSize int64  `json:"hotplugged_size,omitempty"`
 }
 
 type chDisk struct {

@@ -18,7 +18,13 @@ const (
 	defaultDiskQueueSize = 512
 	// defaultBalloon sizes the initial balloon as mem/defaultBalloon.
 	defaultBalloon = 4
-	cidataFile     = "cidata.img"
+	// virtioMemAlign is the CH region-alignment requirement for virtio-mem
+	// (VIRTIO_MEM_ALIGN_SIZE in cloud-hypervisor/virtio-devices/src/mem.rs).
+	virtioMemAlign = 128 << 20
+	// defaultHotplugDivisor carves mem/defaultHotplugDivisor as the virtio-mem
+	// hot-pluggable headroom for Windows VMs (analogous to defaultBalloon).
+	defaultHotplugDivisor = 4
+	cidataFile            = "cidata.img"
 )
 
 // DebugDiskCLIArgs uses the same storage-to-disk mapping as launch.
@@ -64,8 +70,20 @@ func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath 
 		cfg.Console = &chRuntimeFile{Mode: "Off"}
 	}
 
-	// Disable balloon on Windows; the driver can spin during shutdown.
-	if mem >= minBalloonMemory && !rec.Config.Windows {
+	// Windows guests: replace virtio-balloon with virtio-mem. The Windows
+	// balloon driver (>= 0.1.262) retries deflation indefinitely during
+	// shutdown, pinning vCPUs until CH's watchdog resets the VM; virtio-mem
+	// has no per-page ACK loop so stop stays within the default timeout.
+	// Non-Windows guests keep balloon (Linux has no virtio-mem shutdown issue).
+	if rec.Config.Windows {
+		if hpSize := alignDown(mem/defaultHotplugDivisor, virtioMemAlign); hpSize >= virtioMemAlign {
+			base := mem - hpSize
+			cfg.Memory.Size = base
+			cfg.Memory.HotplugMethod = "VirtioMem"
+			cfg.Memory.HotplugSize = hpSize
+			cfg.Memory.HotpluggedSize = hpSize
+		}
+	} else if mem >= minBalloonMemory {
 		cfg.Balloon = &chBalloon{
 			Size:              mem / defaultBalloon, //nolint:mnd
 			DeflateOnOOM:      true,
@@ -107,11 +125,15 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	cpuKV.addIf(cfg.CPUs.KVMHyperV, "kvm_hyperv=on")
 	args = append(args, "--cpus", cpuKV.String())
 
-	mem := fmt.Sprintf("size=%d", cfg.Memory.Size)
-	if cfg.Memory.HugePages {
-		mem += ",hugepages=on"
+	var memKV kvBuilder
+	memKV.add(fmt.Sprintf("size=%d", cfg.Memory.Size))
+	memKV.addIf(cfg.Memory.HugePages, "hugepages=on")
+	if hm := hotplugMethodToCLI(cfg.Memory.HotplugMethod); hm != "" {
+		memKV.add("hotplug_method=" + hm)
 	}
-	args = append(args, "--memory", mem)
+	memKV.addIf(cfg.Memory.HotplugSize > 0, fmt.Sprintf("hotplug_size=%d", cfg.Memory.HotplugSize))
+	memKV.addIf(cfg.Memory.HotpluggedSize > 0, fmt.Sprintf("hotplugged_size=%d", cfg.Memory.HotpluggedSize))
+	args = append(args, "--memory", memKV.String())
 
 	if len(cfg.Disks) > 0 {
 		args = append(args, "--disk")
@@ -234,6 +256,23 @@ func netToCLIArg(n chNet) string {
 	b.addIf(n.OffloadUFO, "offload_ufo=on")
 	b.addIf(n.OffloadCsum, "offload_csum=on")
 	return b.String()
+}
+
+// alignDown rounds v down to the nearest multiple of a (a must be > 0).
+func alignDown(v, a int64) int64 { return v / a * a }
+
+// hotplugMethodToCLI maps the JSON enum value (CH serde casing) to the CLI
+// token accepted by --memory hotplug_method=. Returns "" for the default
+// (ACPI), so the token is omitted from the CLI.
+func hotplugMethodToCLI(method string) string {
+	switch method {
+	case "VirtioMem":
+		return "virtio-mem"
+	case "Acpi":
+		return "acpi"
+	default:
+		return ""
+	}
 }
 
 func balloonToCLIArg(b *chBalloon) string {
