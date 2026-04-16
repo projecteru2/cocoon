@@ -140,6 +140,37 @@ virtio-win 0.1.240 did not have this problem because its balloon driver gave up 
 
 **Workaround if balloon is needed**: increase `stop_timeout_seconds` to 180+ and apply the watchdog-pause patch to Cloud Hypervisor (pause the watchdog timer when `vm.power-button` is received).
 
+## Windows VM virtio-mem disabled
+
+**Status: WONTFIX** — disabled by design (alternative to balloon, same outcome: not viable on Windows guests today).
+
+Cocoon does not attach a `virtio-mem` device to Windows VMs either, even though it would seem to bypass the virtio-balloon shutdown storm above. We tested it end-to-end with our patched [cocoonstack/windows](https://github.com/cocoonstack/windows) image (which pre-stages the `viomem` driver via `pnputil`, working around [virtio-win-guest-tools-installer#76](https://github.com/virtio-win/virtio-win-guest-tools-installer/issues/76)) and confirmed the runtime works — the device binds, status `OK`, host can see plugged blocks. The blocker is shutdown.
+
+Test: `--memory size=6G,hotplug_method=virtio-mem,hotplug_size=2G,hotplugged_size=2G` on Windows 11 25H2 with `viomem` 0.1.285:
+
+| Configuration                                  | Stop time |
+|------------------------------------------------|-----------|
+| no balloon, no virtio-mem (current default)    | **6–10 s** ✓ |
+| virtio-mem on, `viomem` driver missing         | 30 s timeout → SIGKILL |
+| virtio-mem on, `viomem` driver staged + bound  | **~7–8 minutes** to clean exit |
+
+Source-level root cause in `viomem/sys/viomem.c`:
+
+1. **Per-block synchronous unplug loop** (`VirtioMemRemovePhysicalMemory`, lines 1103–1320). On every iteration the driver does an O(N) bitmap scan (`RtlFindLongestRunSet`, lines 894–923) for the longest contiguous run, then calls `MmAllocateNodePagesForMdlEx(... MM_ALLOCATE_AND_HOT_REMOVE)` (line 1207) which evicts/quarantines every 4 KiB page. During ACPI shutdown all processes are simultaneously cleaning up, contending on the PFN database — each call costs 100–500 ms. For `2 GiB / 2 MiB = 1024` blocks this is `1024 × ~500 ms ≈ 8.5 minutes`, matching observation.
+
+2. **Unbounded host-ACK wait** (`SendUnPlugRequest` → `KeWaitForSingleObject(... Timeout=NULL)`, line 422). Same anti-pattern as the old balloon driver before [PR #1157](https://github.com/virtio-win/kvm-guest-drivers-windows/pull/1157); never fixed in `viomem`.
+
+3. **Dead `SendUnplugAllRequest`** (line 235). `VIRTIO_MEM_REQ_UNPLUG_ALL` exists in the protocol and the driver implements the helper, but **no PnP/Power IRP handler ever calls it** (`Device.c:227 EvtDeviceReleaseHardware`, `Device.c:381 EvtDeviceD0Exit` only tear down queues). Calling it once would short-circuit the per-block loop entirely.
+
+Cloud Hypervisor's side is clean: `virtio-devices/src/mem.rs:498-668` `state_change_request` / `process_queue` ACK every request synchronously, no NACK or pause-time stall. Host is idle waiting on guest. Upstream `viomem` issue [#1444](https://github.com/virtio-win/kvm-guest-drivers-windows/issues/1444) ("Viomem: Windows hybrid shutdown occasionally hangs during hot-unplugging memory") describes the deadlock variant; our cold-shutdown is the milder linear-slow variant.
+
+The cocoon code path that would attach virtio-mem on Windows is preserved on the [`feat/windows-virtio-mem`](https://github.com/cocoonstack/cocoon/tree/feat/windows-virtio-mem) branch (commit `deb587c`) for re-enable once upstream `viomem` is fixed.
+
+**Workarounds if virtio-mem is needed today**:
+- `hotplugged_size=0` so the device exists but no blocks are plugged at boot — shutdown becomes fast (nothing to unplug) but you lose host-side reclaim until cocoon learns to drive `vm.resize` plug/unplug at runtime.
+- Cocoon-side: shrink memory to base via `vm.resize` *before* `vm.power-button`. Runtime unplug is faster than shutdown unplug because no other processes contend on the PFN database, but still bounded by the same per-block loop.
+- `cocoon vm stop --force` to skip ACPI and SIGKILL immediately.
+
 ## Installing patched binaries for Windows
 
 See [cocoonstack/windows](https://github.com/cocoonstack/windows) for download and installation instructions.
