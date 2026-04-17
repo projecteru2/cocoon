@@ -27,6 +27,16 @@ OCI VMs use the kernel `ip=` boot parameter for network configuration. While mul
 
 **Workaround**: the post-clone setup hints write persistent MAC-based systemd-networkd configs for **all** NICs. These survive reboots and correctly configure every interface regardless of the kernel `ip=` limitation.
 
+## Clone/restore disk queue count is immutable
+
+When cloning or restoring a VM with a different `--cpu` value, the disk `num_queues` (one queue per vCPU) retains the snapshot's original value. This is because `num_queues` is part of the virtio-blk device state baked into the binary snapshot — changing it in `config.json` causes Cloud Hypervisor to crash on `vm.restore`.
+
+`--disk-queue-size` (ring depth per queue) **is** correctly patched on clone/restore, since it is a software-layer configuration that CH re-reads from `config.json` during restore.
+
+**Consequence**: a VM cloned with `--cpu 8` from a 2-vCPU snapshot still runs disks with 2 queues (not 8). Disk I/O is functional but does not scale to the new vCPU count.
+
+**Workaround**: none — this is a CH architectural limitation. Create a fresh VM with the desired CPU count instead of cloning if disk multi-queue scaling is critical.
+
 ## Cloud image UEFI boot compatibility
 
 Cocoon uses [rust-hypervisor-firmware](https://github.com/cloud-hypervisor/rust-hypervisor-firmware) (`CLOUDHV.fd`) for cloud image UEFI boot. This firmware implements a minimal EFI specification and does **not** support the `InstallMultipleProtocolInterfaces()` call required by newer distributions.

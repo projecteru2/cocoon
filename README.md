@@ -181,6 +181,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--queue-size` | `0` (default 512) | Virtio-net ring depth per queue (larger = better bulk throughput, smaller = better RPC latency; CH only, ignored by FC) |
 | `--disk-queue-size` | `0` (default 512) | Virtio-blk ring depth per device (CH only, ignored by FC) |
 | `--network` | empty (default)  | CNI conflist name (empty = first conflist)     |
+| `--bridge`  | empty            | TAP-on-bridge mode (value is bridge device, e.g. `cni0`); mutually exclusive with `--network` |
 | `--windows` | `false`          | Windows guest (UEFI boot, kvm_hyperv=on, no cidata) |
 
 ### Clone Flags
@@ -197,6 +198,7 @@ Applies to `cocoon vm clone`:
 | `--queue-size` | `0` (inherit)         | Virtio-net ring depth per queue (0 = inherit from snapshot) |
 | `--disk-queue-size` | `0` (inherit)    | Virtio-blk ring depth per device (0 = inherit from snapshot; CH only) |
 | `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
+| `--bridge`  | empty                    | TAP-on-bridge mode (value is bridge device); mutually exclusive with `--network` |
 
 ### Snapshot Flags
 

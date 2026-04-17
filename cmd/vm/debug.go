@@ -61,7 +61,7 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		if balloon == 0 {
 			balloon = memoryMB / 2 //nolint:mnd
 		}
-		printCHDebug(storageConfigs, boot, vmCfg.Name, vmCfg.Image, cowPath, chBin, vmCfg.CPU, maxCPU, memoryMB, balloon, cowSizeGB, vmCfg.DiskQueueSize, vmCfg.Windows, boot.KernelPath != "")
+		printCHDebug(storageConfigs, boot, vmCfg, cowPath, chBin, maxCPU, memoryMB, balloon, cowSizeGB, boot.KernelPath != "")
 	}
 	return nil
 }
@@ -137,10 +137,13 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 	fmt.Printf("  -d '{\"action_type\": \"InstanceStart\"}'\n")
 }
 
-func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmName, image, cowPath, chBin string, cpu, maxCPU, memory, balloon, cowSize, diskQueueSize int, windows, directBoot bool) {
+func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg *types.VMConfig, cowPath, chBin string, maxCPU, memory, balloon, cowSize int, directBoot bool) {
+	cpu := vmCfg.CPU
+	diskQueueSize := vmCfg.DiskQueueSize
+
 	if directBoot {
 		if cowPath == "" {
-			cowPath = fmt.Sprintf("cow-%s.raw", vmName)
+			cowPath = fmt.Sprintf("cow-%s.raw", vmCfg.Name)
 		}
 		debugConfigs := append(append([]*types.StorageConfig(nil), configs...),
 			&types.StorageConfig{Path: cowPath, RO: false, Serial: hypervisor.CowSerial})
@@ -154,7 +157,7 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmName
 		fmt.Printf("truncate -s %dG %s\n", cowSize, cowPath)
 		fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", cowPath)
 		fmt.Println()
-		fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", vmName, image)
+		fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", vmCfg.Name, vmCfg.Image)
 		fmt.Printf("%s \\\n", chBin)
 		fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
 		fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
@@ -166,7 +169,7 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmName
 		fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
 	} else {
 		if cowPath == "" {
-			cowPath = fmt.Sprintf("cow-%s.qcow2", vmName)
+			cowPath = fmt.Sprintf("cow-%s.qcow2", vmCfg.Name)
 		}
 		basePath := configs[0].Path
 		fmt.Println("# Prepare COW overlay")
@@ -175,14 +178,14 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmName
 			fmt.Printf("qemu-img resize %s %dG\n", cowPath, cowSize)
 		}
 		fmt.Println()
-		fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmName, image)
+		fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmCfg.Name, vmCfg.Image)
 		fmt.Printf("%s \\\n", chBin)
 		fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
 		fmt.Printf("  --disk \\\n")
 		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize)
 		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
-	printCommonCHArgs(cpu, maxCPU, memory, balloon, windows)
+	printCommonCHArgs(cpu, maxCPU, memory, balloon, vmCfg.Windows)
 }
 
 func printCommonCHArgs(cpu, maxCPU, memory, balloon int, windows bool) {

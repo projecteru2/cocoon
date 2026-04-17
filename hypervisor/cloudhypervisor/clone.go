@@ -123,7 +123,16 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("launch CH: %w", err)
 	}
 
-	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, directBoot, vmCfg.Windows, hadCidataInSnapshot, storageConfigs, networkConfigs, chCfg, vmCfg.CPU, vmCfg.DiskQueueSize); err != nil {
+	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, &cloneResumeOpts{
+		directBoot:          directBoot,
+		windows:             vmCfg.Windows,
+		hadCidataInSnapshot: hadCidataInSnapshot,
+		storageConfigs:      storageConfigs,
+		networkConfigs:      networkConfigs,
+		snapshotCfg:         chCfg,
+		cpu:                 vmCfg.CPU,
+		diskQueueSize:       vmCfg.DiskQueueSize,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -158,15 +167,22 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	return &info, nil
 }
 
+type cloneResumeOpts struct {
+	directBoot          bool
+	windows             bool
+	hadCidataInSnapshot bool
+	storageConfigs      []*types.StorageConfig
+	networkConfigs      []*types.NetworkConfig
+	snapshotCfg         *chVMConfig
+	cpu                 int
+	diskQueueSize       int
+}
+
 func (ch *CloudHypervisor) restoreAndResumeClone(
 	ctx context.Context,
 	pid int,
 	sockPath, runDir string,
-	directBoot, windows, hadCidataInSnapshot bool,
-	storageConfigs []*types.StorageConfig,
-	networkConfigs []*types.NetworkConfig,
-	snapshotCfg *chVMConfig,
-	cpu, diskQueueSize int,
+	opts *cloneResumeOpts,
 ) (err error) {
 	defer func() {
 		if err != nil {
@@ -179,16 +195,15 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 	}
 	hc := utils.NewSocketHTTPClient(sockPath)
 
-	// Replace snapshot NICs so the guest resumes with the clone's MACs.
-	if err = hotSwapNets(ctx, hc, snapshotCfg.Nets, networkConfigs); err != nil {
+	if err = hotSwapNets(ctx, hc, opts.snapshotCfg.Nets, opts.networkConfigs); err != nil {
 		return fmt.Errorf("hot-swap NICs: %w", err)
 	}
 
-	if !directBoot && !windows && !hadCidataInSnapshot {
-		if len(storageConfigs) == 0 {
+	if !opts.directBoot && !opts.windows && !opts.hadCidataInSnapshot {
+		if len(opts.storageConfigs) == 0 {
 			return fmt.Errorf("vm.add-disk (cidata): missing storage config")
 		}
-		cidataDisk := storageConfigToDisk(storageConfigs[len(storageConfigs)-1], cpu, diskQueueSize)
+		cidataDisk := storageConfigToDisk(opts.storageConfigs[len(opts.storageConfigs)-1], opts.cpu, opts.diskQueueSize)
 		if err = addDiskVM(ctx, hc, cidataDisk); err != nil {
 			return fmt.Errorf("vm.add-disk (cidata): %w", err)
 		}
