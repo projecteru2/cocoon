@@ -21,6 +21,7 @@ type SnapshotConfig struct {
 	QueueSize     int    `json:"queue_size,omitempty"`
 	DiskQueueSize int    `json:"disk_queue_size,omitempty"`
 	Network       string `json:"network,omitempty"`
+	NoDirectIO    bool   `json:"no_direct_io,omitempty"`
 	Windows       bool   `json:"windows,omitempty"`
 }
 

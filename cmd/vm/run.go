@@ -401,8 +401,12 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 		printFCMACHints(networkConfigs)
 	}
 
+	fmt.Println()
+	fmt.Println("  # Clean old network configs from snapshot and write new ones (MAC-based)")
+	fmt.Println("  rm -f /etc/systemd/network/10-*.network")
+
 	if isCloudimg {
-		printCloudimgNetworkHints(networkConfigs)
+		printCloudimgNetworkHints()
 	} else {
 		printOCINetworkHints(vm, networkConfigs)
 	}
@@ -424,10 +428,7 @@ func printFCMACHints(networkConfigs []*types.NetworkConfig) {
 	}
 }
 
-func printCloudimgNetworkHints(_ []*types.NetworkConfig) {
-	fmt.Println()
-	fmt.Println("  # Clean old network configs from snapshot and reconfigure via cloud-init")
-	fmt.Println("  rm -f /etc/systemd/network/10-*.network")
+func printCloudimgNetworkHints() {
 	fmt.Println("  cloud-init clean --logs --seed --configs network && cloud-init init --local && cloud-init init")
 	fmt.Println("  cloud-init modules --mode=config && systemctl restart systemd-networkd")
 }
@@ -463,10 +464,6 @@ func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	if len(staticNICs) == 0 && len(dhcpMACs) == 0 {
 		return
 	}
-
-	fmt.Println()
-	fmt.Println("  # Clean old network configs from snapshot and write new ones (MAC-based)")
-	fmt.Println("  rm -f /etc/systemd/network/10-*.network")
 
 	if len(staticNICs) > 0 {
 		printBashArray("macs", staticNICs, func(n nicHint) string { return n.mac })

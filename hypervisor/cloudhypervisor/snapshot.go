@@ -134,6 +134,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		QueueSize:     rec.Config.QueueSize,
 		DiskQueueSize: rec.Config.DiskQueueSize,
 		Network:       rec.Config.Network,
+		NoDirectIO:    rec.Config.NoDirectIO,
 		Windows:       rec.Config.Windows,
 	}
 	if rec.ImageBlobIDs != nil {

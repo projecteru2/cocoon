@@ -89,6 +89,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		cpu:            vmCfg.CPU,
 		memory:         vmCfg.Memory,
 		diskQueueSize:  vmCfg.DiskQueueSize,
+		noDirectIO:     vmCfg.NoDirectIO,
 	}, chCfg, chConfigRaw); err != nil {
 		return nil, fmt.Errorf("patch CH config: %w", err)
 	}
@@ -132,6 +133,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		snapshotCfg:         chCfg,
 		cpu:                 vmCfg.CPU,
 		diskQueueSize:       vmCfg.DiskQueueSize,
+		noDirectIO:          vmCfg.NoDirectIO,
 	}); err != nil {
 		return nil, err
 	}
@@ -176,6 +178,7 @@ type cloneResumeOpts struct {
 	snapshotCfg         *chVMConfig
 	cpu                 int
 	diskQueueSize       int
+	noDirectIO          bool
 }
 
 func (ch *CloudHypervisor) restoreAndResumeClone(
@@ -203,7 +206,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 		if len(opts.storageConfigs) == 0 {
 			return fmt.Errorf("vm.add-disk (cidata): missing storage config")
 		}
-		cidataDisk := storageConfigToDisk(opts.storageConfigs[len(opts.storageConfigs)-1], opts.cpu, opts.diskQueueSize)
+		cidataDisk := storageConfigToDisk(opts.storageConfigs[len(opts.storageConfigs)-1], opts.cpu, opts.diskQueueSize, opts.noDirectIO)
 		if err = addDiskVM(ctx, hc, cidataDisk); err != nil {
 			return fmt.Errorf("vm.add-disk (cidata): %w", err)
 		}

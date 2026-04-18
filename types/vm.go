@@ -28,8 +28,9 @@ type VMConfig struct {
 	QueueSize     int    `json:"queue_size,omitempty"`      // virtio-net ring depth per queue; 0 = default
 	DiskQueueSize int    `json:"disk_queue_size,omitempty"` // virtio-blk ring depth per device; 0 = default
 	Image         string `json:"image"`
-	Network       string `json:"network,omitempty"` // CNI conflist name; empty = default
-	Windows       bool   `json:"windows,omitempty"` // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
+	Network       string `json:"network,omitempty"`      // CNI conflist name; empty = default
+	NoDirectIO    bool   `json:"no_direct_io,omitempty"` // disable O_DIRECT on writable disks
+	Windows       bool   `json:"windows,omitempty"`      // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
 }
 
 // Validate checks that VMConfig fields are within acceptable ranges.

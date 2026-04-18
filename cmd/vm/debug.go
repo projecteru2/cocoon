@@ -140,6 +140,7 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg *types.VMConfig, cowPath, chBin string, maxCPU, memory, balloon, cowSize int, directBoot bool) {
 	cpu := vmCfg.CPU
 	diskQueueSize := vmCfg.DiskQueueSize
+	noDirectIO := vmCfg.NoDirectIO
 
 	if directBoot {
 		if cowPath == "" {
@@ -147,7 +148,7 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		}
 		debugConfigs := append(append([]*types.StorageConfig(nil), configs...),
 			&types.StorageConfig{Path: cowPath, RO: false, Serial: hypervisor.CowSerial})
-		diskArgs := cloudhypervisor.DebugDiskCLIArgs(debugConfigs, cpu, diskQueueSize)
+		diskArgs := cloudhypervisor.DebugDiskCLIArgs(debugConfigs, cpu, diskQueueSize, noDirectIO)
 		cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
 		cmdline := fmt.Sprintf(
 			"console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
@@ -182,7 +183,7 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		fmt.Printf("%s \\\n", chBin)
 		fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
 		fmt.Printf("  --disk \\\n")
-		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize)
+		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize, noDirectIO)
 		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
 	printCommonCHArgs(cpu, maxCPU, memory, balloon, vmCfg.Windows)

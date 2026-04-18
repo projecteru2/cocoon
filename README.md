@@ -182,6 +182,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--disk-queue-size` | `0` (default 512) | Virtio-blk ring depth per device (CH only, ignored by FC) |
 | `--network` | empty (default)  | CNI conflist name (empty = first conflist)     |
 | `--bridge`  | empty            | TAP-on-bridge mode (value is bridge device, e.g. `cni0`); mutually exclusive with `--network` |
+| `--no-direct-io` | `false`     | Disable O_DIRECT on writable disks (use page cache; CH only, useful for dev/test with few VMs) |
 | `--windows` | `false`          | Windows guest (UEFI boot, kvm_hyperv=on, no cidata) |
 
 ### Clone Flags
@@ -199,6 +200,7 @@ Applies to `cocoon vm clone`:
 | `--disk-queue-size` | `0` (inherit)    | Virtio-blk ring depth per device (0 = inherit from snapshot; CH only) |
 | `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
 | `--bridge`  | empty                    | TAP-on-bridge mode (value is bridge device); mutually exclusive with `--network` |
+| `--no-direct-io` | `false` (inherit)  | Disable O_DIRECT on writable disks (inherit from snapshot if not set) |
 
 ### Snapshot Flags
 

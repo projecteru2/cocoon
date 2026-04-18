@@ -17,6 +17,7 @@ type patchOptions struct {
 	cpu            int
 	memory         int64
 	diskQueueSize  int
+	noDirectIO     bool
 }
 
 // patchCHConfig patches specific fields in config.json while preserving all
@@ -91,10 +92,12 @@ func patchDisks(diskRaw json.RawMessage, opts *patchOptions) (json.RawMessage, e
 		if e := setField(elem, "path", opts.storageConfigs[i].Path); e != nil {
 			return e
 		}
-		// Patch queue_size (ring depth) — safe to change on restore.
-		// Do NOT patch num_queues: it is part of the virtio device state
-		// baked into the snapshot binary; changing it crashes CH.
-		return setField(elem, "queue_size", diskQueueSize)
+		if e := setField(elem, "queue_size", diskQueueSize); e != nil {
+			return e
+		}
+		// Override DirectIO for writable disks when --no-direct-io is set.
+		directIO := !opts.storageConfigs[i].RO && !opts.noDirectIO
+		return setField(elem, "direct", directIO)
 	})
 }
 

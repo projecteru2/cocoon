@@ -126,6 +126,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 		QueueSize:     rec.Config.QueueSize,
 		DiskQueueSize: rec.Config.DiskQueueSize,
 		Network:       rec.Config.Network,
+		NoDirectIO:    rec.Config.NoDirectIO,
 	}
 	if rec.ImageBlobIDs != nil {
 		cfg.ImageBlobIDs = make(map[string]struct{}, len(rec.ImageBlobIDs))

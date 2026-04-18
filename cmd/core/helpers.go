@@ -253,6 +253,7 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 	queueSize, _ := cmd.Flags().GetInt("queue-size")
 	diskQueueSize, _ := cmd.Flags().GetInt("disk-queue-size")
 	network, _ := cmd.Flags().GetString("network")
+	noDirectIO, _ := cmd.Flags().GetBool("no-direct-io")
 	windows, _ := cmd.Flags().GetBool("windows")
 
 	if vmName == "" {
@@ -277,6 +278,7 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 		DiskQueueSize: diskQueueSize,
 		Image:         image,
 		Network:       network,
+		NoDirectIO:    noDirectIO,
 		Windows:       windows,
 	}
 	if err := cfg.Validate(); err != nil {
@@ -302,6 +304,10 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 	if diskQueueSize == 0 {
 		diskQueueSize = snapCfg.DiskQueueSize
 	}
+	noDirectIO := snapCfg.NoDirectIO
+	if cmd.Flags().Changed("no-direct-io") {
+		noDirectIO, _ = cmd.Flags().GetBool("no-direct-io")
+	}
 
 	cpu, memBytes, storBytes, err := mergeResourceFlags(cmd, snapCfg.CPU, snapCfg.Memory, snapCfg.Storage, snapCfg)
 	if err != nil {
@@ -317,6 +323,7 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 		DiskQueueSize: diskQueueSize,
 		Image:         snapCfg.Image,
 		Network:       network,
+		NoDirectIO:    noDirectIO,
 		Windows:       snapCfg.Windows,
 	}
 	if err := cfg.Validate(); err != nil {

@@ -274,6 +274,7 @@ func snapshotRecordToConfig(rec *snapshot.SnapshotRecord) *types.SnapshotConfig 
 		QueueSize:     rec.QueueSize,
 		DiskQueueSize: rec.DiskQueueSize,
 		Network:       rec.Network,
+		NoDirectIO:    rec.NoDirectIO,
 		Windows:       rec.Windows,
 	}
 }
