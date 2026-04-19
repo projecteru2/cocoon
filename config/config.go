@@ -51,9 +51,6 @@ type Config struct {
 	// CNIBinDir is the directory for CNI plugin binaries.
 	// Default: /opt/cni/bin.
 	CNIBinDir string `json:"cni_bin_dir" mapstructure:"cni_bin_dir"`
-	// DefaultRootPassword is the root password injected into cloudimg VMs
-	// via cloud-init metadata. Empty means no password is set.
-	DefaultRootPassword string `json:"default_root_password" mapstructure:"default_root_password"`
 	// DNS is a comma or semicolon separated list of DNS server addresses
 	// injected into VM network configuration.
 	// Env: COCOON_DNS. Default: "8.8.8.8,1.1.1.1".

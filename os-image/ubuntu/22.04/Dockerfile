@@ -1,5 +1,6 @@
 # Use the latest Ubuntu 22.04 (Jammy) LTS
 FROM ubuntu:22.04
+LABEL cocoon.ssh.username="root" cocoon.ssh.password="cocoon"
 
 ENV DEBIAN_FRONTEND=noninteractive
 

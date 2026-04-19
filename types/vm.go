@@ -17,7 +17,13 @@ const (
 	VMStateError    VMState = "error"    // start or stop failed
 )
 
-var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
+var (
+	validName     = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
+	validUsername = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	// shellUnsafe matches characters that could cause shell injection in
+	// cloud-init runcmd (backticks, $, semicolons, pipes, etc.).
+	shellUnsafe = regexp.MustCompile("[`$;|&(){}\\\\<>!]")
+)
 
 // VMConfig describes the resources requested for a new VM.
 type VMConfig struct {
@@ -28,9 +34,15 @@ type VMConfig struct {
 	QueueSize     int    `json:"queue_size,omitempty"`      // virtio-net ring depth per queue; 0 = default
 	DiskQueueSize int    `json:"disk_queue_size,omitempty"` // virtio-blk ring depth per device; 0 = default
 	Image         string `json:"image"`
-	Network       string `json:"network,omitempty"`      // CNI conflist name; empty = default
-	NoDirectIO    bool   `json:"no_direct_io,omitempty"` // disable O_DIRECT on writable disks
-	Windows       bool   `json:"windows,omitempty"`      // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
+	Network       string `json:"network,omitempty"` // CNI conflist name; empty = default
+
+	NoDirectIO bool `json:"no_direct_io,omitempty"` // disable O_DIRECT on writable disks
+	Windows    bool `json:"windows,omitempty"`      // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
+
+	// Transient cloud-init credentials — carried in-memory from CLI to cidata
+	// generation, never serialized to JSON or persisted in the VM record.
+	User     string `json:"-"`
+	Password string `json:"-"`
 }
 
 // Validate checks that VMConfig fields are within acceptable ranges.
@@ -55,6 +67,12 @@ func (cfg *VMConfig) Validate() error {
 	}
 	if cfg.DiskQueueSize < 0 {
 		return fmt.Errorf("--disk-queue-size must be non-negative, got %d", cfg.DiskQueueSize)
+	}
+	if cfg.User != "" && !validUsername.MatchString(cfg.User) {
+		return fmt.Errorf("--user %q is invalid: must be a lowercase Linux username (letters, digits, underscores, hyphens)", cfg.User)
+	}
+	if cfg.Password != "" && shellUnsafe.MatchString(cfg.Password) {
+		return fmt.Errorf("--password contains unsafe shell characters (backtick, $, ;, |, &, etc.)")
 	}
 	return nil
 }

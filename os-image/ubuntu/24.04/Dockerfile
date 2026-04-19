@@ -1,5 +1,6 @@
 # Use the latest Ubuntu 24.04 (Noble) LTS
 FROM ubuntu:24.04
+LABEL cocoon.ssh.username="root" cocoon.ssh.password="cocoon"
 
 ENV DEBIAN_FRONTEND=noninteractive
 

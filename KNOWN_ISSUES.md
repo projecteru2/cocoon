@@ -27,6 +27,27 @@ OCI VMs use the kernel `ip=` boot parameter for network configuration. While mul
 
 **Workaround**: the post-clone setup hints write persistent MAC-based systemd-networkd configs for **all** NICs. These survive reboots and correctly configure every interface regardless of the kernel `ip=` limitation.
 
+## Non-root user creation requires cloud-init final stage
+
+When `--user` specifies a non-root username (e.g. `--user admin`), the user is created via cloud-init `runcmd` which runs in the **final stage** — after networking, SSH key generation, and other modules. This means:
+
+- The user does not exist until cloud-init fully completes (typically 20-30s after boot)
+- SSH login as the custom user will fail if attempted before cloud-init finishes
+- `cloud-init status` shows `done` when the user is ready
+
+The root user's password is set via `chpasswd` (config stage, earlier) and is available sooner, but `--user admin` deliberately does not set a root password — root stays locked for security.
+
+**Workaround**: wait for `cloud-init status: done` before attempting SSH. The default `root`/`cocoon` credentials use the faster `chpasswd` path and are available immediately after SSH starts.
+
+## Clone preserves guest credentials from snapshot
+
+Clone regenerates cidata for **network reconfiguration only** — it does not inject new user or password settings. The cloned VM's credentials are whatever the source VM had in `/etc/shadow` at snapshot time.
+
+- `--user`/`--password` flags are not available on `cocoon vm clone`
+- If you need different credentials, change them inside the guest after boot
+
+This is by design: clone restores the VM's exact state including all account settings.
+
 ## Clone/restore disk queue count is immutable
 
 When cloning or restoring a VM with a different `--cpu` value, the disk `num_queues` (one queue per vCPU) retains the snapshot's original value. This is because `num_queues` is part of the virtio-blk device state baked into the binary snapshot — changing it in `config.json` causes Cloud Hypervisor to crash on `vm.restore`.

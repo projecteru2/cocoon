@@ -26,15 +26,22 @@ var (
 	// It also writes fallback systemd-networkd units matching current MAC so
 	// clone reinit can survive netplan PERM-MAC mismatch on later reboots.
 	userDataTmpl = template.Must(template.New("user-data").Funcs(tmplFuncs).Parse(`#cloud-config
-warnings:
-  dsid_missing_source: off
-{{- if .RootPassword}}
+{{- if .Password}}
 chpasswd:
   expire: false
   list:
-    - 'root:{{yamlQuote .RootPassword}}'
+    - '{{.Username}}:{{yamlQuote .Password}}'
 ssh_pwauth: true
+{{- if eq .Username "root"}}
 disable_root: false
+{{- end}}
+{{- if and .Username (ne .Username "root")}}
+runcmd:
+  - [sh, -c, 'id {{.Username}} >/dev/null 2>&1 || useradd -m -s /bin/bash -N {{.Username}}']
+  - [usermod, -aG, sudo, '{{.Username}}']
+  - [sh, -c, 'echo ''{{.Username}}:{{.Password}}'' | chpasswd']
+  - [sh, -c, 'echo ''{{.Username}} ALL=(ALL) NOPASSWD:ALL'' > /etc/sudoers.d/cocoon-{{.Username}}']
+{{- end}}
 {{- end}}
 {{- if .Networks}}
 write_files:
@@ -103,11 +110,12 @@ ethernets:
 
 // Config holds the inputs for generating cloud-init NoCloud metadata.
 type Config struct {
-	InstanceID   string
-	Hostname     string
-	RootPassword string
-	Networks     []NetworkInfo
-	DNS          []string // e.g. ["8.8.8.8", "8.8.4.4"]
+	InstanceID string
+	Hostname   string
+	Username   string
+	Password   string
+	Networks   []NetworkInfo
+	DNS        []string // e.g. ["8.8.8.8", "8.8.4.4"]
 }
 
 // NetworkInfo describes a single guest network interface for cloud-init.

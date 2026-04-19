@@ -159,6 +159,8 @@ func addVMFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("disk-queue-size", 0, "virtio-blk ring depth per device (0 = default 512; CH only, ignored by FC)")                                                //nolint:mnd
 	cmd.Flags().String("network", "", "CNI conflist name (empty = default); mutually exclusive with --bridge")
 	cmd.Flags().String("bridge", "", "use TAP-on-bridge instead of CNI (value is bridge device, e.g. cni0); VM gets IP via DHCP from the bridge")
+	cmd.Flags().String("user", "root", "guest username for cloud-init (cloudimg only)")
+	cmd.Flags().String("password", "cocoon", "guest password for cloud-init (cloudimg only)")
 	cmd.Flags().Bool("no-direct-io", false, "disable O_DIRECT on writable disks (use page cache instead; CH only)")
 	cmd.Flags().Bool("windows", false, "Windows guest (UEFI boot, kvm_hyperv=on, no cidata)")
 }

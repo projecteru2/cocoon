@@ -40,7 +40,6 @@ var (
 		cmd.PersistentFlags().String("log-dir", "", "log directory")
 		cmd.PersistentFlags().String("cni-conf-dir", "", "CNI plugin config directory (default: /etc/cni/net.d)")
 		cmd.PersistentFlags().String("cni-bin-dir", "", "CNI plugin binary directory (default: /opt/cni/bin)")
-		cmd.PersistentFlags().String("root-password", "", "default root password for cloudimg VMs")
 		cmd.PersistentFlags().String("dns", "", `DNS servers for VMs, comma or semicolon separated (default: "8.8.8.8,1.1.1.1")`)
 		cmd.PersistentFlags().String("log-level", "", `log level: debug, info, warn, error (default: "info")`)
 
@@ -49,7 +48,6 @@ var (
 		_ = viper.BindPFlag("log_dir", cmd.PersistentFlags().Lookup("log-dir"))
 		_ = viper.BindPFlag("cni_conf_dir", cmd.PersistentFlags().Lookup("cni-conf-dir"))
 		_ = viper.BindPFlag("cni_bin_dir", cmd.PersistentFlags().Lookup("cni-bin-dir"))
-		_ = viper.BindPFlag("default_root_password", cmd.PersistentFlags().Lookup("root-password"))
 		_ = viper.BindPFlag("dns", cmd.PersistentFlags().Lookup("dns"))
 		_ = viper.BindPFlag("log.level", cmd.PersistentFlags().Lookup("log-level"))
 

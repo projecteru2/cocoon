@@ -13,7 +13,7 @@ Lightweight MicroVM engine with dual hypervisor backends: [Cloud Hypervisor](htt
 - **Multi-queue virtio-net** — TAP devices created with per-vCPU queue pairs; configurable ring depth (`--queue-size`, default 512); TSO/UFO/csum offload enabled by default
 - **TC redirect I/O path** — veth ↔ TAP wired via ingress qdisc + mirred redirect (no bridge in the data path)
 - **DNS configuration** — custom DNS servers injected into VMs via kernel cmdline (OCI) or cloud-init network-config (cloudimg)
-- **Cloud-init metadata** — automatic NoCloud cidata FAT12 disk for cloudimg VMs (hostname, root password, multi-NIC Netplan v2 network-config); cidata is automatically skipped on subsequent boots
+- **Cloud-init metadata** — automatic NoCloud cidata FAT12 disk for cloudimg VMs (hostname, configurable user/password via `--user`/`--password`, multi-NIC Netplan v2 network-config); cidata is automatically skipped on subsequent boots
 - **Hugepages** — automatic detection of host hugepage configuration; VM memory backed by hugepages when available
 - **Memory balloon** — 25% of memory returned via virtio-balloon (deflate-on-OOM, free-page reporting) when memory >= 256 MiB
 - **Graceful shutdown** — ACPI power-button for UEFI VMs with configurable timeout, fallback to SIGTERM → SIGKILL
@@ -48,7 +48,7 @@ Download pre-built binaries from [GitHub Releases](https://github.com/cocoonstac
 
 ```bash
 # Linux amd64
-curl -fsSL -o cocoon.tar.gz https://github.com/cocoonstack/cocoon/releases/download/v0.3.0/cocoon_0.3.0_Linux_x86_64.tar.gz
+curl -fsSL -o cocoon.tar.gz https://github.com/cocoonstack/cocoon/releases/download/v0.3.4/cocoon_0.3.4_Linux_x86_64.tar.gz
 tar -xzf cocoon.tar.gz
 install -m 0755 cocoon /usr/local/bin/
 
@@ -163,7 +163,6 @@ cocoon
 | `--log-level`     | `COCOON_LOG_LEVEL`             | `info`             | Log level: debug, info, warn, error    |
 | `--cni-conf-dir`  | `COCOON_CNI_CONF_DIR`          | `/etc/cni/net.d`   | CNI plugin config directory            |
 | `--cni-bin-dir`   | `COCOON_CNI_BIN_DIR`           | `/opt/cni/bin`     | CNI plugin binary directory            |
-| `--root-password` | `COCOON_DEFAULT_ROOT_PASSWORD` |                    | Default root password for cloudimg VMs |
 | `--dns`           | `COCOON_DNS`                   | `8.8.8.8,1.1.1.1`  | DNS servers for VMs (comma separated)  |
 
 ## VM Flags
@@ -182,6 +181,8 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--disk-queue-size` | `0` (default 512) | Virtio-blk ring depth per device (CH only, ignored by FC) |
 | `--network` | empty (default)  | CNI conflist name (empty = first conflist)     |
 | `--bridge`  | empty            | TAP-on-bridge mode (value is bridge device, e.g. `cni0`); mutually exclusive with `--network` |
+| `--user`    | `root`           | Guest username for cloud-init (cloudimg only)  |
+| `--password` | `cocoon`        | Guest password for cloud-init (cloudimg only)  |
 | `--no-direct-io` | `false`     | Disable O_DIRECT on writable disks (use page cache; CH only, useful for dev/test with few VMs) |
 | `--windows` | `false`          | Windows guest (UEFI boot, kvm_hyperv=on, no cidata) |
 
@@ -320,11 +321,13 @@ All `.conflist` files in `--cni-conf-dir` (default `/etc/cni/net.d`) are loaded 
 Cloudimg VMs receive a NoCloud cidata disk (FAT12 with `CIDATA` volume label) containing:
 
 - **meta-data**: instance ID and hostname
-- **user-data**: `#cloud-config` with optional root password (`--root-password`)
+- **user-data**: `#cloud-config` with configurable user/password (`--user`/`--password`, defaults to `root`/`cocoon`)
 - **network-config**: Netplan v2 format with MAC-matched ethernets, static IP/gateway/DNS per NIC
 - **user-data write_files**: fallback `/etc/systemd/network/15-cocoon-id*.network` files matching current MAC (`MACAddress=`), used when netplan PERM-MAC matching cannot apply
 
 The cidata disk is **automatically excluded on subsequent boots** — after the first successful start, the VM record is marked as `first_booted` and the cidata disk is no longer attached, preventing cloud-init from re-running.
+
+Note: `--user`/`--password` only apply to **cloudimg** VMs (cloud-init). OCI VM images bake credentials at build time — cocoon OCI Dockerfiles annotate them via `LABEL cocoon.ssh.username` / `cocoon.ssh.password` for external tooling (e.g. glance, vk-cocoon).
 
 ## Windows Support
 

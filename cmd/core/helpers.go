@@ -253,6 +253,8 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 	queueSize, _ := cmd.Flags().GetInt("queue-size")
 	diskQueueSize, _ := cmd.Flags().GetInt("disk-queue-size")
 	network, _ := cmd.Flags().GetString("network")
+	user, _ := cmd.Flags().GetString("user")
+	password, _ := cmd.Flags().GetString("password")
 	noDirectIO, _ := cmd.Flags().GetBool("no-direct-io")
 	windows, _ := cmd.Flags().GetBool("windows")
 
@@ -278,6 +280,8 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 		DiskQueueSize: diskQueueSize,
 		Image:         image,
 		Network:       network,
+		User:          user,
+		Password:      password,
 		NoDirectIO:    noDirectIO,
 		Windows:       windows,
 	}

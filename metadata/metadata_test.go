@@ -8,7 +8,7 @@ import (
 
 func TestUserData_NoBootcmd(t *testing.T) {
 	cfg := &Config{
-		RootPassword: "test",
+		Username: "root", Password: "test",
 		Networks: []NetworkInfo{
 			{IP: "10.0.0.2", Prefix: 24, Mac: "aa:bb:cc:dd:ee:f0"},
 		},
@@ -25,9 +25,6 @@ func TestUserData_NoBootcmd(t *testing.T) {
 	}
 	if !strings.Contains(out, "root:test") {
 		t.Errorf("root password missing: %s", out)
-	}
-	if !strings.Contains(out, "dsid_missing_source: off") {
-		t.Errorf("cloud-init warning suppression missing: %s", out)
 	}
 	if !strings.Contains(out, "write_files:") {
 		t.Errorf("write_files missing: %s", out)
@@ -186,9 +183,9 @@ func TestNetworkConfig_DNSOptional(t *testing.T) {
 
 func TestGenerate_ProducesValidFAT12(t *testing.T) {
 	cfg := &Config{
-		InstanceID:   "test-id",
-		Hostname:     "test-vm",
-		RootPassword: "pass",
+		InstanceID: "test-id",
+		Hostname:   "test-vm",
+		Username:   "root", Password: "pass",
 		Networks: []NetworkInfo{
 			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", Mac: "aa:bb:cc:dd:ee:ff"},
 		},
@@ -221,9 +218,9 @@ func TestGenerate_ProducesValidFAT12(t *testing.T) {
 
 func TestGenerate_NoNetworks(t *testing.T) {
 	cfg := &Config{
-		InstanceID:   "test-id",
-		Hostname:     "test-vm",
-		RootPassword: "pass",
+		InstanceID: "test-id",
+		Hostname:   "test-vm",
+		Username:   "root", Password: "pass",
 	}
 
 	var buf bytes.Buffer
@@ -237,9 +234,6 @@ func TestGenerate_NoNetworks(t *testing.T) {
 	raw := buf.String()
 	if strings.Contains(raw, "ethernets:") {
 		t.Error("network-config should not appear without networks")
-	}
-	if !strings.Contains(raw, "dsid_missing_source: off") {
-		t.Error("cloud-init warning suppression should always appear in user-data")
 	}
 	if strings.Contains(raw, "write_files:") {
 		t.Error("write_files should not appear without networks")
