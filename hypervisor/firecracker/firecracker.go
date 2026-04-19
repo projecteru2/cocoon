@@ -18,7 +18,9 @@ var (
 	_ hypervisor.Direct     = (*Firecracker)(nil)
 )
 
-const typ = "firecracker"
+const (
+	typ = "firecracker"
+)
 
 // Firecracker implements hypervisor.Hypervisor using the Firecracker VMM.
 // Only OCI images (direct kernel boot) are supported — no UEFI, no cloudimg, no Windows.

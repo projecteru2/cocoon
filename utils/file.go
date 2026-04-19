@@ -2,7 +2,9 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +81,7 @@ func FilterUnreferenced(candidates []string, refs map[string]struct{}, exclude .
 func RemoveMatching(ctx context.Context, dir string, match func(os.DirEntry) bool) []error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return []error{fmt.Errorf("read %s: %w", dir, err)}
@@ -103,7 +105,7 @@ func RemoveMatching(ctx context.Context, dir string, match func(os.DirEntry) boo
 func scanDir(dir string, fn func(os.DirEntry) (string, bool)) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("scan %s: %w", dir, err)

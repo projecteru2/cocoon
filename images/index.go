@@ -3,6 +3,7 @@ package images
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -13,7 +14,9 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const minHexLen = 12
+const (
+	minHexLen = 12
+)
 
 // Entry defines the common behavior of an image index (*entry).
 // Both OCI and cloudimg imageEntry types implement this with value receivers.
@@ -170,7 +173,7 @@ func GCCollectBlobs(ctx context.Context, tempDir string, dirOnly bool, ids []str
 	errs = append(errs, GCStaleTemp(ctx, tempDir, dirOnly)...)
 	for _, hex := range ids {
 		for _, rm := range removers {
-			if err := rm(hex); err != nil && !os.IsNotExist(err) {
+			if err := rm(hex); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				errs = append(errs, err)
 			}
 		}

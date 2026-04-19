@@ -2,7 +2,9 @@ package cloudhypervisor
 
 // minBalloonMemory is the minimum guest memory (256 MiB) below which
 // balloon is not enabled — the overhead is not worthwhile for tiny VMs.
-const minBalloonMemory = 256 << 20
+const (
+	minBalloonMemory = 256 << 20
+)
 
 type chVMConfig struct {
 	// Optional — pointer + omitempty (nil → omitted from JSON).

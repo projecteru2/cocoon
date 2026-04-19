@@ -2,9 +2,10 @@ package cni
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
-	"os"
 	"runtime"
 	"syscall"
 	"time"
@@ -44,7 +45,7 @@ func createNetns(name string) error {
 func deleteNetns(ctx context.Context, name string) error {
 	return utils.WaitFor(ctx, time.Second, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
 		err := netns.DeleteNamed(name)
-		return err == nil || os.IsNotExist(err), nil
+		return err == nil || errors.Is(err, fs.ErrNotExist), nil
 	})
 }
 

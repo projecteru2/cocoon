@@ -19,7 +19,9 @@ import (
 )
 
 // compile-time interface check.
-var _ images.Images = (*OCI)(nil)
+var (
+	_ images.Images = (*OCI)(nil)
+)
 
 const (
 	typ          = "oci"

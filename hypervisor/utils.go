@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func RemoveVMDirs(runDir, logDir string) error {
 func CleanupRuntimeFiles(ctx context.Context, runDir string, files []string) {
 	for _, name := range files {
 		p := filepath.Join(runDir, name)
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			log.WithFunc("hypervisor.CleanupRuntimeFiles").Warnf(ctx, "cleanup %s: %v", p, err)
 		}
 	}

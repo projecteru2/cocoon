@@ -18,9 +18,13 @@ import (
 )
 
 // compile-time interface check.
-var _ images.Images = (*CloudImg)(nil)
+var (
+	_ images.Images = (*CloudImg)(nil)
+)
 
-const typ = "cloudimg"
+const (
+	typ = "cloudimg"
+)
 
 // CloudImg stores cloud image blobs for UEFI boot under Cloud Hypervisor.
 type CloudImg struct {

@@ -15,7 +15,9 @@ import (
 
 // acpiPollInterval is how often we check if the guest has powered off
 // after sending an ACPI power-button event.
-const acpiPollInterval = 500 * time.Millisecond
+const (
+	acpiPollInterval = 500 * time.Millisecond
+)
 
 // Stop shuts down the Cloud Hypervisor process for each VM ref.
 // Two modes are used depending on the VM's boot method:

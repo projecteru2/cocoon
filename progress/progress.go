@@ -23,4 +23,6 @@ type funcTracker func(any)
 func (f funcTracker) OnEvent(e any) { f(e) }
 
 // Nop is a no-op tracker for callers that don't need progress.
-var Nop Tracker = funcTracker(func(any) {})
+var (
+	Nop Tracker = funcTracker(func(any) {})
+)

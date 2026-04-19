@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -112,7 +114,7 @@ func readAndRemoveSnapshotJSON(dataDir string) (*types.SnapshotConfig, error) {
 	path := filepath.Join(dataDir, snapshotJSONName)
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("invalid snapshot archive: %s not found", snapshotJSONName)
 		}
 		return nil, fmt.Errorf("read %s: %w", snapshotJSONName, err)

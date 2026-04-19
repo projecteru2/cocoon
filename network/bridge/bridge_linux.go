@@ -18,9 +18,13 @@ import (
 )
 
 // compile-time interface check.
-var _ network.Network = (*Bridge)(nil)
+var (
+	_ network.Network = (*Bridge)(nil)
+)
 
-const typ = "bridge"
+const (
+	typ = "bridge"
+)
 
 // Bridge implements network.Network by creating TAP devices and adding
 // them directly to an existing Linux bridge. An external DHCP server

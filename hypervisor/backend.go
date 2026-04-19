@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -129,7 +129,7 @@ func (b *Backend) LoadRecord(ctx context.Context, id string) (VMRecord, error) {
 // WithRunningVM calls fn if rec still points to a live VM process.
 func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid int) error) error {
 	pid, pidErr := utils.ReadPIDFile(b.PIDFilePath(rec.RunDir))
-	if pidErr != nil && !os.IsNotExist(pidErr) {
+	if pidErr != nil && !errors.Is(pidErr, fs.ErrNotExist) {
 		log.WithFunc(b.Typ+".WithRunningVM").Warnf(ctx, "read PID file: %v", pidErr)
 	}
 	if !utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), SocketPath(rec.RunDir)) {

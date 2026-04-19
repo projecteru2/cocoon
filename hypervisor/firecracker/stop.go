@@ -13,7 +13,9 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const ctrlAltDelPollInterval = 500 * time.Millisecond
+const (
+	ctrlAltDelPollInterval = 500 * time.Millisecond
+)
 
 // Stop shuts down the Firecracker process for each VM ref.
 // Honors --force (skip SendCtrlAltDel, immediate kill) and --timeout

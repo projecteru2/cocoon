@@ -15,7 +15,9 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const cmdlineFileName = "cmdline"
+const (
+	cmdlineFileName = "cmdline"
+)
 
 var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName}
 

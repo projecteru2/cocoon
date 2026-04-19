@@ -18,7 +18,9 @@ var (
 	_ hypervisor.Watchable  = (*CloudHypervisor)(nil)
 )
 
-const typ = "cloud-hypervisor"
+const (
+	typ = "cloud-hypervisor"
+)
 
 // CloudHypervisor implements hypervisor.Hypervisor.
 type CloudHypervisor struct {

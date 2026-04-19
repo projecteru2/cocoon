@@ -10,7 +10,9 @@ import (
 	"github.com/moby/term"
 )
 
-const DefaultEscapeChar byte = 0x1D // Ctrl+]
+const (
+	DefaultEscapeChar byte = 0x1D // Ctrl+]
+)
 
 // Relay runs bidirectional I/O between the user terminal and the remote.
 // rw can be a PTY (*os.File) or a Unix socket (net.Conn) — any io.ReadWriter.
