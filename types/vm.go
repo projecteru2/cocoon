@@ -85,7 +85,7 @@ type VM struct {
 	Config     VMConfig `json:"config"`
 
 	// Runtime — populated only while State == VMStateRunning.
-	PID        int    `json:"pid,omitempty"`
+	PID        int    `json:"pid"`
 	SocketPath string `json:"socket_path,omitempty"` // CH API Unix socket
 
 	// Attached resources — promoted into VMRecord via embedding.
@@ -94,7 +94,7 @@ type VM struct {
 
 	// FirstBooted is true after the VM has been started at least once.
 	// Used to skip cidata attachment on subsequent starts (cloudimg only).
-	FirstBooted bool `json:"first_booted,omitempty"`
+	FirstBooted bool `json:"first_booted"`
 
 	// SnapshotIDs tracks snapshots created from this VM.
 	// Populated at runtime by toVM() from VMRecord.SnapshotIDs.

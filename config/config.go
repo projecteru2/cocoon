@@ -57,10 +57,10 @@ type Config struct {
 	DNS string `json:"dns" mapstructure:"dns"`
 	// SocketWaitTimeoutSeconds is how long to wait for the CH API socket
 	// after process start. Default: 5. Increase for slow storage.
-	SocketWaitTimeoutSeconds int `json:"socket_wait_timeout_seconds,omitempty" mapstructure:"socket_wait_timeout_seconds"`
+	SocketWaitTimeoutSeconds int `json:"socket_wait_timeout_seconds" mapstructure:"socket_wait_timeout_seconds"`
 	// TerminateGracePeriodSeconds is the SIGTERM→SIGKILL window when
 	// force-killing a CH process. Default: 5.
-	TerminateGracePeriodSeconds int `json:"terminate_grace_period_seconds,omitempty" mapstructure:"terminate_grace_period_seconds"`
+	TerminateGracePeriodSeconds int `json:"terminate_grace_period_seconds" mapstructure:"terminate_grace_period_seconds"`
 	// Log configuration, uses eru core's ServerLogConfig.
 	Log *coretypes.ServerLogConfig `json:"log" mapstructure:"log"`
 }
