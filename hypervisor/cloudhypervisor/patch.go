@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
 )
 
@@ -127,11 +128,11 @@ func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, me
 }
 
 func patchBalloonRaw(raw map[string]json.RawMessage, hasBalloon bool, memory int64) error {
-	if memory < minBalloonMemory {
+	if memory < hypervisor.MinBalloonMemory {
 		delete(raw, "balloon")
 		return nil
 	}
-	newSize := memory / defaultBalloon
+	newSize := memory / hypervisor.DefaultBalloonDiv
 	if hasBalloon {
 		if balloonRaw, ok := raw["balloon"]; ok {
 			patched, err := patchRawObject(balloonRaw, func(obj map[string]json.RawMessage) error {

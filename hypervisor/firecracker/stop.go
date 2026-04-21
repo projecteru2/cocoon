@@ -12,10 +12,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const (
-	ctrlAltDelPollInterval = 500 * time.Millisecond
-)
-
 // Stop shuts down the Firecracker process for each VM ref.
 // Honors --force (skip SendCtrlAltDel, immediate kill) and --timeout
 // (wait for guest to respond to SendCtrlAltDel before escalating).
@@ -61,7 +57,7 @@ func (fc *Firecracker) gracefulStop(ctx context.Context, hc *http.Client, vmID, 
 	}
 
 	// Poll until the process exits or timeout.
-	if err := utils.WaitFor(ctx, timeout, ctrlAltDelPollInterval, func() (bool, error) {
+	if err := utils.WaitFor(ctx, timeout, hypervisor.GracefulStopPollInterval, func() (bool, error) {
 		return !utils.IsProcessAlive(pid), nil
 	}); err == nil {
 		return nil

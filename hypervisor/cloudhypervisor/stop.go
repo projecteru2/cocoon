@@ -12,12 +12,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// acpiPollInterval is how often we check if the guest has powered off
-// after sending an ACPI power-button event.
-const (
-	acpiPollInterval = 500 * time.Millisecond
-)
-
 // Stop shuts down the Cloud Hypervisor process for each VM ref.
 // Two modes are used depending on the VM's boot method:
 //   - UEFI boot (cloudimg): ACPI power-button → poll → fallback SIGTERM/SIGKILL
@@ -67,7 +61,7 @@ func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, hc *http.Client, vm
 	}
 
 	// Poll until the process exits or timeout.
-	if err := utils.WaitFor(ctx, timeout, acpiPollInterval, func() (bool, error) {
+	if err := utils.WaitFor(ctx, timeout, hypervisor.GracefulStopPollInterval, func() (bool, error) {
 		return !utils.IsProcessAlive(pid), nil
 	}); err == nil {
 		return nil

@@ -16,9 +16,7 @@ import (
 const (
 	// defaultDiskQueueSize is the virtio-blk queue depth per device.
 	defaultDiskQueueSize = 512
-	// defaultBalloon sizes the initial balloon as mem/defaultBalloon.
-	defaultBalloon = 4
-	cidataFile     = "cidata.img"
+	cidataFile           = "cidata.img"
 )
 
 // DebugDiskCLIArgs uses the same storage-to-disk mapping as launch.
@@ -65,9 +63,9 @@ func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath 
 	}
 
 	// Disable balloon on Windows; the driver can spin during shutdown.
-	if mem >= minBalloonMemory && !rec.Config.Windows {
+	if mem >= hypervisor.MinBalloonMemory && !rec.Config.Windows {
 		cfg.Balloon = &chBalloon{
-			Size:              mem / defaultBalloon, //nolint:mnd
+			Size:              mem / hypervisor.DefaultBalloonDiv, //nolint:mnd
 			DeflateOnOOM:      true,
 			FreePageReporting: true,
 		}

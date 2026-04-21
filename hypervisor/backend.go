@@ -32,6 +32,17 @@ const (
 
 	// VMMemTransferTimeout is the single-shot timeout for snapshot/restore API calls.
 	VMMemTransferTimeout = 10 * time.Minute
+
+	// MinBalloonMemory is the minimum guest memory (256 MiB) below which
+	// balloon is not enabled — the overhead is not worthwhile for tiny VMs.
+	MinBalloonMemory = 256 << 20
+
+	// DefaultBalloonDiv sizes the initial balloon as memory/DefaultBalloonDiv (25%).
+	DefaultBalloonDiv = 4
+
+	// GracefulStopPollInterval is how often we check if the guest has powered off
+	// after sending a graceful shutdown signal (ACPI power-button or SendCtrlAltDel).
+	GracefulStopPollInterval = 500 * time.Millisecond
 )
 
 // BackendConfig provides backend-specific values needed by shared Backend methods.
@@ -40,6 +51,8 @@ type BackendConfig interface {
 	PIDFileName() string
 	TerminateGracePeriod() time.Duration
 	EffectivePoolSize() int
+	RunDir() string
+	LogDir() string
 	VMRunDir(id string) string
 	VMLogDir(id string) string
 }
