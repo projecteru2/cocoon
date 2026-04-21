@@ -11,6 +11,14 @@ type imageIndex struct {
 	images.Index[imageEntry]
 }
 
+// imageEntry records one pulled cloud image.
+type imageEntry struct {
+	Ref        string        `json:"ref"`         // Original URL.
+	ContentSum images.Digest `json:"content_sum"` // SHA-256 of downloaded content.
+	Size       int64         `json:"size"`        // qcow2 blob size on disk.
+	CreatedAt  time.Time     `json:"created_at"`
+}
+
 // Lookup finds an image entry by URL or content digest.
 // Returns the ref key, entry, and whether it was found.
 func (idx *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
@@ -31,14 +39,6 @@ func (idx *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
 // Delegates to shared images.LookupRefs (no normalizers needed for URLs).
 func (idx *imageIndex) LookupRefs(id string) []string {
 	return images.LookupRefs(idx.Images, id)
-}
-
-// imageEntry records one pulled cloud image.
-type imageEntry struct {
-	Ref        string        `json:"ref"`         // Original URL.
-	ContentSum images.Digest `json:"content_sum"` // SHA-256 of downloaded content.
-	Size       int64         `json:"size"`        // qcow2 blob size on disk.
-	CreatedAt  time.Time     `json:"created_at"`
 }
 
 // images.Entry implementation (value receivers).

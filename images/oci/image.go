@@ -13,6 +13,23 @@ type imageIndex struct {
 	images.Index[imageEntry]
 }
 
+// imageEntry records one pulled OCI image.
+// Paths are not stored; they are derived from digests and config at runtime.
+type imageEntry struct {
+	Ref            string        `json:"ref"`
+	ManifestDigest images.Digest `json:"manifest_digest"`
+	Layers         []layerEntry  `json:"layers"`
+	KernelLayer    images.Digest `json:"kernel_layer"` // digest of layer containing vmlinuz
+	InitrdLayer    images.Digest `json:"initrd_layer"` // digest of layer containing initrd.img
+	Size           int64         `json:"size"`         // total on-disk size of all artifacts
+	CreatedAt      time.Time     `json:"created_at"`
+}
+
+// layerEntry records one EROFS layer within an image.
+type layerEntry struct {
+	Digest images.Digest `json:"digest"`
+}
+
 // Lookup finds an image entry by ref (exact or normalized) or manifest digest.
 // Returns the ref key, entry, and whether it was found.
 func (idx *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
@@ -46,18 +63,6 @@ func (idx *imageIndex) LookupRefs(id string) []string {
 	})
 }
 
-// imageEntry records one pulled OCI image.
-// Paths are not stored; they are derived from digests and config at runtime.
-type imageEntry struct {
-	Ref            string        `json:"ref"`
-	ManifestDigest images.Digest `json:"manifest_digest"`
-	Layers         []layerEntry  `json:"layers"`
-	KernelLayer    images.Digest `json:"kernel_layer"` // digest of layer containing vmlinuz
-	InitrdLayer    images.Digest `json:"initrd_layer"` // digest of layer containing initrd.img
-	Size           int64         `json:"size"`         // total on-disk size of all artifacts
-	CreatedAt      time.Time     `json:"created_at"`
-}
-
 // images.Entry implementation (value receivers).
 
 // EntryID returns the manifest digest as the unique entry identifier.
@@ -76,9 +81,4 @@ func (e imageEntry) DigestHexes() []string {
 		hexes[i] = l.Digest.Hex()
 	}
 	return hexes
-}
-
-// layerEntry records one EROFS layer within an image.
-type layerEntry struct {
-	Digest images.Digest `json:"digest"`
 }

@@ -19,6 +19,19 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+type cloneResumeOpts struct {
+	directBoot          bool
+	windows             bool
+	hadCidataInSnapshot bool
+	storageConfigs      []*types.StorageConfig
+	networkConfigs      []*types.NetworkConfig
+	snapshotCfg         *chVMConfig
+	cpu                 int
+	diskQueueSize       int
+	noDirectIO          bool
+	onDemand            bool
+}
+
 // Clone creates a new VM from a snapshot tar stream.
 func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (_ *types.VM, err error) {
 	runDir, logDir, now, cleanup, err := ch.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
@@ -151,19 +164,6 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 
 	logger.Infof(ctx, "VM %s cloned from snapshot", vmID)
 	return info, nil
-}
-
-type cloneResumeOpts struct {
-	directBoot          bool
-	windows             bool
-	hadCidataInSnapshot bool
-	storageConfigs      []*types.StorageConfig
-	networkConfigs      []*types.NetworkConfig
-	snapshotCfg         *chVMConfig
-	cpu                 int
-	diskQueueSize       int
-	noDirectIO          bool
-	onDemand            bool
 }
 
 func (ch *CloudHypervisor) restoreAndResumeClone(
