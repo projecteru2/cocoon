@@ -122,19 +122,9 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
-	if dbErr := fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[vmID]
-		if r == nil {
-			return fmt.Errorf("vm %s disappeared from index", vmID)
-		}
-		r.VM = *info
-		r.BootConfig = bootCfg
-		r.ImageBlobIDs = blobIDs
-		r.FirstBooted = true
-		return nil
-	}); dbErr != nil {
+	if err := fc.FinalizeClone(ctx, vmID, info, bootCfg, blobIDs); err != nil {
 		fc.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
-		return nil, fmt.Errorf("finalize VM record: %w", dbErr)
+		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
 
 	logger.Infof(ctx, "VM %s cloned from snapshot", vmID)

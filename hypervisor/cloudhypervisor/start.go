@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,35 +29,23 @@ func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, 
 }
 
 func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
-	rec, err := ch.LoadRecord(ctx, id)
+	rec, err := ch.PrepareStart(ctx, id, runtimeFiles)
 	if err != nil {
 		return err
 	}
-
-	runErr := ch.WithRunningVM(ctx, &rec, func(_ int) error { return nil })
-	switch {
-	case runErr == nil:
+	if rec == nil {
 		return nil
-	case errors.Is(runErr, hypervisor.ErrNotRunning):
-	default:
-		return fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}
-
-	if err = utils.EnsureDirs(rec.RunDir, rec.LogDir); err != nil {
-		return fmt.Errorf("ensure dirs: %w", err)
-	}
-
-	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 	consoleSock := hypervisor.ConsoleSockPath(rec.RunDir)
 
-	vmCfg := buildVMConfig(ctx, &rec, consoleSock)
+	vmCfg := buildVMConfig(ctx, rec, consoleSock)
 	args := buildCLIArgs(vmCfg, sockPath)
-	ch.saveCmdline(ctx, &rec, args)
+	ch.saveCmdline(ctx, rec, args)
 
 	withNetwork := len(rec.NetworkConfigs) > 0
-	if _, err = ch.launchProcess(ctx, &rec, sockPath, args, withNetwork); err != nil {
+	if _, err = ch.launchProcess(ctx, rec, sockPath, args, withNetwork); err != nil {
 		ch.MarkError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}

@@ -139,28 +139,11 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	}
 
 	info := &types.VM{
-		ID:             vmID,
-		Hypervisor:     typ,
-		State:          types.VMStateRunning,
-		Config:         *vmCfg,
-		StorageConfigs: storageConfigs,
-		NetworkConfigs: networkConfigs,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		StartedAt:      &now,
+		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
+		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
+		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
-	if err := ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[vmID]
-		if r == nil {
-			return fmt.Errorf("vm %s disappeared from index", vmID)
-		}
-		r.VM = *info
-		r.BootConfig = bootCfg
-		// Preserve the snapshot's blob pin set; rebuilt storage holds overlay paths.
-		// Mark the clone first-booted so later cold boots skip cidata.
-		r.FirstBooted = true
-		return nil
-	}); err != nil {
+	if err := ch.FinalizeClone(ctx, vmID, info, bootCfg, nil); err != nil {
 		ch.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}

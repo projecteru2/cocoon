@@ -2,7 +2,6 @@ package firecracker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -33,37 +32,25 @@ func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, erro
 }
 
 func (fc *Firecracker) startOne(ctx context.Context, id string) error {
-	rec, err := fc.LoadRecord(ctx, id)
+	rec, err := fc.PrepareStart(ctx, id, runtimeFiles)
 	if err != nil {
 		return err
 	}
-
-	runErr := fc.WithRunningVM(ctx, &rec, func(_ int) error { return nil })
-	switch {
-	case runErr == nil:
+	if rec == nil {
 		return nil
-	case errors.Is(runErr, hypervisor.ErrNotRunning):
-	default:
-		return fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}
-
-	if err = utils.EnsureDirs(rec.RunDir, rec.LogDir); err != nil {
-		return fmt.Errorf("ensure dirs: %w", err)
-	}
-
-	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 
 	withNetwork := len(rec.NetworkConfigs) > 0
-	pid, err := fc.launchProcess(ctx, &rec, sockPath, withNetwork)
+	pid, err := fc.launchProcess(ctx, rec, sockPath, withNetwork)
 	if err != nil {
 		fc.MarkError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}
 
 	// Configure VM via REST API and start the instance.
-	if err := fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), &rec); err != nil {
+	if err := fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), rec); err != nil {
 		fc.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
 		fc.MarkError(ctx, id)
 		return fmt.Errorf("configure VM: %w", err)

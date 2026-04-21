@@ -416,6 +416,50 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	return &info, nil
 }
 
+// PrepareStart loads a VM record, checks if it's already running, ensures
+// directories exist, and cleans up stale runtime files. Returns the record
+// ready for backend-specific launch, or nil if the VM is already running.
+func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []string) (*VMRecord, error) {
+	rec, err := b.LoadRecord(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	runErr := b.WithRunningVM(ctx, &rec, func(_ int) error { return nil })
+	switch {
+	case runErr == nil:
+		return nil, nil // already running
+	case errors.Is(runErr, ErrNotRunning):
+		// expected — proceed to start
+	default:
+		return nil, fmt.Errorf("reconcile running VM %s: %w", id, runErr)
+	}
+
+	if err = utils.EnsureDirs(rec.RunDir, rec.LogDir); err != nil {
+		return nil, fmt.Errorf("ensure dirs: %w", err)
+	}
+	CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
+	return &rec, nil
+}
+
+// FinalizeClone marks a just-cloned VM as running in the DB.
+// If blobIDs is non-nil, it overwrites the record's image blob pin set.
+func (b *Backend) FinalizeClone(ctx context.Context, vmID string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}) error {
+	return b.DB.Update(ctx, func(idx *VMIndex) error {
+		r := idx.VMs[vmID]
+		if r == nil {
+			return fmt.Errorf("vm %s disappeared from index", vmID)
+		}
+		r.VM = *info
+		r.BootConfig = bootCfg
+		r.FirstBooted = true
+		if blobIDs != nil {
+			r.ImageBlobIDs = blobIDs
+		}
+		return nil
+	})
+}
+
 // HandleStopResult processes the error from a per-VM stop attempt.
 // Real errors mark the VM as error state; ErrNotRunning and nil both
 // clean up runtime files and return success.
