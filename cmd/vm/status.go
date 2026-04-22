@@ -87,6 +87,17 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+type vmEvent struct {
+	Event string   `json:"event"`
+	VM    types.VM `json:"vm"`
+}
+
+type vmSnapshot struct {
+	id, name, state, ip, image string
+	cpu                        int
+	memory                     int64
+}
+
 func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-chan struct{} {
 	var channels []<-chan struct{}
 	for _, h := range hypers {
@@ -199,11 +210,6 @@ func statusEventLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filter
 	})
 }
 
-type vmEvent struct {
-	Event string   `json:"event"`
-	VM    types.VM `json:"vm"`
-}
-
 func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	enc := json.NewEncoder(os.Stdout)
 	type snapshotWithVM struct {
@@ -235,12 +241,6 @@ func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, fi
 		}
 		prev = curr
 	})
-}
-
-type vmSnapshot struct {
-	id, name, state, ip, image string
-	cpu                        int
-	memory                     int64
 }
 
 func takeSnapshot(vm *types.VM) vmSnapshot {

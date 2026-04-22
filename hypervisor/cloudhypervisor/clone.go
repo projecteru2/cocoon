@@ -178,7 +178,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 		}
 	}()
 
-	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
+	hc := utils.NewSocketHTTPClient(sockPath)
 
 	if err = restoreVM(ctx, hc, runDir, opts.onDemand); err != nil {
 		return fmt.Errorf("vm.restore: %w", err)
@@ -349,10 +349,11 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 		}
 		logger.Infof(ctx, "removed snapshot NIC %s (old MAC %s)", oldNet.ID, oldNet.Mac)
 	}
-	for _, nc := range networkConfigs {
+	for i, nc := range networkConfigs {
 		newNet := networkConfigToNet(nc)
 		if err := addNetVM(ctx, hc, newNet); err != nil {
-			return fmt.Errorf("add net device for %s: %w", nc.Mac, err)
+			return fmt.Errorf("add net device %d/%d (MAC %s, TAP %s): %w",
+				i+1, len(networkConfigs), nc.Mac, nc.Tap, err)
 		}
 		logger.Infof(ctx, "added NIC with MAC %s on TAP %s", nc.Mac, nc.Tap)
 	}

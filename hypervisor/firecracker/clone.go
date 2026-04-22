@@ -15,6 +15,10 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+const (
+	cloneBackupSuffix = ".cocoon-clone-backup"
+)
+
 // Clone creates a new VM from a snapshot tar stream via FC snapshot/load.
 func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (_ *types.VM, err error) {
 	runDir, logDir, now, cleanup, err := fc.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
@@ -190,7 +194,7 @@ func createDriveRedirects(srcConfigs, dstConfigs []*types.StorageConfig) ([]driv
 		r := driveRedirect{symlinkPath: src.Path}
 
 		if _, err := os.Stat(src.Path); err == nil {
-			backup := src.Path + ".cocoon-clone-backup"
+			backup := src.Path + cloneBackupSuffix
 			if renameErr := os.Rename(src.Path, backup); renameErr != nil {
 				cleanupDriveRedirects(redirects)
 				return nil, fmt.Errorf("backup source drive %s: %w", src.Path, renameErr)
@@ -231,13 +235,31 @@ func cleanupDriveRedirects(redirects []driveRedirect) {
 }
 
 // withSourceCOWLocked runs fn while holding the source COW lock.
+// Recovers stale symlink backups from crashed clones before proceeding.
 func withSourceCOWLocked(srcConfigs []*types.StorageConfig, fn func() error) error {
 	for _, sc := range srcConfigs {
 		if !sc.RO {
-			return withCOWPathLocked(sc.Path, fn)
+			return withCOWPathLocked(sc.Path, func() error {
+				recoverStaleBackup(sc.Path)
+				return fn()
+			})
 		}
 	}
 	return fn() // no RW disk, run unlocked
+}
+
+// recoverStaleBackup restores a backup file left by a crashed clone.
+// Caller must hold the COW lock.
+func recoverStaleBackup(cowPath string) {
+	backup := cowPath + cloneBackupSuffix
+	if _, err := os.Stat(backup); err != nil {
+		return
+	}
+	fi, err := os.Lstat(cowPath)
+	if err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(cowPath)
+	}
+	_ = os.Rename(backup, cowPath)
 }
 
 func buildNetworkOverrides(networkConfigs []*types.NetworkConfig) []fcNetworkOverride {

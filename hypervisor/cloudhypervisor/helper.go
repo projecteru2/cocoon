@@ -17,6 +17,10 @@ import (
 
 const (
 	cmdlineFileName = "cmdline"
+
+	// chMemoryRestoreOnDemand uses userfaultfd (UFFD) to lazily page in
+	// guest memory from the snapshot file, avoiding a full upfront copy.
+	chMemoryRestoreOnDemand chMemoryRestoreMode = "OnDemand"
 )
 
 var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName}
@@ -68,15 +72,17 @@ func resumeVM(ctx context.Context, hc *http.Client) error {
 	return vmAPI(ctx, hc, "vm.resume", nil)
 }
 
-// snapshotVM and restoreVM bypass vmAPI's retry layer — see hypervisor.VMMemTransferTimeout.
-func snapshotVM(ctx context.Context, sockPath, destDir string) error {
+// snapshotVM and restoreVM temporarily extend the client timeout for
+// long-running memory transfers, then restore it for subsequent calls.
+func snapshotVM(ctx context.Context, hc *http.Client, destDir string) error {
+	hc.Timeout = hypervisor.VMMemTransferTimeout
+	defer func() { hc.Timeout = utils.HTTPTimeout }()
 	body, err := json.Marshal(map[string]string{
 		"destination_url": "file://" + destDir,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal snapshot request: %w", err)
 	}
-	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
 	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
 		"http://localhost/api/v1/vm.snapshot", body, http.StatusNoContent)
 	return err
@@ -85,18 +91,14 @@ func snapshotVM(ctx context.Context, sockPath, destDir string) error {
 // chMemoryRestoreMode controls how CH restores guest memory from a snapshot.
 type chMemoryRestoreMode string
 
-const (
-	// chMemoryRestoreOnDemand uses userfaultfd (UFFD) to lazily page in
-	// guest memory from the snapshot file, avoiding a full upfront copy.
-	chMemoryRestoreOnDemand chMemoryRestoreMode = "OnDemand"
-)
-
 type chRestoreConfig struct {
 	SourceURL         string              `json:"source_url"`
 	MemoryRestoreMode chMemoryRestoreMode `json:"memory_restore_mode,omitempty"`
 }
 
 func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand bool) error {
+	hc.Timeout = hypervisor.VMMemTransferTimeout
+	defer func() { hc.Timeout = utils.HTTPTimeout }()
 	cfg := chRestoreConfig{
 		SourceURL: "file://" + sourceDir,
 	}

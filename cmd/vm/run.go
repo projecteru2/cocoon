@@ -330,6 +330,11 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	return ctx, info, hyper, nil
 }
 
+type nicHint struct {
+	mac, ip, gw string
+	prefix      int
+}
+
 // tapQueues returns the number of TAP queues per NIC.
 // FC only supports single-queue TAPs; CH uses one queue per vCPU.
 func tapQueues(cpu int, useFC bool) int {
@@ -431,11 +436,6 @@ func printFCMACHints(networkConfigs []*types.NetworkConfig) {
 func printCloudimgNetworkHints() {
 	fmt.Println("  cloud-init clean --logs --seed --configs network && cloud-init init --local && cloud-init init")
 	fmt.Println("  cloud-init modules --mode=config && systemctl restart systemd-networkd")
-}
-
-type nicHint struct {
-	mac, ip, gw string
-	prefix      int
 }
 
 func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {

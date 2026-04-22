@@ -309,8 +309,8 @@ func (b *Backend) CleanStalePlaceholders(_ context.Context, ids []string) error 
 }
 
 // GCCollect removes orphan VM directories and stale DB records.
-// Runs under the GC orchestrator's flock — uses lock-free DB access
-// (ReadRaw/WriteRaw) to avoid self-deadlock.
+// Kills leftover hypervisor processes before removing directories.
+// Runs under the GC orchestrator's flock — uses lock-free DB access.
 func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
 	var errs []error
 	for _, id := range ids {
@@ -321,6 +321,7 @@ func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
 			}
 			return nil
 		})
+		b.killOrphanProcess(ctx, runDir)
 		if err := RemoveVMDirs(runDir, logDir); err != nil {
 			errs = append(errs, err)
 		}
@@ -329,6 +330,20 @@ func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// killOrphanProcess terminates a leftover hypervisor process if the PID
+// file exists and the process matches the expected binary name.
+func (b *Backend) killOrphanProcess(ctx context.Context, runDir string) {
+	pid, err := utils.ReadPIDFile(b.PIDFilePath(runDir))
+	if err != nil {
+		return
+	}
+	sockPath := SocketPath(runDir)
+	if !utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), sockPath) {
+		return
+	}
+	_ = utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod())
 }
 
 // PIDFilePath returns the PID file path for the backend's PID file name.
