@@ -96,7 +96,7 @@ type chRestoreConfig struct {
 	MemoryRestoreMode chMemoryRestoreMode `json:"memory_restore_mode,omitempty"`
 }
 
-func restoreVM(ctx context.Context, sockPath, sourceDir string, onDemand bool) error {
+func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand bool) error {
 	cfg := chRestoreConfig{
 		SourceURL: "file://" + sourceDir,
 	}
@@ -107,7 +107,6 @@ func restoreVM(ctx context.Context, sockPath, sourceDir string, onDemand bool) e
 	if err != nil {
 		return fmt.Errorf("marshal restore request: %w", err)
 	}
-	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
 	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
 		"http://localhost/api/v1/vm.restore", body, http.StatusNoContent)
 	return err

@@ -178,10 +178,11 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 		}
 	}()
 
-	if err = restoreVM(ctx, sockPath, runDir, opts.onDemand); err != nil {
+	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
+
+	if err = restoreVM(ctx, hc, runDir, opts.onDemand); err != nil {
 		return fmt.Errorf("vm.restore: %w", err)
 	}
-	hc := utils.NewSocketHTTPClient(sockPath)
 
 	if err = hotSwapNets(ctx, hc, opts.snapshotCfg.Nets, opts.networkConfigs); err != nil {
 		return fmt.Errorf("hot-swap NICs: %w", err)

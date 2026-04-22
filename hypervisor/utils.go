@@ -182,7 +182,7 @@ func VerifyBaseFiles(storageConfigs []*types.StorageConfig, boot *types.BootConf
 
 // WaitForSocket polls until socketPath is connectable or the process exits.
 func WaitForSocket(ctx context.Context, socketPath string, pid int, timeout time.Duration, processName string) error {
-	return utils.WaitFor(ctx, timeout, 100*time.Millisecond, func() (bool, error) { //nolint:mnd
+	return utils.WaitFor(ctx, timeout, 1*time.Millisecond, func() (bool, error) { //nolint:mnd
 		if utils.CheckSocket(socketPath) == nil {
 			return true, nil
 		}
