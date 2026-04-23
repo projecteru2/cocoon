@@ -51,6 +51,7 @@ type BackendConfig interface {
 	PIDFileName() string
 	TerminateGracePeriod() time.Duration
 	EffectivePoolSize() int
+	IndexFile() string
 	RunDir() string
 	LogDir() string
 	VMRunDir(id string) string

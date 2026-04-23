@@ -78,3 +78,14 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 		Collect: b.GCCollect,
 	}
 }
+
+// RegisterGC registers the hypervisor GC module with the given Orchestrator.
+func (b *Backend) RegisterGC(orch *gc.Orchestrator) {
+	gc.Register(orch, b.BuildGCModule())
+}
+
+// WatchPath returns the path to the VM index file for filesystem-based
+// change watching. Implements hypervisor.Watchable.
+func (b *Backend) WatchPath() string {
+	return b.Conf.IndexFile()
+}
