@@ -178,4 +178,5 @@ func addCloneFlags(cmd *cobra.Command) {
 	cmd.Flags().String("bridge", "", "use TAP-on-bridge instead of CNI (value is bridge device, e.g. cni0)")
 	cmd.Flags().Bool("no-direct-io", false, "disable O_DIRECT on writable disks (inherit from snapshot if not set)")
 	cmd.Flags().Bool("on-demand", false, "use UFFD on-demand memory loading for faster clone (CH only; snapshot file must remain on disk)")
+	cmd.Flags().Bool("pull", false, "auto-pull base image if not found locally (for cross-node clone)")
 }

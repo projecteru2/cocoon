@@ -202,6 +202,7 @@ Applies to `cocoon vm clone`:
 | `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
 | `--bridge`  | empty                    | TAP-on-bridge mode (value is bridge device); mutually exclusive with `--network` |
 | `--no-direct-io` | `false` (inherit)  | Disable O_DIRECT on writable disks (inherit from snapshot if not set) |
+| `--pull`  | `false`              | Auto-pull base image if not found locally (for cross-node clone)      |
 
 ### Snapshot Flags
 
@@ -548,6 +549,20 @@ cocoon snapshot export my-snap -o - | ssh host2 cocoon snapshot import --name my
 ```
 
 The archive contains the snapshot config, VM config, COW disk (with sparse-aware pax headers for efficient compression), memory ranges, and device state — everything needed to reconstruct the snapshot on a different machine.
+
+#### Cross-Node Clone
+
+When cloning an imported snapshot on a node that does not have the original base image, use `--pull` to auto-pull it:
+
+```bash
+# On the target node: import snapshot and clone with auto-pull
+cocoon snapshot import my-snap.tar.gz --name my-snap
+cocoon vm clone --pull my-snap
+```
+
+The `--pull` flag uses the image digest recorded at snapshot time to verify that the pulled image matches the exact version the snapshot was created from. If the tag has been updated since the snapshot was taken, a warning is logged.
+
+**Note:** `--pull` only works for registry-pulled images (OCI and cloudimg). For imported images (local qcow2/tar files), the base image must be transferred manually to the target node before cloning.
 
 ### Restore
 

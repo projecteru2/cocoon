@@ -219,6 +219,15 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		vmCfg.Name = "cocoon-clone-" + vmID[:8]
 	}
 
+	// Auto-pull base image if --pull is set (cross-node clone).
+	if pull, _ := cmd.Flags().GetBool("pull"); pull && vmCfg.Image != "" && vmCfg.ImageType != "" {
+		backends, initErr := cmdcore.InitImageBackends(ctx, conf)
+		if initErr != nil {
+			return nil, "", nil, nil, fmt.Errorf("init image backends: %w", initErr)
+		}
+		cmdcore.EnsureImage(ctx, backends, vmCfg)
+	}
+
 	// FC snapshot/load cannot change CPU, memory, or NIC count.
 	// Reject overrides early before creating network/dirs.
 	if conf.UseFirecracker {

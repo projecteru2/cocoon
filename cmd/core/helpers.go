@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 
 	"github.com/cocoonstack/cocoon/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/cocoonstack/cocoon/network"
 	bridgenet "github.com/cocoonstack/cocoon/network/bridge"
 	"github.com/cocoonstack/cocoon/network/cni"
+	"github.com/cocoonstack/cocoon/progress"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/snapshot/localfile"
 	"github.com/cocoonstack/cocoon/types"
@@ -218,6 +220,49 @@ func ResolveImage(ctx context.Context, backends []imagebackend.Images, vmCfg *ty
 	return storageConfigs, bootCfg, nil
 }
 
+// EnsureImage checks whether the exact base image (by digest) required by
+// vmCfg exists locally and pulls it if missing. Inspect uses ImageDigest
+// to match the exact version recorded at snapshot time; Pull uses Image
+// (tag/URL) as the registry reference, then verifies the pulled digest.
+//
+// For imported images (not pullable from a registry), a warning is logged
+// and the caller proceeds — VerifyBaseFiles will catch the actual error.
+func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *types.VMConfig) {
+	if vmCfg.Image == "" || vmCfg.ImageType == "" {
+		return
+	}
+	logger := log.WithFunc("core.EnsureImage")
+
+	// Use digest for lookup when available; fall back to tag/URL.
+	lookupRef := vmCfg.ImageDigest
+	if lookupRef == "" {
+		lookupRef = vmCfg.Image
+	}
+
+	for _, b := range backends {
+		if b.Type() != vmCfg.ImageType {
+			continue
+		}
+		img, inspectErr := b.Inspect(ctx, lookupRef)
+		if inspectErr != nil {
+			logger.Warnf(ctx, "inspect image %s: %v — will attempt pull", lookupRef, inspectErr)
+		}
+		if img != nil {
+			return // exact image version exists locally
+		}
+		// Pull by digest reference when available — ensures we get the exact
+		// version recorded at snapshot time, not whatever the tag points to now.
+		pullRef := digestPullRef(vmCfg.Image, vmCfg.ImageDigest, vmCfg.ImageType)
+		logger.Infof(ctx, "base image not found locally, pulling %s ...", pullRef)
+		if pullErr := b.Pull(ctx, pullRef, false, progress.Nop); pullErr != nil {
+			logger.Warnf(ctx, "auto-pull %s failed (imported image?): %v — clone may fail if base layers are missing", pullRef, pullErr)
+			return
+		}
+		logger.Infof(ctx, "base image %s pulled successfully", pullRef)
+		return
+	}
+}
+
 // ResolveImageOwner returns the single backend that owns ref.
 func ResolveImageOwner(ctx context.Context, backends []imagebackend.Images, ref string) (imagebackend.Images, error) {
 	var matches []imagebackend.Images
@@ -411,6 +456,21 @@ func FormatSize(bytes int64) string {
 // IsURL reports whether ref starts with http:// or https://.
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// digestPullRef constructs a pull reference using the image digest when available.
+// For OCI images, replaces the tag with @sha256:... to pin the exact version.
+// For cloudimg (URLs), returns the original image ref as-is.
+func digestPullRef(image, digest, imageType string) string {
+	if digest == "" || imageType != "oci" {
+		return image
+	}
+	// OCI: convert "registry/repo:tag" → "registry/repo@sha256:..."
+	ref, err := name.ParseReference(image)
+	if err != nil {
+		return image
+	}
+	return ref.Context().String() + "@" + digest
 }
 
 // hypervisorFactory keeps backend lookup and iteration order together.
