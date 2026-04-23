@@ -10,10 +10,6 @@ import (
 	"github.com/moby/term"
 )
 
-const (
-	DefaultEscapeChar byte = 0x1D // Ctrl+]
-)
-
 // Relay runs bidirectional I/O between the user terminal and the remote.
 // rw can be a PTY (*os.File) or a Unix socket (net.Conn) — any io.ReadWriter.
 // escapeKeys is the byte sequence that triggers a detach (e.g. {0x1D, '.'}).

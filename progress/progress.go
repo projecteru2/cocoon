@@ -22,7 +22,3 @@ type funcTracker func(any)
 // OnEvent dispatches a progress event to the wrapped callback.
 func (f funcTracker) OnEvent(e any) { f(e) }
 
-// Nop is a no-op tracker for callers that don't need progress.
-var (
-	Nop Tracker = funcTracker(func(any) {})
-)
