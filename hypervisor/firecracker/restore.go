@@ -2,7 +2,6 @@ package firecracker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -77,16 +76,10 @@ func (fc *Firecracker) resolveForRestore(ctx context.Context, vmRef string) (str
 
 // killForRestore stops the running FC process and cleans up runtime files.
 func (fc *Firecracker) killForRestore(ctx context.Context, vmID string, rec *hypervisor.VMRecord) error {
-	sockPath := hypervisor.SocketPath(rec.RunDir)
-	killErr := fc.WithRunningVM(ctx, rec, func(pid int) error {
+	return fc.KillForRestore(ctx, vmID, rec, func(pid int) error {
+		sockPath := hypervisor.SocketPath(rec.RunDir)
 		return fc.forceTerminate(ctx, sockPath, pid)
-	})
-	if killErr != nil && !errors.Is(killErr, hypervisor.ErrNotRunning) {
-		fc.MarkError(ctx, vmID)
-		return fmt.Errorf("stop running VM: %w", killErr)
-	}
-	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
-	return nil
+	}, runtimeFiles)
 }
 
 // prepareRestore is the direct-restore helper that keeps the legacy resolve+kill flow.

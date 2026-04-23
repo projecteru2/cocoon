@@ -15,22 +15,8 @@ import (
 // DirectClone creates a new VM from a local snapshot directory.
 // Files are handled per-type: hardlink for mem, reflink/copy for
 // the COW disk, plain copy for small metadata (vmstate).
-func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (_ *types.VM, err error) {
-	runDir, logDir, now, cleanup, err := fc.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err != nil {
-			cleanup()
-		}
-	}()
-
-	if err = cloneSnapshotFiles(runDir, srcDir); err != nil {
-		return nil, fmt.Errorf("clone snapshot files: %w", err)
-	}
-
-	return fc.cloneAfterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
+func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error) {
+	return fc.DirectCloneBase(ctx, vmID, vmCfg, networkConfigs, snapshotConfig, srcDir, cloneSnapshotFiles, fc.cloneAfterExtract)
 }
 
 // DirectRestore reverts a running VM using a local snapshot directory.

@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -65,15 +64,9 @@ func (ch *CloudHypervisor) resolveForRestore(ctx context.Context, vmRef string) 
 // killForRestore stops the running CH process and cleans up runtime files.
 func (ch *CloudHypervisor) killForRestore(ctx context.Context, vmID string, rec *hypervisor.VMRecord) error {
 	sockPath := hypervisor.SocketPath(rec.RunDir)
-	killErr := ch.WithRunningVM(ctx, rec, func(pid int) error {
+	return ch.KillForRestore(ctx, vmID, rec, func(pid int) error {
 		return ch.forceTerminate(ctx, utils.NewSocketHTTPClient(sockPath), vmID, sockPath, pid)
-	})
-	if killErr != nil && !errors.Is(killErr, hypervisor.ErrNotRunning) {
-		ch.MarkError(ctx, vmID)
-		return fmt.Errorf("stop running VM: %w", killErr)
-	}
-	hypervisor.CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
-	return nil
+	}, runtimeFiles)
 }
 
 // prepareRestore is the direct-restore helper that keeps the legacy resolve+kill flow.

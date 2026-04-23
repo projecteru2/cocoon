@@ -260,6 +260,45 @@ func (b *Backend) ForEachVM(ctx context.Context, ids []string, op string, fn fun
 	return result.Succeeded, result.Err()
 }
 
+// KillForRestore stops a running VM and cleans up its runtime files in
+// preparation for a restore. The terminate callback performs the
+// backend-specific shutdown (e.g. CH graceful shutdown vs FC direct kill).
+func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord, terminate func(pid int) error, runtimeFiles []string) error {
+	killErr := b.WithRunningVM(ctx, rec, terminate)
+	if killErr != nil && !errors.Is(killErr, ErrNotRunning) {
+		b.MarkError(ctx, vmID)
+		return fmt.Errorf("stop running VM: %w", killErr)
+	}
+	CleanupRuntimeFiles(ctx, rec.RunDir, runtimeFiles)
+	return nil
+}
+
+// DirectCloneBase runs the shared DirectClone sequence: reserve a
+// placeholder via CloneSetup, copy snapshot files via cloneFiles, then
+// hand off to afterExtract for backend-specific startup.
+func (b *Backend) DirectCloneBase(
+	ctx context.Context, vmID string, vmCfg *types.VMConfig,
+	networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string,
+	cloneFiles func(dstDir, srcDir string) error,
+	afterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error),
+) (_ *types.VM, err error) {
+	runDir, logDir, now, cleanup, err := b.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			cleanup()
+		}
+	}()
+
+	if err = cloneFiles(runDir, srcDir); err != nil {
+		return nil, fmt.Errorf("clone snapshot files: %w", err)
+	}
+
+	return afterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
+}
+
 // AbortLaunch terminates a failed launch and removes runtime files.
 func (b *Backend) AbortLaunch(ctx context.Context, pid int, sockPath, runDir string, runtimeFiles []string) {
 	_ = utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod())
