@@ -85,9 +85,19 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	}()
 
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
-	// activeDisks keeps post-first-boot cloudimg restore aligned with config.json.
+	// Match snapshot's disk count — rec.StorageConfigs is ordered [overlay, cidata],
+	// prefix-slice to whatever was attached when the snapshot was taken.
+	snapshotCfg, _, parseErr := parseCHConfig(chConfigPath)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parse snapshot config: %w", parseErr)
+	}
+	diskCount := len(snapshotCfg.Disks)
+	if diskCount > len(rec.StorageConfigs) {
+		return nil, fmt.Errorf("snapshot has %d disks, VM record has %d", diskCount, len(rec.StorageConfigs))
+	}
+
 	if err = patchCHConfig(chConfigPath, &patchOptions{
-		storageConfigs: activeDisks(rec),
+		storageConfigs: rec.StorageConfigs[:diskCount],
 		consoleSock:    hypervisor.ConsoleSockPath(rec.RunDir),
 		directBoot:     directBoot,
 		windows:        vmCfg.Windows,
