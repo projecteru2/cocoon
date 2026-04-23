@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
@@ -67,26 +68,10 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 
 // prepareOCI creates the raw COW disk and final kernel cmdline.
 func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
-	cowPath := fc.conf.COWRawPath(vmID)
-
-	f, err := os.OpenFile(cowPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
+	storageConfigs, err := hypervisor.PrepareOCICOW(ctx, fc.conf.COWRawPath(vmID), vmCfg.Storage, storageConfigs)
 	if err != nil {
-		return nil, fmt.Errorf("create COW: %w", err)
-	}
-	_ = f.Close()
-	if err = os.Truncate(cowPath, vmCfg.Storage); err != nil {
-		return nil, fmt.Errorf("truncate COW: %w", err)
-	}
-	if err = hypervisor.InitCOWFilesystem(ctx, cowPath); err != nil {
 		return nil, err
 	}
-
-	storageConfigs = append(storageConfigs, &types.StorageConfig{
-		Path:   cowPath,
-		RO:     false,
-		Serial: hypervisor.CowSerial,
-	})
-
 	// FC needs an uncompressed ELF kernel.
 	if boot != nil && boot.KernelPath != "" {
 		vmlinuxPath, extractErr := EnsureVmlinux(boot.KernelPath)
@@ -95,7 +80,6 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 		}
 		boot.KernelPath = vmlinuxPath
 	}
-
 	dns, err := fc.conf.DNSServers()
 	if err != nil {
 		return nil, fmt.Errorf("parse DNS servers: %w", err)
@@ -196,16 +180,18 @@ func decompressKernel(data []byte) ([]byte, error) {
 }
 
 func decompressZstd(data []byte) ([]byte, error) {
-	// shell out because no mature Go zstd streaming decoder handles the trailing-data pattern in bzImage payloads.
-	cmd := exec.Command("zstd", "-d", "-c", "--no-check") //nolint:gosec
-	cmd.Stdin = bytes.NewReader(data)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	_ = cmd.Run() // trailing data after the frame may yield a non-zero exit
-	if stdout.Len() == 0 {
-		return nil, fmt.Errorf("zstd produced no output (is zstd installed?)")
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		return nil, fmt.Errorf("new zstd reader: %w", err)
 	}
-	return stdout.Bytes(), nil
+	defer dec.Close()
+	// DecodeAll may error on trailing data after the first frame, but any
+	// prefix already written to out is valid — caller validates via ELF magic.
+	out, err := dec.DecodeAll(data, nil)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("zstd decode: %w", err)
+	}
+	return out, nil
 }
 
 func decompressGzip(data []byte) ([]byte, error) {

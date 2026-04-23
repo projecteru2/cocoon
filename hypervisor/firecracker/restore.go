@@ -106,7 +106,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 	}
 
 	if vmCfg.Storage > 0 {
-		if err = expandRawImage(cowPath, vmCfg.Storage); err != nil {
+		if err = hypervisor.ExpandRawImage(cowPath, vmCfg.Storage); err != nil {
 			return nil, fmt.Errorf("resize COW: %w", err)
 		}
 	}

@@ -169,6 +169,48 @@ func InitCOWFilesystem(ctx context.Context, path string) error {
 	return nil
 }
 
+// PrepareOCICOW creates an ext4-formatted sparse COW file at cowPath and
+// returns storageConfigs with the new COW entry (CowSerial) appended.
+// The returned slice must be used by the caller; append may reallocate.
+func PrepareOCICOW(ctx context.Context, cowPath string, storage int64, storageConfigs []*types.StorageConfig) ([]*types.StorageConfig, error) {
+	f, err := os.OpenFile(cowPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("create COW: %w", err)
+	}
+	truncErr := f.Truncate(storage)
+	closeErr := f.Close()
+	if truncErr != nil {
+		return nil, fmt.Errorf("truncate COW: %w", truncErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close COW: %w", closeErr)
+	}
+	if err := InitCOWFilesystem(ctx, cowPath); err != nil {
+		return nil, err
+	}
+	return append(storageConfigs, &types.StorageConfig{
+		Path:   cowPath,
+		RO:     false,
+		Serial: CowSerial,
+	}), nil
+}
+
+// ExpandRawImage truncates path up to targetSize. No-op if path is already
+// at least targetSize. Used by both backends for raw COW expansion.
+func ExpandRawImage(path string, targetSize int64) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if targetSize <= fi.Size() {
+		return nil
+	}
+	if err := os.Truncate(path, targetSize); err != nil {
+		return fmt.Errorf("truncate %s to %d: %w", path, targetSize, err)
+	}
+	return nil
+}
+
 func VerifyBaseFiles(storageConfigs []*types.StorageConfig, boot *types.BootConfig) error {
 	for _, sc := range storageConfigs {
 		if !sc.RO {

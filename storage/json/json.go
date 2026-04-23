@@ -15,9 +15,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-var (
-	_ storage.Store[struct{}] = (*Store[struct{}])(nil)
-)
+var _ storage.Store[struct{}] = (*Store[struct{}])(nil)
 
 type Store[T any] struct {
 	filePath string

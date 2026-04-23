@@ -21,14 +21,12 @@ const (
 	sparseBlockSize = 4096
 )
 
-var (
-	sparseBlockPool = sync.Pool{
-		New: func() any {
-			b := make([]byte, sparseBlockSize)
-			return &b
-		},
-	}
-)
+var sparseBlockPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, sparseBlockSize)
+		return &b
+	},
+}
 
 // sparseSegment describes one contiguous data region in a sparse file.
 type sparseSegment struct {

@@ -128,7 +128,7 @@ func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *ty
 			QueueSize: network.ResolveQueueSize(vmCfg.QueueSize),
 			Backend:   typ,
 			BridgeDev: b.bridgeDev,
-			})
+		})
 		logger.Debugf(ctx, "NIC %d: tap=%s mac=%s bridge=%s", i, name, mac, b.bridgeDev)
 	}
 	return configs, nil

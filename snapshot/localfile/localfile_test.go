@@ -947,7 +947,7 @@ func TestImport_FromRawTarReader(t *testing.T) {
 	wantCfg := types.SnapshotExport{
 		Version: 1,
 		Config: types.SnapshotConfig{
-			Name:           "raw-snap",
+			Name:   "raw-snap",
 			Config: types.Config{CPU: 8},
 		},
 	}

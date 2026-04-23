@@ -37,12 +37,10 @@ type hypervisorFactory struct {
 	ctor func(*config.Config) (hypervisor.Hypervisor, error)
 }
 
-var (
-	hypervisorFactories = []hypervisorFactory{
-		{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
-		{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
-	}
-)
+var hypervisorFactories = []hypervisorFactory{
+	{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
+	{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
+}
 
 // BaseHandler provides shared config access for all command handlers.
 type BaseHandler struct {

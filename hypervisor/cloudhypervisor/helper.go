@@ -31,9 +31,7 @@ const (
 	chMemoryRestoreOnDemand chMemoryRestoreMode = "OnDemand"
 )
 
-var (
-	runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName}
-)
+var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName}
 
 // ReverseLayerSerials extracts layer serials, reversed for overlayfs lowerdir.
 func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {

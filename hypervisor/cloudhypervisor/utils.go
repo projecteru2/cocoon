@@ -36,17 +36,7 @@ func (ch *CloudHypervisor) cowPath(vmID string, directBoot bool) string {
 // for qcow2 images, qemu-img resize is used. No-op if already large enough.
 func qemuExpandImage(ctx context.Context, path string, targetSize int64, directBoot bool) error {
 	if directBoot {
-		fi, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", path, err)
-		}
-		if targetSize <= fi.Size() {
-			return nil
-		}
-		if err := os.Truncate(path, targetSize); err != nil {
-			return fmt.Errorf("truncate %s to %d: %w", path, targetSize, err)
-		}
-		return nil
+		return hypervisor.ExpandRawImage(path, targetSize)
 	}
 
 	virtualSize, err := readQcow2VirtualSize(path)

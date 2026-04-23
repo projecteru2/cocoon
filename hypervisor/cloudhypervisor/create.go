@@ -77,27 +77,10 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 
 // prepareOCI creates the raw COW disk and final kernel cmdline.
 func (ch *CloudHypervisor) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
-	cowPath := ch.conf.COWRawPath(vmID)
-
-	// Create the sparse COW file before truncating it.
-	f, err := os.OpenFile(cowPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
+	storageConfigs, err := hypervisor.PrepareOCICOW(ctx, ch.conf.COWRawPath(vmID), vmCfg.Storage, storageConfigs)
 	if err != nil {
-		return nil, fmt.Errorf("create COW: %w", err)
-	}
-	_ = f.Close()
-	if err = os.Truncate(cowPath, vmCfg.Storage); err != nil {
-		return nil, fmt.Errorf("truncate COW: %w", err)
-	}
-	if err = hypervisor.InitCOWFilesystem(ctx, cowPath); err != nil {
 		return nil, err
 	}
-
-	storageConfigs = append(storageConfigs, &types.StorageConfig{
-		Path:   cowPath,
-		RO:     false,
-		Serial: CowSerial,
-	})
-
 	dns, err := ch.conf.DNSServers()
 	if err != nil {
 		return nil, fmt.Errorf("parse DNS servers: %w", err)

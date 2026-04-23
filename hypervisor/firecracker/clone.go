@@ -72,7 +72,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		return nil, fmt.Errorf("verify base files: %w", verifyErr)
 	}
 	if vmCfg.Storage > 0 {
-		if expandErr := expandRawImage(cowPath, vmCfg.Storage); expandErr != nil {
+		if expandErr := hypervisor.ExpandRawImage(cowPath, vmCfg.Storage); expandErr != nil {
 			return nil, fmt.Errorf("resize COW: %w", expandErr)
 		}
 	}
@@ -257,18 +257,4 @@ func buildNetworkOverrides(networkConfigs []*types.NetworkConfig) []fcNetworkOve
 		})
 	}
 	return overrides
-}
-
-func expandRawImage(path string, targetSize int64) error {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", path, err)
-	}
-	if targetSize <= fi.Size() {
-		return nil
-	}
-	if err := os.Truncate(path, targetSize); err != nil {
-		return fmt.Errorf("truncate %s to %d: %w", path, targetSize, err)
-	}
-	return nil
 }
