@@ -37,7 +37,7 @@ var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.Conso
 func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 	var serials []string
 	for _, s := range storageConfigs {
-		if s.RO {
+		if s.Role == types.StorageRoleLayer {
 			serials = append(serials, s.Serial)
 		}
 	}

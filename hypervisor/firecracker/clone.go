@@ -158,7 +158,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 func rebuildCloneStorage(meta *snapshotMeta, cowPath string) []*types.StorageConfig {
 	var configs []*types.StorageConfig
 	for _, sc := range meta.StorageConfigs {
-		if sc.RO {
+		if sc.Role == types.StorageRoleLayer {
 			configs = append(configs, &types.StorageConfig{
 				Path: sc.Path, RO: true, Serial: sc.Serial,
 				Role: types.StorageRoleLayer,
@@ -228,14 +228,14 @@ func cleanupDriveRedirects(redirects []driveRedirect) {
 // Recovers stale symlink backups from crashed clones before proceeding.
 func withSourceCOWLocked(srcConfigs []*types.StorageConfig, fn func() error) error {
 	for _, sc := range srcConfigs {
-		if !sc.RO {
+		if sc.Role == types.StorageRoleCOW {
 			return withCOWPathLocked(sc.Path, func() error {
 				recoverStaleBackup(sc.Path)
 				return fn()
 			})
 		}
 	}
-	return fn() // no RW disk, run unlocked
+	return fn() // no COW disk, run unlocked
 }
 
 // recoverStaleBackup restores a backup file left by a crashed clone.

@@ -425,9 +425,7 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 		return
 	}
 
-	isCloudimg := slices.ContainsFunc(vm.StorageConfigs, func(sc *types.StorageConfig) bool {
-		return strings.HasSuffix(sc.Path, ".qcow2")
-	})
+	isCloudimg := vm.Config.ImageType == "cloudimg"
 
 	fmt.Println()
 	fmt.Println("Run inside the guest to finish setup:")

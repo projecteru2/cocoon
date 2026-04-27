@@ -56,7 +56,7 @@ func ExtractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfi
 	ids := make(map[string]struct{})
 	if boot != nil && boot.KernelPath != "" {
 		for _, s := range storageConfigs {
-			if s.RO {
+			if s.Role == types.StorageRoleLayer {
 				ids[BlobHexFromPath(s.Path)] = struct{}{}
 			}
 		}
@@ -214,7 +214,7 @@ func ExpandRawImage(path string, targetSize int64) error {
 
 func VerifyBaseFiles(storageConfigs []*types.StorageConfig, boot *types.BootConfig) error {
 	for _, sc := range storageConfigs {
-		if !sc.RO {
+		if sc.Role != types.StorageRoleLayer {
 			continue
 		}
 		if _, err := os.Stat(sc.Path); err != nil {

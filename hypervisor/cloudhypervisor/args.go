@@ -270,17 +270,12 @@ func queueAffinityToCLI(qa []chQueueAffinity) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
-// isCidataDisk reports whether sc is the cloud-init disk.
-func isCidataDisk(sc *types.StorageConfig) bool {
-	return filepath.Base(sc.Path) == cidataFile
-}
-
 // activeDisks filters cidata out of post-first-boot cloudimg VMs.
 func activeDisks(rec *hypervisor.VMRecord) []*types.StorageConfig {
 	skipCidata := rec.FirstBooted && !isDirectBoot(rec.BootConfig)
 	out := make([]*types.StorageConfig, 0, len(rec.StorageConfigs))
 	for _, sc := range rec.StorageConfigs {
-		if skipCidata && isCidataDisk(sc) {
+		if skipCidata && sc.Role == types.StorageRoleCidata {
 			continue
 		}
 		out = append(out, sc)

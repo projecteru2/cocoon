@@ -75,7 +75,7 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 	// Build layer device paths (reversed for overlayfs)
 	nLayers := 0
 	for _, s := range configs {
-		if s.RO {
+		if s.Role == types.StorageRoleLayer {
 			nLayers++
 		}
 	}

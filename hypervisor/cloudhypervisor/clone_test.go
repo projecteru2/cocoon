@@ -413,12 +413,12 @@ func TestPatchCHConfig_DiskCountMismatch(t *testing.T) {
 
 // updateCOWPath
 
-func TestUpdateCOWPath_DirectBoot(t *testing.T) {
+func TestUpdateCOWPath_OCI(t *testing.T) {
 	configs := []*types.StorageConfig{
-		{Path: "/old/layer.erofs", RO: true, Serial: "layer0"},
-		{Path: "/old/cow.raw", RO: false, Serial: CowSerial},
+		{Path: "/old/layer.erofs", RO: true, Serial: "layer0", Role: types.StorageRoleLayer},
+		{Path: "/old/cow.raw", RO: false, Serial: CowSerial, Role: types.StorageRoleCOW},
 	}
-	if err := updateCOWPath(configs, "/new/cow.raw", true); err != nil {
+	if err := updateCOWPath(configs, "/new/cow.raw"); err != nil {
 		t.Fatal(err)
 	}
 	if configs[0].Path != "/old/layer.erofs" {
@@ -429,26 +429,23 @@ func TestUpdateCOWPath_DirectBoot(t *testing.T) {
 	}
 }
 
-func TestUpdateCOWPath_DirectBoot_NoMatch(t *testing.T) {
+func TestUpdateCOWPath_NoCOW(t *testing.T) {
 	configs := []*types.StorageConfig{
-		{Path: "/old/layer.erofs", RO: true, Serial: "layer0"},
-		{Path: "/old/data.raw", RO: false, Serial: "other-serial"},
+		{Path: "/old/layer.erofs", RO: true, Serial: "layer0", Role: types.StorageRoleLayer},
+		{Path: "/old/data.raw", RO: false, Serial: "data1", Role: types.StorageRoleData},
 	}
-	err := updateCOWPath(configs, "/new/cow.raw", true)
+	err := updateCOWPath(configs, "/new/cow.raw")
 	if err == nil {
-		t.Fatal("expected error when no COW serial matches")
-	}
-	if !strings.Contains(err.Error(), CowSerial) {
-		t.Errorf("error should mention serial %q: %v", CowSerial, err)
+		t.Fatal("expected error when no COW role disk")
 	}
 }
 
-func TestUpdateCOWPath_NonDirectBoot(t *testing.T) {
+func TestUpdateCOWPath_Cloudimg(t *testing.T) {
 	configs := []*types.StorageConfig{
-		{Path: "/old/base.qcow2", RO: true},
-		{Path: "/old/overlay.qcow2", RO: false},
+		{Path: "/old/base.qcow2", RO: true, Role: types.StorageRoleLayer},
+		{Path: "/old/overlay.qcow2", RO: false, Role: types.StorageRoleCOW},
 	}
-	if err := updateCOWPath(configs, "/new/overlay.qcow2", false); err != nil {
+	if err := updateCOWPath(configs, "/new/overlay.qcow2"); err != nil {
 		t.Fatal(err)
 	}
 	if configs[0].Path != "/old/base.qcow2" {

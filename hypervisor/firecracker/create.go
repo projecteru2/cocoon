@@ -206,7 +206,7 @@ func decompressGzip(data []byte) ([]byte, error) {
 func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
 	nLayers := 0
 	for _, s := range storageConfigs {
-		if s.RO {
+		if s.Role == types.StorageRoleLayer {
 			nLayers++
 		}
 	}

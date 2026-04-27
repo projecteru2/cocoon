@@ -115,9 +115,8 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *types.BootConfig, cpu int, memory int64) error {
 	meta := snapshotMeta{CPU: cpu, Memory: memory}
 	for _, sc := range storageConfigs {
-		meta.StorageConfigs = append(meta.StorageConfigs, &types.StorageConfig{
-			Path: sc.Path, RO: sc.RO, Serial: sc.Serial,
-		})
+		cp := *sc
+		meta.StorageConfigs = append(meta.StorageConfigs, &cp)
 	}
 	if boot != nil {
 		b := *boot

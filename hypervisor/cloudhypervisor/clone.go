@@ -52,7 +52,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	directBoot := isDirectBoot(bootCfg)
 
 	cowPath := ch.cowPath(vmID, directBoot)
-	if err = updateCOWPath(storageConfigs, cowPath, directBoot); err != nil {
+	if err = updateCOWPath(storageConfigs, cowPath); err != nil {
 		return nil, fmt.Errorf("update COW path: %w", err)
 	}
 
@@ -198,7 +198,7 @@ func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig,
 	}
 	cidataPath := ch.conf.CidataPath(vmID)
 	// Keep cidata in the record for later cold boots even if the snapshot omitted it.
-	if !slices.ContainsFunc(storageConfigs, isCidataDisk) {
+	if !slices.ContainsFunc(storageConfigs, hasCidataRole) {
 		storageConfigs = append(storageConfigs, &types.StorageConfig{
 			Path: cidataPath,
 			RO:   true,
@@ -274,12 +274,17 @@ func updateCloneCidataPath(storageConfigs []*types.StorageConfig, directBoot boo
 	}
 	hadCidataInSnapshot := false
 	for _, sc := range storageConfigs {
-		if isCidataDisk(sc) {
+		if sc.Role == types.StorageRoleCidata {
 			sc.Path = cidataPath
 			hadCidataInSnapshot = true
 		}
 	}
 	return hadCidataInSnapshot
+}
+
+// hasCidataRole is a slices.ContainsFunc predicate.
+func hasCidataRole(sc *types.StorageConfig) bool {
+	return sc.Role == types.StorageRoleCidata
 }
 
 func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoot, hadCidataInSnapshot bool) []*types.StorageConfig {
@@ -289,24 +294,16 @@ func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoo
 	return storageConfigs[:len(storageConfigs)-1]
 }
 
-func updateCOWPath(configs []*types.StorageConfig, newCOWPath string, directBoot bool) error {
-	if directBoot {
-		found := false
-		for _, sc := range configs {
-			if !sc.RO && sc.Serial == CowSerial {
-				sc.Path = newCOWPath
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("no writable disk with serial %q found", CowSerial)
-		}
-		return nil
-	}
+func updateCOWPath(configs []*types.StorageConfig, newCOWPath string) error {
+	found := false
 	for _, sc := range configs {
-		if !sc.RO {
+		if sc.Role == types.StorageRoleCOW {
 			sc.Path = newCOWPath
+			found = true
 		}
+	}
+	if !found {
+		return fmt.Errorf("no COW disk found in storage configs")
 	}
 	return nil
 }
