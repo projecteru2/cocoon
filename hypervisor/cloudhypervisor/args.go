@@ -184,7 +184,11 @@ func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount, diskQueue
 		QueueSize: diskQueueSize,
 	}
 
-	d.DirectIO = !storageConfig.RO && !noDirectIO
+	if storageConfig.DirectIO != nil {
+		d.DirectIO = *storageConfig.DirectIO
+	} else {
+		d.DirectIO = !storageConfig.RO && !noDirectIO
+	}
 
 	switch {
 	case filepath.Ext(storageConfig.Path) == ".qcow2":

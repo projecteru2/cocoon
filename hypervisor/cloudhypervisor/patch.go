@@ -90,14 +90,20 @@ func patchDisks(diskRaw json.RawMessage, opts *patchOptions) (json.RawMessage, e
 		diskQueueSize = defaultDiskQueueSize
 	}
 	return patchRawArray(diskRaw, len(opts.storageConfigs), func(i int, elem map[string]json.RawMessage) error {
-		if e := setField(elem, "path", opts.storageConfigs[i].Path); e != nil {
+		sc := opts.storageConfigs[i]
+		if e := setField(elem, "path", sc.Path); e != nil {
 			return e
 		}
 		if e := setField(elem, "queue_size", diskQueueSize); e != nil {
 			return e
 		}
-		// Override DirectIO for writable disks when --no-direct-io is set.
-		directIO := !opts.storageConfigs[i].RO && !opts.noDirectIO
+		// Per-disk override wins over VM-level NoDirectIO.
+		var directIO bool
+		if sc.DirectIO != nil {
+			directIO = *sc.DirectIO
+		} else {
+			directIO = !sc.RO && !opts.noDirectIO
+		}
 		return setField(elem, "direct", directIO)
 	})
 }

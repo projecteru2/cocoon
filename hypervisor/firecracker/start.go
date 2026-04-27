@@ -14,6 +14,7 @@ import (
 	"github.com/projecteru2/core/log"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
 
@@ -86,6 +87,11 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 
 	for i, sc := range rec.StorageConfigs {
 		driveID := fmt.Sprintf(driveIDFmt, i)
+		if sc.Role == types.StorageRoleData && sc.DirectIO != nil {
+			log.WithFunc("firecracker.configureVM").Warnf(ctx,
+				"directio on data disk %s ignored: FC has no DirectIO knob (IoEngine=Async fixed)",
+				sc.Serial)
+		}
 		d := fcDrive{
 			DriveID:      driveID,
 			PathOnHost:   sc.Path,

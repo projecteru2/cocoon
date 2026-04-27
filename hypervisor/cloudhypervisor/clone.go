@@ -205,7 +205,7 @@ func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig,
 	if directBoot || vmCfg.Windows {
 		return storageConfigs, nil
 	}
-	if err := ch.generateCidata(vmID, vmCfg, networkConfigs); err != nil {
+	if err := ch.generateCidata(vmID, vmCfg, networkConfigs, storageConfigs); err != nil {
 		return nil, fmt.Errorf("generate cidata: %w", err)
 	}
 	cidataPath := ch.conf.CidataPath(vmID)

@@ -43,6 +43,12 @@ runcmd:
   - [sh, -c, 'echo ''{{.Username}} ALL=(ALL) NOPASSWD:ALL'' > /etc/sudoers.d/cocoon-{{.Username}}']
 {{- end}}
 {{- end}}
+{{- if .Mounts}}
+mounts:
+{{- range .Mounts}}
+  - ['{{yamlQuote .Device}}', '{{yamlQuote .MountPoint}}', '{{yamlQuote .FSType}}', '{{yamlQuote .Options}}', '0', '2']
+{{- end}}
+{{- end}}
 {{- if .Networks}}
 write_files:
 {{- range $i, $n := .Networks}}
@@ -115,7 +121,8 @@ type Config struct {
 	Username   string
 	Password   string
 	Networks   []NetworkInfo
-	DNS        []string // e.g. ["8.8.8.8", "8.8.4.4"]
+	Mounts     []MountSpec // optional fstab entries written by cloud-init
+	DNS        []string    // e.g. ["8.8.8.8", "8.8.4.4"]
 }
 
 // NetworkInfo describes a single guest network interface for cloud-init.
@@ -124,6 +131,17 @@ type NetworkInfo struct {
 	Prefix  int    // CIDR prefix length, e.g. 24
 	Gateway string // e.g. "10.0.0.1"
 	Mac     string // MAC address for match:macaddress in network-config
+}
+
+// MountSpec describes one cloud-init `mounts:` row. Device is the guest-side
+// device path (e.g. /dev/disk/by-id/virtio-data1), MountPoint the absolute
+// target, FSType the filesystem (ext4 etc.). Options defaults to
+// "defaults,nofail" when empty so a missing disk doesn't block boot.
+type MountSpec struct {
+	Device     string
+	MountPoint string
+	FSType     string
+	Options    string
 }
 
 // Generate streams a cloud-init NoCloud cidata disk image (FAT12) to w.

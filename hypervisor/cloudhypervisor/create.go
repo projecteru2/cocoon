@@ -128,7 +128,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 		return configs, nil
 	}
 
-	if err := ch.generateCidata(vmID, vmCfg, networkConfigs); err != nil {
+	if err := ch.generateCidata(vmID, vmCfg, networkConfigs, configs); err != nil {
 		return nil, err
 	}
 	cidataPath := ch.conf.CidataPath(vmID)
@@ -136,8 +136,31 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	return configs, nil
 }
 
+// buildMountSpecs derives cloud-init mounts from StorageConfigs. A data disk
+// is auto-mounted iff Role==Data, MountPoint is non-empty, and FSType is a
+// known formatter (none → guest is responsible for mkfs+mount, skip).
+// Defaults Options to "defaults,nofail" so a missing or corrupt disk
+// doesn't keep the guest from booting.
+func buildMountSpecs(configs []*types.StorageConfig) []metadata.MountSpec {
+	var out []metadata.MountSpec
+	for _, sc := range configs {
+		if sc.Role != types.StorageRoleData || sc.MountPoint == "" || sc.FSType == "" || sc.FSType == "none" {
+			continue
+		}
+		out = append(out, metadata.MountSpec{
+			Device:     "/dev/disk/by-id/virtio-" + sc.Serial,
+			MountPoint: sc.MountPoint,
+			FSType:     sc.FSType,
+			Options:    "defaults,nofail",
+		})
+	}
+	return out
+}
+
 // generateCidata writes the NoCloud cidata image used by Create and Clone.
-func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig) error {
+// storageConfigs lets the cidata pick up Role==Data disks that should be
+// auto-mounted (Device → /dev/disk/by-id/virtio-<serial>).
+func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, storageConfigs []*types.StorageConfig) error {
 	dns, err := ch.conf.DNSServers()
 	if err != nil {
 		return fmt.Errorf("parse DNS servers: %w", err)
@@ -148,6 +171,7 @@ func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, ne
 		Username:   vmCfg.User,
 		Password:   vmCfg.Password,
 		DNS:        dns,
+		Mounts:     buildMountSpecs(storageConfigs),
 	}
 	for _, n := range networkConfigs {
 		if n == nil || n.Mac == "" {
