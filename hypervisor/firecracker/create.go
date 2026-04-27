@@ -55,6 +55,10 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 		return nil, err
 	}
 
+	if err := types.ValidateStorageConfigs(preparedStorage); err != nil {
+		return nil, fmt.Errorf("storage invariants violated: %w", err)
+	}
+
 	info := &types.VM{
 		ID: id, Hypervisor: typ, State: types.VMStateCreated,
 		Config: *vmCfg, StorageConfigs: preparedStorage, NetworkConfigs: networkConfigs,

@@ -40,6 +40,10 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 	if rec == nil {
 		return nil
 	}
+	if err := types.ValidateStorageConfigs(rec.StorageConfigs); err != nil {
+		fc.MarkError(ctx, id)
+		return fmt.Errorf("storage invariants violated: %w", err)
+	}
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 

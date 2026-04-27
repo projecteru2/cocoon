@@ -47,6 +47,9 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := types.ValidateStorageConfigs(rec.StorageConfigs); err != nil {
+		return nil, nil, fmt.Errorf("storage invariants violated: %w", err)
+	}
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 	hc := utils.NewSocketHTTPClient(sockPath)

@@ -62,6 +62,10 @@ func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.V
 		return nil, err
 	}
 
+	if err := types.ValidateStorageConfigs(preparedStorage); err != nil {
+		return nil, fmt.Errorf("storage invariants violated: %w", err)
+	}
+
 	info := &types.VM{
 		ID: id, Hypervisor: typ, State: types.VMStateCreated,
 		Config: *vmCfg, StorageConfigs: preparedStorage, NetworkConfigs: networkConfigs,

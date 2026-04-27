@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -33,6 +34,9 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, args[0])
 	if err != nil {
 		return err
+	}
+	if len(vmCfg.DataDisks) > 0 {
+		fmt.Fprintln(os.Stderr, "warning: --data-disk is ignored in debug mode (debug only prints the hypervisor launch command; data disks need PrepareDataDisks to materialize)")
 	}
 
 	storageConfigs, boot, err := cmdcore.ResolveImage(ctx, backends, vmCfg)
