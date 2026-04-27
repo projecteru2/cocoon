@@ -20,6 +20,10 @@ type Actions interface {
 	Restore(cmd *cobra.Command, args []string) error
 	Debug(cmd *cobra.Command, args []string) error
 	Status(cmd *cobra.Command, args []string) error
+	FsAttach(cmd *cobra.Command, args []string) error
+	FsDetach(cmd *cobra.Command, args []string) error
+	DeviceAttach(cmd *cobra.Command, args []string) error
+	DeviceDetach(cmd *cobra.Command, args []string) error
 }
 
 // Command builds the "vm" parent command with all subcommands.
@@ -152,8 +156,75 @@ func Command(h Actions) *cobra.Command {
 		restoreCmd,
 		debugCmd,
 		statusCmd,
+		buildFsCommand(h),
+		buildDeviceCommand(h),
 	)
 	return vmCmd
+}
+
+func buildFsCommand(h Actions) *cobra.Command {
+	fsCmd := &cobra.Command{
+		Use:   "fs",
+		Short: "Attach/detach a vhost-user-fs share to a running VM (CH only)",
+	}
+
+	attachCmd := &cobra.Command{
+		Use:   "attach VM",
+		Short: "Attach a vhost-user-fs device to a running VM",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.FsAttach,
+	}
+	attachCmd.Flags().String("socket", "", "absolute path to a virtiofsd unix socket (required)")
+	attachCmd.Flags().String("tag", "", "guest mount tag (required; also detach key)")
+	attachCmd.Flags().Int("num-queues", 0, "request queues (0 = default 1)")
+	attachCmd.Flags().Int("queue-size", 0, "queue depth (0 = default 1024)") //nolint:mnd
+	_ = attachCmd.MarkFlagRequired("socket")
+	_ = attachCmd.MarkFlagRequired("tag")
+	cmdcore.AddOutputFlag(attachCmd)
+
+	detachCmd := &cobra.Command{
+		Use:   "detach VM",
+		Short: "Detach a vhost-user-fs device from a running VM",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.FsDetach,
+	}
+	detachCmd.Flags().String("tag", "", "guest mount tag (required)")
+	_ = detachCmd.MarkFlagRequired("tag")
+	cmdcore.AddOutputFlag(detachCmd)
+
+	fsCmd.AddCommand(attachCmd, detachCmd)
+	return fsCmd
+}
+
+func buildDeviceCommand(h Actions) *cobra.Command {
+	devCmd := &cobra.Command{
+		Use:   "device",
+		Short: "Attach/detach a VFIO PCI passthrough device to a running VM (CH only)",
+	}
+
+	attachCmd := &cobra.Command{
+		Use:   "attach VM",
+		Short: "Attach a VFIO PCI device to a running VM",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.DeviceAttach,
+	}
+	attachCmd.Flags().String("pci", "", "BDF (01:00.0 / 0000:01:00.0) or sysfs path /sys/bus/pci/devices/<bdf>")
+	attachCmd.Flags().String("id", "", "optional device id; CH auto-generates if empty (must not start with cocoon-)")
+	_ = attachCmd.MarkFlagRequired("pci")
+	cmdcore.AddOutputFlag(attachCmd)
+
+	detachCmd := &cobra.Command{
+		Use:   "detach VM",
+		Short: "Detach a VFIO PCI device from a running VM",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.DeviceDetach,
+	}
+	detachCmd.Flags().String("id", "", "device id returned by attach (required)")
+	_ = detachCmd.MarkFlagRequired("id")
+	cmdcore.AddOutputFlag(detachCmd)
+
+	devCmd.AddCommand(attachCmd, detachCmd)
+	return devCmd
 }
 
 func addVMFlags(cmd *cobra.Command) {
