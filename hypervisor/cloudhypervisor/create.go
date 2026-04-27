@@ -148,7 +148,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 func buildMountSpecs(configs []*types.StorageConfig) []metadata.MountSpec {
 	var out []metadata.MountSpec
 	for _, sc := range configs {
-		if sc.Role != types.StorageRoleData || sc.MountPoint == "" || sc.FSType == "" || sc.FSType == "none" {
+		if sc.Role != types.StorageRoleData || sc.MountPoint == "" || sc.FSType == "" || sc.FSType == types.FSTypeNone {
 			continue
 		}
 		out = append(out, metadata.MountSpec{

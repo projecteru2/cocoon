@@ -42,8 +42,8 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := types.ValidateStorageConfigs(rec.StorageConfigs); err != nil {
-		return nil, nil, fmt.Errorf("storage invariants violated: %w", err)
+	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
+		return nil, nil, fmt.Errorf("storage invariants violated: %w", vErr)
 	}
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)

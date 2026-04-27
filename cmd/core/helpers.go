@@ -399,7 +399,7 @@ func parseDataDiskSpec(s string) (types.DataDiskSpec, error) {
 			}
 			spec.Name = val
 		case "fstype":
-			if val != "ext4" && val != "none" {
+			if val != types.FSTypeExt4 && val != types.FSTypeNone {
 				return spec, fmt.Errorf("--data-disk: unsupported fstype %q (only ext4, none in Phase 1)", val)
 			}
 			spec.FSType = val
@@ -449,9 +449,9 @@ func normalizeDataDiskSpecs(specs []types.DataDiskSpec) error {
 	autoIdx := 1
 	for i := range specs {
 		if specs[i].FSType == "" {
-			specs[i].FSType = "ext4"
+			specs[i].FSType = types.FSTypeExt4
 		}
-		if specs[i].FSType != "ext4" && specs[i].FSType != "none" {
+		if specs[i].FSType != types.FSTypeExt4 && specs[i].FSType != types.FSTypeNone {
 			return fmt.Errorf("--data-disk: invalid fstype %q", specs[i].FSType)
 		}
 		if specs[i].Name == "" {
@@ -465,10 +465,10 @@ func normalizeDataDiskSpecs(specs []types.DataDiskSpec) error {
 				}
 			}
 		}
-		if !specs[i].MountPointSet && specs[i].FSType != "none" {
+		if !specs[i].MountPointSet && specs[i].FSType != types.FSTypeNone {
 			specs[i].MountPoint = "/mnt/" + specs[i].Name
 		}
-		if specs[i].FSType == "none" && specs[i].MountPoint != "" {
+		if specs[i].FSType == types.FSTypeNone && specs[i].MountPoint != "" {
 			return fmt.Errorf("--data-disk %s: fstype=none requires empty mount", specs[i].Name)
 		}
 	}

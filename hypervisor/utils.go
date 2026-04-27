@@ -34,6 +34,10 @@ const (
 	SnapshotFileMeta
 	// SnapshotFileSkip means the file should not be cloned.
 	SnapshotFileSkip
+
+	// MinDataDiskSize is the minimum user data disk size; mkfs.ext4 is
+	// unstable below this on small sparse files.
+	MinDataDiskSize int64 = 16 << 20
 )
 
 func RemoveVMDirs(runDir, logDir string) error {
@@ -169,10 +173,6 @@ func InitCOWFilesystem(ctx context.Context, path string) error {
 	return nil
 }
 
-// MinDataDiskSize is the minimum user data disk size; mkfs.ext4 is unstable
-// below this on small sparse files.
-const MinDataDiskSize int64 = 16 << 20
-
 // PrepareDataDisks creates raw sparse files for each spec under baseDir,
 // optionally formats them, and returns StorageConfigs ready to append to a
 // VM's storage list. Names must be unique and pass types.ValidDataDiskName;
@@ -200,11 +200,11 @@ func PrepareDataDisks(ctx context.Context, baseDir string, specs []types.DataDis
 			return nil, fmt.Errorf("data disk %s: %w", spec.Name, err)
 		}
 		switch spec.FSType {
-		case "ext4":
+		case types.FSTypeExt4:
 			if err := InitCOWFilesystem(ctx, path); err != nil {
 				return nil, fmt.Errorf("data disk %s: mkfs: %w", spec.Name, err)
 			}
-		case "none":
+		case types.FSTypeNone:
 			// raw, user formats inside guest
 		default:
 			return nil, fmt.Errorf("data disk %s: fstype %q not supported", spec.Name, spec.FSType)

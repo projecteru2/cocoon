@@ -83,18 +83,6 @@ func (ch *CloudHypervisor) killForRestore(ctx context.Context, vmID string, rec 
 	}, runtimeFiles)
 }
 
-// prepareRestore is the direct-restore helper that keeps the legacy resolve+kill flow.
-func (ch *CloudHypervisor) prepareRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, bool, string, error) {
-	vmID, rec, directBoot, cowPath, err := ch.resolveForRestore(ctx, vmRef)
-	if err != nil {
-		return "", nil, false, "", err
-	}
-	if killErr := ch.killForRestore(ctx, vmID, rec); killErr != nil {
-		return "", nil, false, "", killErr
-	}
-	return vmID, rec, directBoot, cowPath, nil
-}
-
 // restoreAfterExtract resumes from snapshot data already placed in runDir.
 func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord, directBoot bool, cowPath string) (_ *types.VM, err error) {
 	logger := log.WithFunc("cloudhypervisor.Restore")

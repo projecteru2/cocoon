@@ -37,9 +37,9 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	if rec == nil {
 		return nil
 	}
-	if err := types.ValidateStorageConfigs(rec.StorageConfigs); err != nil {
+	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
 		ch.MarkError(ctx, id)
-		return fmt.Errorf("storage invariants violated: %w", err)
+		return fmt.Errorf("storage invariants violated: %w", vErr)
 	}
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)

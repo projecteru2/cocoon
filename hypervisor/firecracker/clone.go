@@ -243,7 +243,6 @@ func cleanupDriveRedirects(redirects []driveRedirect) {
 	}
 }
 
-
 // recoverStaleBackup restores a backup file left by a crashed clone.
 // Caller must hold the COW lock.
 func recoverStaleBackup(cowPath string) {

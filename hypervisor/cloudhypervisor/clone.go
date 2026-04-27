@@ -51,8 +51,8 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	if err != nil {
 		return nil, fmt.Errorf("load snapshot meta: %w", err)
 	}
-	if err := validateSnapshotIntegrity(runDir, meta.StorageConfigs); err != nil {
-		return nil, fmt.Errorf("snapshot integrity: %w", err)
+	if vErr := validateSnapshotIntegrity(runDir, meta.StorageConfigs); vErr != nil {
+		return nil, fmt.Errorf("snapshot integrity: %w", vErr)
 	}
 
 	storageConfigs := meta.StorageConfigs
@@ -84,8 +84,8 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	if err != nil {
 		return nil, err
 	}
-	if err := types.ValidateStorageConfigs(storageConfigs); err != nil {
-		return nil, fmt.Errorf("validate post-cidata storage: %w", err)
+	if vErr := types.ValidateStorageConfigs(storageConfigs); vErr != nil {
+		return nil, fmt.Errorf("validate post-cidata storage: %w", vErr)
 	}
 
 	// If the snapshot lacked cidata, patch only snapshot disks and hotplug cidata later.

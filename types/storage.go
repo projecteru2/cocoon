@@ -16,6 +16,10 @@ const (
 	StorageRoleCOW    StorageRole = "cow"
 	StorageRoleCidata StorageRole = "cidata"
 	StorageRoleData   StorageRole = "data"
+
+	// Phase 1 fstype values for Role==Data disks.
+	FSTypeExt4 = "ext4"
+	FSTypeNone = "none"
 )
 
 // dataDiskNameRe caps length at 20 to match Linux's
@@ -73,7 +77,7 @@ func ValidateStorageConfigs(configs []*StorageConfig) error {
 		if !validDataDiskFSType(sc.FSType) {
 			return fmt.Errorf("data disk %s: fstype must be ext4 or none, got %q", sc.Serial, sc.FSType)
 		}
-		if sc.FSType == "none" && sc.MountPoint != "" {
+		if sc.FSType == FSTypeNone && sc.MountPoint != "" {
 			return fmt.Errorf("data disk %s: fstype=none requires mount_point empty", sc.Serial)
 		}
 		if sc.MountPoint != "" {
@@ -104,5 +108,5 @@ func ValidDataDiskName(s string) bool {
 }
 
 func validDataDiskFSType(t string) bool {
-	return t == "ext4" || t == "none"
+	return t == FSTypeExt4 || t == FSTypeNone
 }
