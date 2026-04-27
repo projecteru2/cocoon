@@ -239,3 +239,55 @@ func TestGenerate_NoNetworks(t *testing.T) {
 		t.Error("write_files should not appear without networks")
 	}
 }
+
+func TestUserData_Mounts(t *testing.T) {
+	cfg := &Config{
+		Mounts: []MountSpec{
+			{
+				Device:     "/dev/disk/by-id/virtio-data1",
+				MountPoint: "/mnt/data",
+				FSType:     "ext4",
+				Options:    "defaults,nofail",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := userDataTmpl.Execute(&buf, cfg); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "mounts:") {
+		t.Fatalf("mounts: section missing\n%s", out)
+	}
+	if !strings.Contains(out, "/dev/disk/by-id/virtio-data1") || !strings.Contains(out, "/mnt/data") {
+		t.Errorf("mount entry missing\n%s", out)
+	}
+}
+
+func TestUserData_NoMounts(t *testing.T) {
+	cfg := &Config{Username: "root", Password: "x"}
+	var buf bytes.Buffer
+	if err := userDataTmpl.Execute(&buf, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "mounts:") {
+		t.Error("mounts: should not appear without Mounts")
+	}
+}
+
+func TestUserData_MountsYAMLEscape(t *testing.T) {
+	// A malicious mount field with a single quote would otherwise break out
+	// of the YAML scalar; yamlQuote should double the quote.
+	cfg := &Config{
+		Mounts: []MountSpec{
+			{Device: "/dev/x", MountPoint: "/mnt/it's-here", FSType: "ext4", Options: "defaults"},
+		},
+	}
+	var buf bytes.Buffer
+	if err := userDataTmpl.Execute(&buf, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "/mnt/it''s-here") {
+		t.Errorf("single quote not escaped: %s", buf.String())
+	}
+}

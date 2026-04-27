@@ -668,6 +668,74 @@ func TestBuildStateReplacements(t *testing.T) {
 	}
 }
 
+func TestBuildStateReplacements_PrefixMin(t *testing.T) {
+	// ensureCloneCidata appends a fresh cidata entry, leaving storageConfigs
+	// one longer than chCfg.Disks. The map should still cover the prefix
+	// (snapshot's actual disks), not return empty.
+	chCfg := &chVMConfig{
+		Disks: []chDisk{
+			{Path: "/old/base.qcow2"},
+			{Path: "/old/data1.raw"},
+		},
+	}
+	storageConfigs := []*types.StorageConfig{
+		{Path: "/new/base.qcow2"},
+		{Path: "/new/data1.raw"},
+		{Path: "/new/cidata.img"}, // appended by ensureCloneCidata
+	}
+	m := buildStateReplacements(chCfg, storageConfigs)
+	if m["/old/base.qcow2"] != "/new/base.qcow2" {
+		t.Errorf("base path missing: %v", m)
+	}
+	if m["/old/data1.raw"] != "/new/data1.raw" {
+		t.Errorf("data disk path missing: %v", m)
+	}
+	if len(m) != 2 {
+		t.Errorf("expected 2 entries (chCfg has 2 disks), got %d: %v", len(m), m)
+	}
+}
+
+func TestRestorePatchStorageConfigs_DropsAppendedCidata(t *testing.T) {
+	// Snapshot lacked cidata; ensureCloneCidata appended one. Filter must
+	// drop just that cidata, preserving any data disks at the tail-1 spot.
+	configs := []*types.StorageConfig{
+		{Path: "/o", Role: types.StorageRoleLayer},
+		{Path: "/d1", Role: types.StorageRoleData},
+		{Path: "/c", Role: types.StorageRoleCidata},
+	}
+	got := restorePatchStorageConfigs(configs, false, false, false)
+	if len(got) != 2 {
+		t.Fatalf("got %d, want 2", len(got))
+	}
+	for _, sc := range got {
+		if sc.Role == types.StorageRoleCidata {
+			t.Errorf("cidata not filtered: %v", got)
+		}
+	}
+}
+
+func TestRestorePatchStorageConfigs_KeepsAllOnDirectBoot(t *testing.T) {
+	configs := []*types.StorageConfig{
+		{Path: "/l", Role: types.StorageRoleLayer},
+		{Path: "/c", Role: types.StorageRoleCOW},
+	}
+	got := restorePatchStorageConfigs(configs, true, false, false)
+	if len(got) != 2 {
+		t.Errorf("got %d, want 2", len(got))
+	}
+}
+
+func TestRestorePatchStorageConfigs_KeepsAllWhenSnapshotHadCidata(t *testing.T) {
+	configs := []*types.StorageConfig{
+		{Path: "/o", Role: types.StorageRoleCOW},
+		{Path: "/c", Role: types.StorageRoleCidata},
+	}
+	got := restorePatchStorageConfigs(configs, false, false, true)
+	if len(got) != 2 {
+		t.Errorf("got %d, want 2", len(got))
+	}
+}
+
 func TestPatchStateJSON_EmptyMap(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
