@@ -227,17 +227,13 @@ func powerButton(ctx context.Context, hc *http.Client) error {
 	return vmAPI(ctx, hc, "vm.power-button", nil)
 }
 
-// queryConsolePTY retrieves the virtio-console PTY path from a running CH instance
-// via GET /api/v1/vm.info. Returns empty string if the console is not in Pty mode.
+// queryConsolePTY retrieves the virtio-console PTY path from a running CH
+// instance via GET /api/v1/vm.info. Returns empty string if the console is
+// not in Pty mode.
 func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
-	hc := utils.NewSocketHTTPClient(apiSocketPath)
-	body, err := utils.DoAPI(ctx, hc, http.MethodGet, "http://localhost/api/v1/vm.info", nil, http.StatusOK)
+	info, err := getVMInfo(ctx, utils.NewSocketHTTPClient(apiSocketPath))
 	if err != nil {
-		return "", fmt.Errorf("query vm.info: %w", err)
-	}
-	var info chVMInfoResponse
-	if err := json.Unmarshal(body, &info); err != nil {
-		return "", fmt.Errorf("decode vm.info: %w", err)
+		return "", err
 	}
 	if info.Config.Console.File == "" {
 		return "", fmt.Errorf("console PTY not available (mode=%s)", info.Config.Console.Mode)

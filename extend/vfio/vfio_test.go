@@ -44,14 +44,15 @@ func TestNormalizePath(t *testing.T) {
 	}
 }
 
-func TestSpecValidate(t *testing.T) {
+func TestSpecNormalizedPath(t *testing.T) {
 	tests := []struct {
 		name    string
 		spec    Spec
+		want    string
 		wantErr string
 	}{
-		{name: "valid short BDF", spec: Spec{PCI: "01:00.0"}},
-		{name: "valid full BDF with id", spec: Spec{PCI: "0000:01:00.0", ID: "mygpu"}},
+		{name: "valid short BDF", spec: Spec{PCI: "01:00.0"}, want: SysfsPCIPrefix + "0000:01:00.0"},
+		{name: "valid full BDF with id", spec: Spec{PCI: "0000:01:00.0", ID: "mygpu"}, want: SysfsPCIPrefix + "0000:01:00.0"},
 		{name: "missing pci", spec: Spec{}, wantErr: "--pci is required"},
 		{name: "id with cocoon prefix", spec: Spec{PCI: "01:00.0", ID: "cocoon-x"}, wantErr: "--id"},
 		{name: "id with bad chars", spec: Spec{PCI: "01:00.0", ID: "bad id"}, wantErr: "--id"},
@@ -59,7 +60,7 @@ func TestSpecValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.spec.Validate()
+			got, err := tt.spec.NormalizedPath()
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("want error containing %q, got nil", tt.wantErr)
@@ -71,6 +72,9 @@ func TestSpecValidate(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}

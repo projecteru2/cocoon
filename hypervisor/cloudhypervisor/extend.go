@@ -36,7 +36,7 @@ func (ch *CloudHypervisor) FsAttach(ctx context.Context, vmRef string, spec fs.S
 		return "", err
 	}
 	if !info.Config.Memory.Shared {
-		return "", fmt.Errorf("fs attach requires VM memory shared=on; recreate the VM with --shared-memory")
+		return "", fmt.Errorf("fs attach requires the VM to be created with --shared-memory (current memory shared=off; cannot be flipped on a running VM)")
 	}
 	id := fs.DeriveID(spec.Tag)
 	for _, existing := range info.Config.Fs {
@@ -114,10 +114,7 @@ func (ch *CloudHypervisor) FsList(ctx context.Context, vmRef string) ([]fs.Attac
 
 // DeviceAttach hot-plugs a VFIO PCI passthrough device onto a running CH VM.
 func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec vfio.Spec) (string, error) {
-	if err := spec.Validate(); err != nil {
-		return "", err
-	}
-	path, err := vfio.NormalizePath(spec.PCI)
+	path, err := spec.NormalizedPath()
 	if err != nil {
 		return "", err
 	}
@@ -201,7 +198,8 @@ func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio
 	return out, nil
 }
 
-// runningVMClient resolves vmRef, asserts the VM is in Running state, and
+// runningVMClient resolves vmRef, asserts the VM is running with the
+// recorded CH process still alive (PID-reuse-safe via VerifyProcess), and
 // returns an http.Client connected to its CH API socket.
 func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*http.Client, error) {
 	vmID, err := ch.ResolveRef(ctx, vmRef)
@@ -215,13 +213,17 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 	if rec.State != types.VMStateRunning {
 		return nil, fmt.Errorf("vm %s is %s: %w", vmID, rec.State, hypervisor.ErrNotRunning)
 	}
-	if !utils.IsProcessAlive(rec.PID) {
-		return nil, fmt.Errorf("vm %s pid %d not alive: %w", vmID, rec.PID, hypervisor.ErrNotRunning)
+	if !utils.VerifyProcess(rec.PID, ch.conf.BinaryName()) {
+		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, rec.PID, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
 	}
 	return utils.NewSocketHTTPClient(hypervisor.SocketPath(rec.RunDir)), nil
 }
 
-// bdfFromSysfsPath strips /sys/bus/pci/devices/ prefix when present.
+// bdfFromSysfsPath returns the BDF suffix when path is under the canonical
+// sysfs PCI prefix; empty otherwise (CH may report a non-PCI host path).
 func bdfFromSysfsPath(p string) string {
+	if !strings.HasPrefix(p, vfio.SysfsPCIPrefix) {
+		return ""
+	}
 	return strings.TrimPrefix(p, vfio.SysfsPCIPrefix)
 }

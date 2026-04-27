@@ -17,10 +17,6 @@ import (
 const (
 	DefaultNumQueues = 1
 	DefaultQueueSize = 1024
-
-	// Tag length cap mirrors the conservative virtio-fs mount tag limit;
-	// longer tags risk truncation across kernels.
-	MaxTagLen = 36
 )
 
 var (

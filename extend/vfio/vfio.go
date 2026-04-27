@@ -16,10 +16,8 @@ import (
 	"strings"
 )
 
-const (
-	// SysfsPCIPrefix is the canonical host path for a PCI device.
-	SysfsPCIPrefix = "/sys/bus/pci/devices/"
-)
+// SysfsPCIPrefix is the canonical host path for a PCI device.
+const SysfsPCIPrefix = "/sys/bus/pci/devices/"
 
 var (
 	// Match BDF in either short (01:00.0) or full (0000:01:00.0) form so the
@@ -60,20 +58,19 @@ type Lister interface {
 	DeviceList(ctx context.Context, vmRef string) ([]Attached, error)
 }
 
-// Validate checks the user input shape only. Path existence is asserted
-// later by the backend right before calling CH (the host file may be
-// removed between CLI parse and the API call).
-func (s *Spec) Validate() error {
+// NormalizedPath validates the spec and returns the canonical sysfs path
+// (NormalizePath already covers PCI shape validation, so callers do not
+// need a separate Validate()). Path existence is asserted by the backend
+// right before calling CH; the host file may be removed between CLI parse
+// and the API call.
+func (s *Spec) NormalizedPath() (string, error) {
 	if s.PCI == "" {
-		return fmt.Errorf("--pci is required")
+		return "", fmt.Errorf("--pci is required")
 	}
 	if s.ID != "" && (strings.HasPrefix(s.ID, "cocoon-") || !validIDRe.MatchString(s.ID)) {
-		return fmt.Errorf("--id %q invalid: must match [A-Za-z0-9][A-Za-z0-9_.-]{0,63} and not start with cocoon-", s.ID)
+		return "", fmt.Errorf("--id %q invalid: must match [A-Za-z0-9][A-Za-z0-9_.-]{0,63} and not start with cocoon-", s.ID)
 	}
-	if _, err := NormalizePath(s.PCI); err != nil {
-		return err
-	}
-	return nil
+	return NormalizePath(s.PCI)
 }
 
 // NormalizePath maps any of {01:00.0, 0000:01:00.0, /sys/bus/pci/devices/<bdf>}
