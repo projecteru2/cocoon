@@ -173,6 +173,35 @@ func InitCOWFilesystem(ctx context.Context, path string) error {
 	return nil
 }
 
+// DataDiskBaseName is the canonical file name for a user data disk. Centralized
+// so cleanSnapshotFiles matchers, snapshot reflink loops, and clone path
+// rewrites all agree.
+func DataDiskBaseName(serial string) string {
+	return "data-" + serial + ".raw"
+}
+
+// IsDataDiskFile reports whether name matches the data disk file pattern
+// (the matcher used by cleanSnapshotFiles in both backends).
+func IsDataDiskFile(name string) bool {
+	return strings.HasPrefix(name, "data-") && strings.HasSuffix(name, ".raw")
+}
+
+// ReflinkDataDisks reflinks every Role==Data disk in configs into dstDir
+// using the canonical data-<serial>.raw filename. Used by both CH and FC
+// snapshot paths inside the pause window.
+func ReflinkDataDisks(dstDir string, configs []*types.StorageConfig) error {
+	for _, sc := range configs {
+		if sc.Role != types.StorageRoleData {
+			continue
+		}
+		dst := filepath.Join(dstDir, DataDiskBaseName(sc.Serial))
+		if err := utils.ReflinkCopy(dst, sc.Path); err != nil {
+			return fmt.Errorf("copy data disk %s: %w", sc.Serial, err)
+		}
+	}
+	return nil
+}
+
 // PrepareDataDisks creates raw sparse files for each spec under baseDir,
 // optionally formats them, and returns StorageConfigs ready to append to a
 // VM's storage list. Names must be unique and pass types.ValidDataDiskName;
@@ -195,7 +224,7 @@ func PrepareDataDisks(ctx context.Context, baseDir string, specs []types.DataDis
 		if spec.Size < MinDataDiskSize {
 			return nil, fmt.Errorf("data disk %s: size %d below %d minimum", spec.Name, spec.Size, MinDataDiskSize)
 		}
-		path := filepath.Join(baseDir, "data-"+spec.Name+".raw")
+		path := filepath.Join(baseDir, DataDiskBaseName(spec.Name))
 		if err := createSparseFile(path, spec.Size); err != nil {
 			return nil, fmt.Errorf("data disk %s: %w", spec.Name, err)
 		}
@@ -244,17 +273,8 @@ func createSparseFile(path string, size int64) error {
 // returns storageConfigs with the new COW entry (CowSerial) appended.
 // The returned slice must be used by the caller; append may reallocate.
 func PrepareOCICOW(ctx context.Context, cowPath string, storage int64, storageConfigs []*types.StorageConfig) ([]*types.StorageConfig, error) {
-	f, err := os.OpenFile(cowPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("create COW: %w", err)
-	}
-	truncErr := f.Truncate(storage)
-	closeErr := f.Close()
-	if truncErr != nil {
-		return nil, fmt.Errorf("truncate COW: %w", truncErr)
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close COW: %w", closeErr)
+	if err := createSparseFile(cowPath, storage); err != nil {
+		return nil, err
 	}
 	if err := InitCOWFilesystem(ctx, cowPath); err != nil {
 		return nil, err
@@ -279,7 +299,7 @@ func ValidateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 		if sc.Role != types.StorageRoleData {
 			continue
 		}
-		path := filepath.Join(srcDir, "data-"+sc.Serial+".raw")
+		path := filepath.Join(srcDir, DataDiskBaseName(sc.Serial))
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("data disk %s missing in snapshot: %w", sc.Serial, err)
 		}

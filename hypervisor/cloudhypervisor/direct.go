@@ -88,7 +88,7 @@ func cleanSnapshotFiles(runDir string) error {
 			return true
 		case name == snapshotMetaFile:
 			return true
-		case strings.HasPrefix(name, "data-") && strings.HasSuffix(name, ".raw"):
+		case hypervisor.IsDataDiskFile(name):
 			return true
 		}
 		return false

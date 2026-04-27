@@ -295,7 +295,7 @@ func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoo
 func updateDataDiskPaths(configs []*types.StorageConfig, newRunDir string) {
 	for _, sc := range configs {
 		if sc.Role == types.StorageRoleData {
-			sc.Path = filepath.Join(newRunDir, "data-"+sc.Serial+".raw")
+			sc.Path = filepath.Join(newRunDir, hypervisor.DataDiskBaseName(sc.Serial))
 		}
 	}
 }

@@ -92,14 +92,8 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 			return fmt.Errorf("copy COW: %w", err)
 		}
 
-		for _, sc := range rec.StorageConfigs {
-			if sc.Role != types.StorageRoleData {
-				continue
-			}
-			dst := filepath.Join(tmpDir, "data-"+sc.Serial+".raw")
-			if err := utils.ReflinkCopy(dst, sc.Path); err != nil {
-				return fmt.Errorf("copy data disk %s: %w", sc.Serial, err)
-			}
+		if err := hypervisor.ReflinkDataDisks(tmpDir, rec.StorageConfigs); err != nil {
+			return err
 		}
 
 		// Resume eagerly so we can propagate the error.

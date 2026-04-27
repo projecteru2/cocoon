@@ -180,7 +180,7 @@ func rebuildCloneStorage(meta *snapshotMeta, cowPath string) ([]*types.StorageCo
 		case types.StorageRoleCOW:
 			cp.Path = cowPath
 		case types.StorageRoleData:
-			cp.Path = filepath.Join(runDir, "data-"+sc.Serial+".raw")
+			cp.Path = filepath.Join(runDir, hypervisor.DataDiskBaseName(sc.Serial))
 		case types.StorageRoleCidata:
 			return nil, fmt.Errorf("snapshot disk[%d] has cidata role; FC does not support cloudimg", i)
 		default:

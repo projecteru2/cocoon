@@ -42,7 +42,7 @@ func (c *BaseConfig) VMLogDir(vmID string) string { return filepath.Join(c.LogDi
 // Filename includes the disk name so cleanSnapshotFiles matchers can
 // identify them via prefix.
 func (c *BaseConfig) DataDiskPath(vmID, name string) string {
-	return filepath.Join(c.VMRunDir(vmID), "data-"+name+".raw")
+	return filepath.Join(c.VMRunDir(vmID), DataDiskBaseName(name))
 }
 
 // EnsureDirs creates all static directories required by the backend.
