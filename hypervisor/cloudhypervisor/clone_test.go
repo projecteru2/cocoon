@@ -456,43 +456,6 @@ func TestUpdateCOWPath_Cloudimg(t *testing.T) {
 	}
 }
 
-// rebuildStorageConfigs
-
-func TestRebuildStorageConfigs(t *testing.T) {
-	cfg := &chVMConfig{
-		Disks: []chDisk{
-			{Path: "/a.erofs", ReadOnly: true, Serial: "s1", NumQueues: 4, ImageType: "Raw"},
-			{Path: "/b.raw", ReadOnly: false, Serial: "s2", Sparse: true},
-			{Path: "/c.qcow2", ReadOnly: false, ImageType: "Qcow2"},
-		},
-	}
-
-	result := rebuildStorageConfigs(cfg)
-	if len(result) != 3 {
-		t.Fatalf("expected 3, got %d", len(result))
-	}
-
-	tests := []struct {
-		path, serial string
-		ro           bool
-	}{
-		{"/a.erofs", "s1", true},
-		{"/b.raw", "s2", false},
-		{"/c.qcow2", "", false},
-	}
-	for i, tt := range tests {
-		if result[i].Path != tt.path {
-			t.Errorf("[%d] Path: got %q, want %q", i, result[i].Path, tt.path)
-		}
-		if result[i].RO != tt.ro {
-			t.Errorf("[%d] RO: got %v, want %v", i, result[i].RO, tt.ro)
-		}
-		if result[i].Serial != tt.serial {
-			t.Errorf("[%d] Serial: got %q, want %q", i, result[i].Serial, tt.serial)
-		}
-	}
-}
-
 // rebuildBootConfig
 
 func TestRebuildBootConfig(t *testing.T) {

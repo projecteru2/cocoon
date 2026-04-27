@@ -47,7 +47,19 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("parse CH config: %w", err)
 	}
 
-	storageConfigs := rebuildStorageConfigs(chCfg)
+	meta, err := loadSnapshotMeta(runDir)
+	if err != nil {
+		return nil, fmt.Errorf("load snapshot meta: %w", err)
+	}
+	if err := types.ValidateStorageConfigs(meta.StorageConfigs); err != nil {
+		return nil, fmt.Errorf("validate sidecar: %w", err)
+	}
+	if len(meta.StorageConfigs) != len(chCfg.Disks) {
+		return nil, fmt.Errorf("sidecar/config.json mismatch: %d vs %d disks",
+			len(meta.StorageConfigs), len(chCfg.Disks))
+	}
+
+	storageConfigs := meta.StorageConfigs
 	bootCfg := rebuildBootConfig(chCfg)
 	directBoot := isDirectBoot(bootCfg)
 
@@ -218,38 +230,6 @@ func parseCHConfig(path string) (*chVMConfig, []byte, error) {
 		return nil, nil, fmt.Errorf("decode %s: %w", path, err)
 	}
 	return &cfg, data, nil
-}
-
-func rebuildStorageConfigs(cfg *chVMConfig) []*types.StorageConfig {
-	var configs []*types.StorageConfig
-	for _, d := range cfg.Disks {
-		configs = append(configs, &types.StorageConfig{
-			Path:   d.Path,
-			RO:     d.ReadOnly,
-			Serial: d.Serial,
-			Role:   roleFromCHDisk(d),
-		})
-	}
-	return configs
-}
-
-// roleFromCHDisk infers Role from a CH-written chDisk entry. Used until the
-// snapshot sidecar replaces this reconstruction (next commit).
-//   - empty serial + readonly → cidata (cocoon never assigns a serial to cidata)
-//   - readonly with serial    → base layer
-//   - writable + CowSerial    → COW
-//   - writable otherwise      → data disk
-func roleFromCHDisk(d chDisk) types.StorageRole {
-	switch {
-	case d.ReadOnly && d.Serial == "":
-		return types.StorageRoleCidata
-	case d.ReadOnly:
-		return types.StorageRoleLayer
-	case d.Serial == hypervisor.CowSerial:
-		return types.StorageRoleCOW
-	default:
-		return types.StorageRoleData
-	}
 }
 
 func rebuildBootConfig(cfg *chVMConfig) *types.BootConfig {

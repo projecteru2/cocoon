@@ -2,6 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,18 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
+
+// snapshotMetaFile is the cocoon-owned sidecar inside a CH snapshot.
+// It mirrors snapshot config.json's disk shape but carries Role/MountPoint/
+// FSType/DirectIO that the CH schema cannot.
+const snapshotMetaFile = "cocoon.json"
+
+// snapshotMeta is persisted as cocoon.json alongside CH state.json/config.json.
+// StorageConfigs is in the same order and length as snapshot config.json's disks.
+type snapshotMeta struct {
+	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
+	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
+}
 
 // Snapshot pauses the VM, captures its full state (CPU, memory, devices via CH
 // snapshot API, plus the COW disk via sparse copy), resumes the VM, and returns
@@ -100,6 +113,11 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		}
 	}
 
+	if metaErr := writeSnapshotMeta(tmpDir, &rec); metaErr != nil {
+		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
+		return nil, nil, fmt.Errorf("write snapshot metadata: %w", metaErr)
+	}
+
 	// Generate snapshot ID and record it on the VM atomically.
 	snapID, recErr := ch.RecordSnapshot(ctx, vmID, tmpDir)
 	if recErr != nil {
@@ -107,4 +125,51 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	}
 
 	return ch.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
+}
+
+// writeSnapshotMeta builds the cocoon.json sidecar. Sidecar mirrors the
+// snapshot's own config.json shape (chCfg.Disks order/length), not
+// activeDisks(rec) — the latter would diverge whenever a cloudimg VM is
+// snapshotted between FirstBooted=true and the next stop, since CH still
+// holds cidata in that window.
+func writeSnapshotMeta(tmpDir string, rec *hypervisor.VMRecord) error {
+	chCfg, _, err := parseCHConfig(filepath.Join(tmpDir, "config.json"))
+	if err != nil {
+		return fmt.Errorf("parse snapshot config: %w", err)
+	}
+	byPath := make(map[string]*types.StorageConfig, len(rec.StorageConfigs))
+	for _, sc := range rec.StorageConfigs {
+		byPath[sc.Path] = sc
+	}
+	storage := make([]*types.StorageConfig, 0, len(chCfg.Disks))
+	for _, d := range chCfg.Disks {
+		sc, ok := byPath[d.Path]
+		if !ok {
+			return fmt.Errorf("snapshot config has disk %q not present in VM record", d.Path)
+		}
+		cp := *sc
+		storage = append(storage, &cp)
+	}
+	meta := snapshotMeta{
+		StorageConfigs: storage,
+		BootConfig:     rec.BootConfig,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal snapshot meta: %w", err)
+	}
+	return os.WriteFile(filepath.Join(tmpDir, snapshotMetaFile), data, 0o600)
+}
+
+// loadSnapshotMeta reads cocoon.json from a CH snapshot directory.
+func loadSnapshotMeta(dir string) (*snapshotMeta, error) {
+	data, err := os.ReadFile(filepath.Join(dir, snapshotMetaFile)) //nolint:gosec
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", snapshotMetaFile, err)
+	}
+	var meta snapshotMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
+	}
+	return &meta, nil
 }
