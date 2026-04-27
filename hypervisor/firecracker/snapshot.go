@@ -57,8 +57,11 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	// Serialize the COW copy with concurrent clone redirects.
-	if err := withCOWPathLocked(cowPath, func() error {
+	// Serialize the COW + data-disk copy with concurrent clone redirects.
+	// withSourceWritableDisksLocked locks every writable disk in dictionary
+	// order so a concurrent clone seeing the same source can't race the
+	// reflink against its rename+symlink redirect.
+	if err := withSourceWritableDisksLocked(rec.StorageConfigs, func() error {
 		return fc.WithRunningVM(ctx, &rec, func(_ int) error {
 			if err := pauseVM(ctx, hc); err != nil {
 				return fmt.Errorf("pause: %w", err)

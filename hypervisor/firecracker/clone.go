@@ -89,7 +89,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	sockPath := hypervisor.SocketPath(runDir)
 	withNetwork := len(networkConfigs) > 0
 	var pid int
-	if cloneErr := withSourceCOWLocked(meta.StorageConfigs, func() error {
+	if cloneErr := withSourceWritableDisksLocked(meta.StorageConfigs, func() error {
 		redirects, redirectErr := createDriveRedirects(meta.StorageConfigs, storageConfigs)
 		if redirectErr != nil {
 			return fmt.Errorf("drive redirect: %w", redirectErr)
@@ -224,19 +224,6 @@ func cleanupDriveRedirects(redirects []driveRedirect) {
 	}
 }
 
-// withSourceCOWLocked runs fn while holding the source COW lock.
-// Recovers stale symlink backups from crashed clones before proceeding.
-func withSourceCOWLocked(srcConfigs []*types.StorageConfig, fn func() error) error {
-	for _, sc := range srcConfigs {
-		if sc.Role == types.StorageRoleCOW {
-			return withCOWPathLocked(sc.Path, func() error {
-				recoverStaleBackup(sc.Path)
-				return fn()
-			})
-		}
-	}
-	return fn() // no COW disk, run unlocked
-}
 
 // recoverStaleBackup restores a backup file left by a crashed clone.
 // Caller must hold the COW lock.
