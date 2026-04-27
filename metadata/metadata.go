@@ -133,10 +133,8 @@ type NetworkInfo struct {
 	Mac     string // MAC address for match:macaddress in network-config
 }
 
-// MountSpec describes one cloud-init `mounts:` row. Device is the guest-side
-// device path (e.g. /dev/disk/by-id/virtio-data1), MountPoint the absolute
-// target, FSType the filesystem (ext4 etc.). Options defaults to
-// "defaults,nofail" when empty so a missing disk doesn't block boot.
+// MountSpec is one cloud-init `mounts:` row. Options defaults to
+// "defaults,nofail" so a missing disk doesn't block boot.
 type MountSpec struct {
 	Device     string
 	MountPoint string

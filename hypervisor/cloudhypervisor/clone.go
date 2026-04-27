@@ -267,14 +267,9 @@ func hasCidataRole(sc *types.StorageConfig) bool {
 	return sc.Role == types.StorageRoleCidata
 }
 
-// restorePatchStorageConfigs returns the disks to feed into patchCHConfig so
-// the disk count matches the snapshot's config.json. When the snapshot did
-// NOT carry cidata (cloudimg post-first-boot), ensureCloneCidata appended a
-// fresh cidata entry — patchCHConfig must not see it (snapshot config.json
-// has no slot for it; cidata is hot-plugged later).
-//
-// When the snapshot carried cidata, or for direct-boot/Windows VMs that
-// never have cidata, we pass everything through unchanged.
+// restorePatchStorageConfigs strips the cidata entry ensureCloneCidata
+// appended to a no-cidata snapshot, so patchCHConfig matches chCfg.Disks
+// count. Cidata is hot-plugged later.
 func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoot, windows, hadCidataInSnapshot bool) []*types.StorageConfig {
 	if directBoot || windows || hadCidataInSnapshot {
 		return storageConfigs
@@ -329,14 +324,10 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	return cmdline.String()
 }
 
-// buildStateReplacements builds old→new string mappings for state.json patching.
-// Only disk paths need patching (snapshot paths → clone paths). When
-// ensureCloneCidata appended a fresh cidata entry, storageConfigs is one
-// longer than chCfg.Disks; the prefix-min iteration covers the entries the
-// snapshot already knew about, which is exactly what state.json references.
-//
-// MAC addresses are no longer patched here — hot-swap (vm.remove-device +
-// vm.add-net) replaces the entire virtio-net device with the correct MAC.
+// buildStateReplacements maps source disk paths to clone paths for
+// state.json patching. Iterates min(chCfg.Disks, storageConfigs) so an
+// appended cidata in storageConfigs doesn't desync the prefix.
+// MACs are not patched here; NIC hot-swap rewrites the virtio-net device.
 func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig) map[string]string {
 	n := min(len(chCfg.Disks), len(storageConfigs))
 	m := make(map[string]string, n)

@@ -31,9 +31,7 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 	}
 	defer cleanupStaging()
 
-	// Pre-flight: validate the staged snapshot fully (sidecar shape, data
-	// disk files present, role sequence vs live record) BEFORE killing the
-	// running VM. A malformed snapshot must not cost an outage.
+	// Preflight before kill — a malformed snapshot must not cost an outage.
 	if err := ch.preflightRestore(stagingDir, rec); err != nil {
 		return nil, fmt.Errorf("snapshot preflight: %w", err)
 	}
@@ -94,10 +92,8 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	}()
 
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
-	// Use the sidecar's length, which mirrors snapshot config.json's disk
-	// count. rec.StorageConfigs may carry trailing cidata that the snapshot
-	// (post-first-boot) doesn't — prefix-slicing trims it cleanly because
-	// cidata is always at the tail of rec.
+	// Use sidecar length; rec may have trailing cidata that the snapshot
+	// lacks (cloudimg post-first-boot), prefix-slice trims it.
 	meta, metaErr := loadSnapshotMeta(rec.RunDir)
 	if metaErr != nil {
 		return nil, fmt.Errorf("load snapshot meta: %w", metaErr)

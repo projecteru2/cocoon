@@ -15,13 +15,10 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// snapshotMetaFile is the cocoon-owned sidecar inside a CH snapshot.
-// It mirrors snapshot config.json's disk shape but carries Role/MountPoint/
-// FSType/DirectIO that the CH schema cannot.
+// snapshotMetaFile carries Role/MountPoint/FSType/DirectIO that CH's chDisk
+// schema can't hold; mirrors chCfg.Disks order and length.
 const snapshotMetaFile = "cocoon.json"
 
-// snapshotMeta is persisted as cocoon.json alongside CH state.json/config.json.
-// StorageConfigs is in the same order and length as snapshot config.json's disks.
 type snapshotMeta struct {
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
@@ -134,11 +131,10 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	return ch.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
 }
 
-// writeSnapshotMeta builds the cocoon.json sidecar. Sidecar mirrors the
-// snapshot's own config.json shape (chCfg.Disks order/length), not
-// activeDisks(rec) — the latter would diverge whenever a cloudimg VM is
-// snapshotted between FirstBooted=true and the next stop, since CH still
-// holds cidata in that window.
+// writeSnapshotMeta builds the cocoon.json sidecar by mirroring the
+// snapshot's config.json shape. Using activeDisks(rec) would diverge for a
+// cloudimg VM snapshotted post-FirstBooted but pre-restart: CH still holds
+// cidata, but activeDisks would skip it.
 func writeSnapshotMeta(tmpDir string, rec *hypervisor.VMRecord) error {
 	chCfg, _, err := parseCHConfig(filepath.Join(tmpDir, "config.json"))
 	if err != nil {

@@ -60,10 +60,9 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	// Serialize the COW + data-disk copy with concurrent clone redirects.
-	// withSourceWritableDisksLocked locks every writable disk in dictionary
-	// order so a concurrent clone seeing the same source can't race the
-	// reflink against its rename+symlink redirect.
+	// Lock every writable disk so a concurrent clone's rename+symlink
+	// redirect can't race this snapshot's reflink. Dictionary order keeps
+	// concurrent callers deadlock-free.
 	if err := withSourceWritableDisksLocked(rec.StorageConfigs, func() error {
 		return fc.WithRunningVM(ctx, &rec, func(_ int) error {
 			if err := pauseVM(ctx, hc); err != nil {

@@ -478,9 +478,8 @@ func createSparseFile(path string, size int64) error {
 }
 
 // snapshotResidentBasename returns the basename a sidecar entry's file should
-// have inside the snapshot dir, or "" if the disk is not stored alongside the
-// snapshot (i.e. shared base layers). The sidecar's Path field still points at
-// the source VM's runDir, so we strip back to the basename.
+// have inside srcDir, or "" for shared base layers (not in the snapshot tar).
+// Sidecar Path still references the source runDir, so we strip to basename.
 func snapshotResidentBasename(sc *types.StorageConfig) string {
 	switch sc.Role {
 	case types.StorageRoleData:

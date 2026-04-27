@@ -48,11 +48,9 @@ func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 	return serials
 }
 
-// validateSnapshotIntegrity is the CH-specific preflight wrapper around
-// hypervisor.ValidateSnapshotIntegrity: it runs the common checks, asserts
-// the sidecar mirrors snapshot config.json's disk shape, and verifies the
-// CH-specific runtime files (state.json + at least one memory-range-*) are
-// present so vm.restore won't fail post-kill.
+// validateSnapshotIntegrity is the CH preflight: common checks, sidecar/
+// config.json disk shape match, plus state.json + memory-range-* presence
+// so vm.restore won't fail post-kill.
 func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) error {
 	if err := hypervisor.ValidateSnapshotIntegrity(srcDir, sidecar); err != nil {
 		return err
@@ -89,9 +87,8 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	return nil
 }
 
-// hasMemoryRangeFile reports whether srcDir contains at least one CH
-// memory-range-* file. We can't enumerate the exact set without parsing
-// state.json, but a missing prefix is enough to fail vm.restore.
+// hasMemoryRangeFile reports whether srcDir has at least one CH
+// memory-range-* file. A missing prefix is enough to fail vm.restore.
 func hasMemoryRangeFile(srcDir string) (bool, error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {

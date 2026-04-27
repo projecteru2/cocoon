@@ -36,8 +36,7 @@ func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.V
 	}
 	defer cleanupStaging()
 
-	// Pre-flight: validate the staged snapshot fully BEFORE killing the
-	// running VM. A malformed snapshot must not cost an outage.
+	// Preflight before kill — a malformed snapshot must not cost an outage.
 	if err := fc.preflightRestore(stagingDir, rec); err != nil {
 		return nil, fmt.Errorf("snapshot preflight: %w", err)
 	}
@@ -47,11 +46,9 @@ func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.V
 		return nil, killErr
 	}
 
-	// Lock every writable disk (COW + data disks). withCOWPathLocked alone
-	// would leave a stale data-<x>.raw.cocoon-clone-backup unhealed; the next
-	// concurrent clone/snapshot would acquire that path's lock,
-	// recoverStaleBackup would rename the backup over the just-restored data
-	// disk, silently corrupting it.
+	// Lock every writable disk so recoverStaleBackup heals stale
+	// data-*.raw.cocoon-clone-backup before restore overwrites them;
+	// otherwise a future clone would rename the backup over restored data.
 	var result *types.VM
 	if lockErr := withSourceWritableDisksLocked(rec.StorageConfigs, func() error {
 		_ = os.Remove(cowPath)
