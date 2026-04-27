@@ -213,3 +213,15 @@ On CNI plugins with strict per-veth MAC enforcement (Cilium eBPF, Calico eBPF), 
 **Upstream status**: FC's `NetworkOverride` struct only has `iface_id` and `host_dev_name` — no `guest_mac` field. Adding it would follow the existing `VsockOverride` pattern. No issue or PR exists yet.
 
 **Workaround**: If MAC matching is required, run `ip link set dev ethX address <new-mac>` inside the guest after clone (the post-clone hints print the expected MAC values).
+
+## Vhost-user-fs requires VM-level shared memory
+
+`cocoon vm fs attach` only works on CH VMs that were created with `--shared-memory`. CH's `memory shared=on` is fixed at VM creation: backend processes (e.g. virtiofsd) need to mmap guest memory via the negotiated memfd, and the memory model cannot be flipped on a running VM. If `--shared-memory` was omitted at create time, the only path is to recreate the VM. Cocoon's preflight reads `vm.info` and surfaces a clear error rather than letting CH return a vague rejection.
+
+## Snapshotting a VM with attached vhost-user-fs / VFIO is rejected by CH
+
+Cloud Hypervisor refuses to snapshot a VM that holds a vhost-user-fs share or a VFIO PCI passthrough device. Cocoon does not block the call client-side (the rejection comes from CH itself); the surfaced error explains the cause. `cocoon vm fs detach` / `cocoon vm device detach` first to clear runtime devices, then snapshot.
+
+## Runtime attached devices do not survive VM stop / clone / restore
+
+Attaches via `cocoon vm fs attach` and `cocoon vm device attach` are runtime-only — they live in the CH process state and are never written into the VM record, sidecar, or snapshot. After `vm stop`, `vm clone`, or `vm restore`, the user must re-run the attach commands. `vm inspect` reflects the live CH `vm.info` for running VMs and omits `attached_devices` for stopped VMs. This is by design: cocoon does not own the backend (virtiofsd / vfio-pci binding) and cannot guarantee the resource still exists across host events.

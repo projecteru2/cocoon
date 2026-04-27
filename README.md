@@ -140,6 +140,12 @@ cocoon
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
 │   ├── restore [flags] VM SNAP   Restore a running VM to a snapshot
 │   ├── status [VM...]             Watch VM status in real time
+│   ├── fs
+│   │   ├── attach [flags] VM     Attach a vhost-user-fs share (CH only)
+│   │   └── detach [flags] VM     Detach a vhost-user-fs share by --tag
+│   ├── device
+│   │   ├── attach [flags] VM     Attach a VFIO PCI device (CH only)
+│   │   └── detach [flags] VM     Detach a VFIO PCI device by --id
 │   └── debug [flags] IMAGE        Generate hypervisor launch command (dry run)
 ├── snapshot
 │   ├── save [flags] VM            Create a snapshot from a running VM
@@ -187,6 +193,7 @@ Applies to `cocoon vm create`, `cocoon vm run`, and `cocoon vm debug`:
 | `--no-direct-io` | `false`     | Disable O_DIRECT on writable disks (use page cache; CH only, useful for dev/test with few VMs) |
 | `--data-disk` | empty (repeatable) | Attach an extra data disk: `size=20G[,name=...][,fstype=ext4|none][,mount=/mnt/x][,directio=on|off|auto]`. See [Data Disks](#data-disks) |
 | `--windows` | `false`          | Windows guest (UEFI boot, kvm_hyperv=on, no cidata) |
+| `--shared-memory` | `false`     | Enable CH `memory shared=on`; required for later `vm fs attach` (CH only, fixed for VM lifetime) |
 
 ### Clone Flags
 
@@ -373,6 +380,62 @@ cocoon vm run --data-disk size=20G,name=raw,fstype=none <oci-image>
 Phase 1 inherits data disks 1:1: snapshot reflinks each `data-<name>.raw` into the snapshot tar, clone re-creates them under the new VM's runDir (and regenerates cidata so cloud-init re-mounts on the new identity), and restore rolls all data disks back to the snapshot timepoint along with the rootfs and memory state. Adding or removing data disks at clone time is not supported in Phase 1 — provision the disks at create time and treat the snapshot as immutable.
 
 Restore preflight verifies sidecar integrity, file presence (vmstate, memory, COW, every `data-*.raw`), and per-index Role/Path/RO match between sidecar and CH config.json **before** killing the running VM, so a malformed or imported snapshot fails fast and leaves the live VM untouched.
+
+## Runtime Device Attach (Cloud Hypervisor only)
+
+Cocoon can hot-plug two classes of external resources onto a running VM:
+
+- **Vhost-user-fs** — a file share served by an external `virtiofsd` (or compatible backend) over a Unix socket. Attach surfaces a virtio-fs device in the guest, accessible via `mount -t virtiofs <tag> /mnt/...`.
+- **VFIO PCI passthrough** — a host PCI device bound to `vfio-pci` (GPU, NIC, NVMe). Attach hands the device to the guest with IOMMU isolation.
+
+Both attaches are **runtime-only**: the device lives only for the current VM process and is gone after stop/restart. Cocoon does not own the backend lifecycle (the user runs `virtiofsd`, binds the PCI device, etc.). Attached devices are not part of the VM record and are not preserved by snapshot / clone / restore. Cloud Hypervisor itself rejects snapshotting a VM that has vhost-user or VFIO devices attached, so plan accordingly.
+
+### Vhost-user-fs
+
+Prerequisite: the VM must have been created with `--shared-memory`. CH's `memory shared=on` cannot be flipped on a running VM, and vhost-user-fs requires it to share guest memory with the backend process.
+
+```bash
+# 1) Boot VM with shared-memory enabled.
+cocoon vm run --shared-memory --name share-host ghcr.io/cocoonstack/cocoon/ubuntu:24.04
+
+# 2) On host, run virtiofsd against a directory.
+virtiofsd --socket-path=/tmp/virtiofsd.sock --shared-dir=/srv/data --cache=never &
+
+# 3) Attach to the VM (tag is the guest mount tag and detach key).
+cocoon vm fs attach share-host --socket /tmp/virtiofsd.sock --tag data
+
+# 4) Inside the guest:
+mkdir -p /mnt/data && mount -t virtiofs data /mnt/data
+
+# 5) Detach later:
+cocoon vm fs detach share-host --tag data
+```
+
+Flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--socket` | required | Absolute path to the virtiofsd unix socket |
+| `--tag` | required | Guest mount tag (also detach key) |
+| `--num-queues` | `1` | Request queues |
+| `--queue-size` | `1024` | Queue depth |
+
+### VFIO PCI passthrough
+
+Prerequisite: host has `intel_iommu=on` (or `amd_iommu=on`) on the kernel command line and the target PCI device is bound to `vfio-pci`.
+
+```bash
+# Bind the device on the host (one-time per device).
+echo 0000:01:00.0 > /sys/bus/pci/drivers/vfio-pci/bind   # see https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF
+
+# Attach (BDF or full sysfs path both accepted).
+cocoon vm device attach my-vm --pci 01:00.0 --id mygpu
+
+# Detach.
+cocoon vm device detach my-vm --id mygpu
+```
+
+`cocoon vm inspect VM` includes an `attached_devices` field for running VMs that surfaces every attached vhost-user-fs share and VFIO device, read live from CH `vm.info`. The field is omitted for stopped VMs.
 
 ## Windows Support
 
