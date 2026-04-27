@@ -30,9 +30,10 @@ type VMConfig struct {
 	Config
 	Name string `json:"name"`
 
-	OnDemand bool   `json:"-"` // use UFFD on-demand memory restore (CH only); transient, not persisted
-	User     string `json:"-"`
-	Password string `json:"-"`
+	OnDemand  bool           `json:"-"` // use UFFD on-demand memory restore (CH only); transient, not persisted
+	User      string         `json:"-"`
+	Password  string         `json:"-"`
+	DataDisks []DataDiskSpec `json:"-"` // populated from --data-disk; consumed by Create
 }
 
 // VM is the runtime record for a VM, persisted by the hypervisor backend.
