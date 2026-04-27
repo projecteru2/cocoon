@@ -118,14 +118,16 @@ func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec 
 	if err != nil {
 		return "", err
 	}
+	hc, err := ch.runningVMClient(ctx, vmRef)
+	if err != nil {
+		return "", err
+	}
+	// Stat after the running-VM check: a stopped VM should report the VM
+	// state error first, not a misleading host-path error.
 	if st, statErr := os.Stat(path); statErr != nil {
 		return "", fmt.Errorf("pci path %s: %w", path, statErr)
 	} else if !st.IsDir() {
 		return "", fmt.Errorf("pci path %s: not a directory", path)
-	}
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		return "", err
 	}
 	info, err := getVMInfo(ctx, hc)
 	if err != nil {
@@ -198,8 +200,8 @@ func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio
 	return out, nil
 }
 
-// runningVMClient resolves vmRef, asserts the VM is running with the
-// recorded CH process still alive (PID-reuse-safe via VerifyProcess), and
+// runningVMClient resolves vmRef, asserts the recorded CH process is still
+// alive (PID file + cmdline match — same gate as WithRunningVM), and
 // returns an http.Client connected to its CH API socket.
 func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*http.Client, error) {
 	vmID, err := ch.ResolveRef(ctx, vmRef)
@@ -213,10 +215,12 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 	if rec.State != types.VMStateRunning {
 		return nil, fmt.Errorf("vm %s is %s: %w", vmID, rec.State, hypervisor.ErrNotRunning)
 	}
-	if !utils.VerifyProcess(rec.PID, ch.conf.BinaryName()) {
-		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, rec.PID, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
+	sockPath := hypervisor.SocketPath(rec.RunDir)
+	pid, _ := utils.ReadPIDFile(ch.PIDFilePath(rec.RunDir))
+	if !utils.VerifyProcessCmdline(pid, ch.conf.BinaryName(), sockPath) {
+		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, pid, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
 	}
-	return utils.NewSocketHTTPClient(hypervisor.SocketPath(rec.RunDir)), nil
+	return utils.NewSocketHTTPClient(sockPath), nil
 }
 
 // bdfFromSysfsPath returns the BDF suffix when path is under the canonical
