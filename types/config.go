@@ -15,4 +15,9 @@ type Config struct {
 	Network       string `json:"network,omitempty"`      // CNI conflist name; empty = default
 	NoDirectIO    bool   `json:"no_direct_io,omitempty"` // disable O_DIRECT on writable disks
 	Windows       bool   `json:"windows,omitempty"`      // Windows guest: UEFI boot, kvm_hyperv=on, no cidata
+	// SharedMemory toggles CH memory shared=on, the prerequisite for
+	// vhost-user-fs hot-plug. Decided at VM creation: the memory model is
+	// fixed for the VM's lifetime and propagates through clone/restore via
+	// the persisted config and the snapshot-time CH config.json.
+	SharedMemory bool `json:"shared_memory,omitempty"`
 }

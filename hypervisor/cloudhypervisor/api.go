@@ -44,6 +44,7 @@ type chCPUs struct {
 type chMemory struct {
 	Size      int64 `json:"size"`
 	HugePages bool  `json:"hugepages,omitempty"`
+	Shared    bool  `json:"shared,omitempty"`
 }
 
 type chDisk struct {
