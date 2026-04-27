@@ -94,8 +94,14 @@ func hasMemoryRangeFile(srcDir string) (bool, error) {
 }
 
 func vmAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) error {
-	_, err := utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
+	_, err := vmAPICall(ctx, hc, endpoint, body, successCodes...)
 	return err
+}
+
+// vmAPICall returns the raw response body so callers that need to decode
+// PciDeviceInfo (vm.add-fs, vm.add-device, ...) can use the same retry path.
+func vmAPICall(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) ([]byte, error) {
+	return utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
 
 func shutdownVM(ctx context.Context, hc *http.Client) error {
@@ -166,6 +172,55 @@ func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 		return fmt.Errorf("marshal add-net request: %w", err)
 	}
 	return vmAPI(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
+}
+
+func addFsVM(ctx context.Context, hc *http.Client, fs chFs) (chPciDeviceInfo, error) {
+	body, err := json.Marshal(fs)
+	if err != nil {
+		return chPciDeviceInfo{}, fmt.Errorf("marshal add-fs request: %w", err)
+	}
+	resp, err := vmAPICall(ctx, hc, "vm.add-fs", body, http.StatusOK, http.StatusNoContent)
+	if err != nil {
+		return chPciDeviceInfo{}, err
+	}
+	return decodePciDeviceInfo(resp)
+}
+
+func addDeviceVM(ctx context.Context, hc *http.Client, dev chDevice) (chPciDeviceInfo, error) {
+	body, err := json.Marshal(dev)
+	if err != nil {
+		return chPciDeviceInfo{}, fmt.Errorf("marshal add-device request: %w", err)
+	}
+	resp, err := vmAPICall(ctx, hc, "vm.add-device", body, http.StatusOK, http.StatusNoContent)
+	if err != nil {
+		return chPciDeviceInfo{}, err
+	}
+	return decodePciDeviceInfo(resp)
+}
+
+// getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
+// before hot-add and to surface attached devices through inspect.
+func getVMInfo(ctx context.Context, hc *http.Client) (*chVMInfoResponse, error) {
+	body, err := utils.DoAPI(ctx, hc, http.MethodGet, "http://localhost/api/v1/vm.info", nil, http.StatusOK)
+	if err != nil {
+		return nil, fmt.Errorf("query vm.info: %w", err)
+	}
+	var info chVMInfoResponse
+	if err := json.Unmarshal(body, &info); err != nil {
+		return nil, fmt.Errorf("decode vm.info: %w", err)
+	}
+	return &info, nil
+}
+
+func decodePciDeviceInfo(resp []byte) (chPciDeviceInfo, error) {
+	if len(resp) == 0 {
+		return chPciDeviceInfo{}, nil
+	}
+	var info chPciDeviceInfo
+	if err := json.Unmarshal(resp, &info); err != nil {
+		return chPciDeviceInfo{}, fmt.Errorf("decode PciDeviceInfo: %w", err)
+	}
+	return info, nil
 }
 
 func powerButton(ctx context.Context, hc *http.Client) error {
