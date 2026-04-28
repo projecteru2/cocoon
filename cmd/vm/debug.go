@@ -15,6 +15,17 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
+// chDebugArgs is the per-call CH command-line shape for the debug printer.
+// A struct keeps the printCommonCHArgs signature stable as more flags accrue.
+type chDebugArgs struct {
+	CPU          int
+	MaxCPU       int
+	MemoryMB     int
+	BalloonMB    int
+	Windows      bool
+	SharedMemory bool
+}
+
 func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {
@@ -34,6 +45,9 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	vmCfg, err := cmdcore.VMConfigFromFlags(cmd, args[0])
 	if err != nil {
 		return err
+	}
+	if conf.UseFirecracker && vmCfg.SharedMemory {
+		return fmt.Errorf("--fc and --shared-memory are mutually exclusive: Firecracker does not support vhost-user-fs hot-plug")
 	}
 	if len(vmCfg.DataDisks) > 0 {
 		fmt.Fprintln(os.Stderr, "warning: --data-disk is ignored in debug mode (debug only prints the hypervisor launch command; data disks need PrepareDataDisks to materialize)")
@@ -191,18 +205,29 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize, noDirectIO)
 		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
-	printCommonCHArgs(cpu, maxCPU, memory, balloon, vmCfg.Windows)
+	printCommonCHArgs(chDebugArgs{
+		CPU:          cpu,
+		MaxCPU:       maxCPU,
+		MemoryMB:     memory,
+		BalloonMB:    balloon,
+		Windows:      vmCfg.Windows,
+		SharedMemory: vmCfg.SharedMemory,
+	})
 }
 
-func printCommonCHArgs(cpu, maxCPU, memory, balloon int, windows bool) {
+func printCommonCHArgs(a chDebugArgs) {
 	cpuExtra := ""
-	if windows {
+	if a.Windows {
 		cpuExtra = ",kvm_hyperv=on"
 	}
-	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", cpu, maxCPU, cpuExtra)
-	fmt.Printf("  --memory size=%dM \\\n", memory)
+	memExtra := ""
+	if a.SharedMemory {
+		memExtra = ",shared=on"
+	}
+	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", a.CPU, a.MaxCPU, cpuExtra)
+	fmt.Printf("  --memory size=%dM%s \\\n", a.MemoryMB, memExtra)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
-	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", balloon)
+	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", a.BalloonMB)
 	fmt.Printf("  --watchdog \\\n")
 	fmt.Printf("  --serial tty --console off\n")
 }

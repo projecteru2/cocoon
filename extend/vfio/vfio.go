@@ -16,10 +16,8 @@ import (
 	"strings"
 )
 
-const (
-	// SysfsPCIPrefix is the canonical host path for a PCI device.
-	SysfsPCIPrefix = "/sys/bus/pci/devices/"
-)
+// SysfsPCIPrefix is the canonical host path for a PCI device.
+const SysfsPCIPrefix = "/sys/bus/pci/devices/"
 
 var (
 	// Match BDF in either short (01:00.0) or full (0000:01:00.0) form so the
@@ -60,31 +58,41 @@ type Lister interface {
 	DeviceList(ctx context.Context, vmRef string) ([]Attached, error)
 }
 
-// Validate checks the user input shape only. Path existence is asserted
-// later by the backend right before calling CH (the host file may be
-// removed between CLI parse and the API call).
-func (s *Spec) Validate() error {
+// NormalizedPath validates the spec and returns the canonical sysfs path
+// (NormalizePath already covers PCI shape validation, so callers do not
+// need a separate Validate()). Path existence is asserted by the backend
+// right before calling CH; the host file may be removed between CLI parse
+// and the API call.
+func (s *Spec) NormalizedPath() (string, error) {
 	if s.PCI == "" {
-		return fmt.Errorf("--pci is required")
+		return "", fmt.Errorf("pci is required")
 	}
 	if s.ID != "" && (strings.HasPrefix(s.ID, "cocoon-") || !validIDRe.MatchString(s.ID)) {
-		return fmt.Errorf("--id %q invalid: must match [A-Za-z0-9][A-Za-z0-9_.-]{0,63} and not start with cocoon-", s.ID)
+		return "", fmt.Errorf("id %q invalid: must match [A-Za-z0-9][A-Za-z0-9_.-]{0,63} and not start with cocoon-", s.ID)
 	}
-	if _, err := NormalizePath(s.PCI); err != nil {
-		return err
-	}
-	return nil
+	return NormalizePath(s.PCI)
 }
 
 // NormalizePath maps any of {01:00.0, 0000:01:00.0, /sys/bus/pci/devices/<bdf>}
 // into the canonical sysfs path that CH's vm.add-device expects.
+// Absolute paths must live under /sys/bus/pci/devices/ with a valid BDF
+// suffix — accepting an arbitrary host path would let cocoon hand CH a
+// non-PCI directory.
 func NormalizePath(input string) (string, error) {
 	in := strings.TrimSpace(input)
 	if in == "" {
 		return "", fmt.Errorf("empty pci path")
 	}
 	if strings.HasPrefix(in, "/") {
-		return filepath.Clean(in), nil
+		cleaned := filepath.Clean(in)
+		if !strings.HasPrefix(cleaned, SysfsPCIPrefix) {
+			return "", fmt.Errorf("pci %q invalid: absolute path must be under %s", input, SysfsPCIPrefix)
+		}
+		bdf := strings.ToLower(strings.TrimPrefix(cleaned, SysfsPCIPrefix))
+		if !bdfFullRe.MatchString(bdf) {
+			return "", fmt.Errorf("pci %q invalid: sysfs BDF suffix must match 0000:xx:yy.z", input)
+		}
+		return SysfsPCIPrefix + bdf, nil
 	}
 	low := strings.ToLower(in)
 	switch {
@@ -93,5 +101,5 @@ func NormalizePath(input string) (string, error) {
 	case bdfShortRe.MatchString(low):
 		return SysfsPCIPrefix + "0000:" + low, nil
 	}
-	return "", fmt.Errorf("--pci %q invalid: expect BDF (01:00.0 / 0000:01:00.0) or sysfs path", input)
+	return "", fmt.Errorf("pci %q invalid: expect BDF (01:00.0 / 0000:01:00.0) or sysfs path", input)
 }

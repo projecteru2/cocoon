@@ -95,9 +95,22 @@ type fcSnapshotMemBE struct {
 	BackendType string `json:"backend_type"`
 }
 
-// fcAPI sends a request to the Firecracker REST API via Unix socket.
-func fcAPI(ctx context.Context, hc *http.Client, method, endpoint string, body []byte, successCodes ...int) error {
-	_, err := utils.DoAPIWithRetry(ctx, hc, method, "http://localhost"+endpoint, body, successCodes...)
+// fcAPI PUTs body to a Firecracker REST endpoint with retry. Use only for
+// idempotent endpoints (pre-boot config — putMachineConfig, putBootSource,
+// putDrive, putNetworkInterface, putBalloon, putEntropy — where a retry
+// PUT just overwrites the same config). All current callers expect 204; if
+// a future endpoint needs alt success codes, switch to DoAPIWithRetry
+// directly instead of widening this wrapper.
+func fcAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte) error {
+	_, err := utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost"+endpoint, body)
+	return err
+}
+
+// fcAPIOnce is the no-retry variant for non-idempotent state transitions
+// (instance-start, pause/resume) where a retry after a lost response would
+// hit a wrong-state error and mask the original success.
+func fcAPIOnce(ctx context.Context, hc *http.Client, method, endpoint string, body []byte, successCodes ...int) error {
+	_, err := utils.DoAPIOnce(ctx, hc, method, "http://localhost"+endpoint, body, successCodes...)
 	return err
 }
 
@@ -106,7 +119,7 @@ func putMachineConfig(ctx context.Context, hc *http.Client, cfg fcMachineConfig)
 	if err != nil {
 		return fmt.Errorf("marshal machine-config: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/machine-config", body)
+	return fcAPI(ctx, hc, "/machine-config", body)
 }
 
 func putBootSource(ctx context.Context, hc *http.Client, boot fcBootSource) error {
@@ -114,7 +127,7 @@ func putBootSource(ctx context.Context, hc *http.Client, boot fcBootSource) erro
 	if err != nil {
 		return fmt.Errorf("marshal boot-source: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/boot-source", body)
+	return fcAPI(ctx, hc, "/boot-source", body)
 }
 
 func putDrive(ctx context.Context, hc *http.Client, drive fcDrive) error {
@@ -122,7 +135,7 @@ func putDrive(ctx context.Context, hc *http.Client, drive fcDrive) error {
 	if err != nil {
 		return fmt.Errorf("marshal drive: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/drives/"+drive.DriveID, body)
+	return fcAPI(ctx, hc, "/drives/"+drive.DriveID, body)
 }
 
 func putBalloon(ctx context.Context, hc *http.Client, balloon fcBalloon) error {
@@ -130,7 +143,7 @@ func putBalloon(ctx context.Context, hc *http.Client, balloon fcBalloon) error {
 	if err != nil {
 		return fmt.Errorf("marshal balloon: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/balloon", body)
+	return fcAPI(ctx, hc, "/balloon", body)
 }
 
 func putNetworkInterface(ctx context.Context, hc *http.Client, iface fcNetworkInterface) error {
@@ -138,11 +151,11 @@ func putNetworkInterface(ctx context.Context, hc *http.Client, iface fcNetworkIn
 	if err != nil {
 		return fmt.Errorf("marshal network-interface: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/network-interfaces/"+iface.IfaceID, body)
+	return fcAPI(ctx, hc, "/network-interfaces/"+iface.IfaceID, body)
 }
 
 func putEntropy(ctx context.Context, hc *http.Client) error {
-	return fcAPI(ctx, hc, http.MethodPut, "/entropy", []byte("{}"))
+	return fcAPI(ctx, hc, "/entropy", []byte("{}"))
 }
 
 func instanceStart(ctx context.Context, hc *http.Client) error {
@@ -150,7 +163,7 @@ func instanceStart(ctx context.Context, hc *http.Client) error {
 	if err != nil {
 		return fmt.Errorf("marshal action: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/actions", body, http.StatusNoContent, http.StatusOK)
+	return fcAPIOnce(ctx, hc, http.MethodPut, "/actions", body, http.StatusNoContent, http.StatusOK)
 }
 
 func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
@@ -158,29 +171,32 @@ func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
 	if err != nil {
 		return fmt.Errorf("marshal action: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPut, "/actions", body)
+	return fcAPI(ctx, hc, "/actions", body)
 }
 
-// pauseVM pauses a running FC instance via PATCH /vm.
+// pauseVM pauses a running FC instance via PATCH /vm. Non-idempotent: a
+// retry after a lost response would hit "already paused" and mask success.
 func pauseVM(ctx context.Context, hc *http.Client) error {
 	body, err := json.Marshal(map[string]string{"state": vmStatePaused})
 	if err != nil {
 		return fmt.Errorf("marshal pause request: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPatch, "/vm", body)
+	return fcAPIOnce(ctx, hc, http.MethodPatch, "/vm", body)
 }
 
-// resumeVM resumes a paused FC instance via PATCH /vm.
+// resumeVM resumes a paused FC instance via PATCH /vm. Same non-idempotent
+// shape as pauseVM.
 func resumeVM(ctx context.Context, hc *http.Client) error {
 	body, err := json.Marshal(map[string]string{"state": vmStateResumed})
 	if err != nil {
 		return fmt.Errorf("marshal resume request: %w", err)
 	}
-	return fcAPI(ctx, hc, http.MethodPatch, "/vm", body)
+	return fcAPIOnce(ctx, hc, http.MethodPatch, "/vm", body)
 }
 
 // createSnapshotFC creates a full VM snapshot (vmstate + memory file) in destDir.
-// Bypasses fcAPI's retry layer — see hypervisor.VMMemTransferTimeout.
+// Bypasses retry — memory transfer takes minutes; resending after a transient
+// error would re-transfer multi-GiB and overwrite a partial state.json.
 func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 	body, err := json.Marshal(fcSnapshotCreate{
 		SnapshotPath: filepath.Join(destDir, snapshotVMStateFile),
@@ -190,14 +206,14 @@ func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 		return fmt.Errorf("marshal snapshot/create request: %w", err)
 	}
 	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/snapshot/create", body, http.StatusNoContent)
 	return err
 }
 
 // loadSnapshotFC loads a VM snapshot from sourceDir into a freshly started FC process.
 // networkOverrides replaces TAP devices from the snapshot with new ones.
-// Bypasses fcAPI's retry layer — see hypervisor.VMMemTransferTimeout.
+// Bypasses retry — same memory-transfer reasoning as createSnapshotFC.
 func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOverrides []fcNetworkOverride) error {
 	body, err := json.Marshal(fcSnapshotLoad{
 		SnapshotPath: filepath.Join(sourceDir, snapshotVMStateFile),
@@ -211,7 +227,7 @@ func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOver
 		return fmt.Errorf("marshal snapshot/load request: %w", err)
 	}
 	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/snapshot/load", body, http.StatusNoContent)
 	return err
 }

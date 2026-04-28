@@ -104,16 +104,30 @@ func vmAPICall(ctx context.Context, hc *http.Client, endpoint string, body []byt
 	return utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
 
+// vmAPIOnce sends a single PUT without DoWithRetry. Use for non-idempotent
+// endpoints — e.g. vm.add-fs / vm.add-device — where a retry after a
+// network drop or 5xx that landed on CH after the device was already added
+// would surface as a misleading "duplicate id" rejection.
+func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) ([]byte, error) {
+	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
+}
+
+// shutdownVM, pauseVM, resumeVM are all CH state transitions; a second call
+// in the wrong state returns an error. Route through vmAPIOnce so a retry
+// after a lost response cannot mask the original success.
 func shutdownVM(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.shutdown", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.shutdown", nil)
+	return err
 }
 
 func pauseVM(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.pause", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.pause", nil)
+	return err
 }
 
 func resumeVM(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.resume", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.resume", nil)
+	return err
 }
 
 // snapshotVM and restoreVM temporarily extend the client timeout for
@@ -127,7 +141,7 @@ func snapshotVM(ctx context.Context, hc *http.Client, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshal snapshot request: %w", err)
 	}
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/api/v1/vm.snapshot", body, http.StatusNoContent)
 	return err
 }
@@ -145,25 +159,35 @@ func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand 
 	if err != nil {
 		return fmt.Errorf("marshal restore request: %w", err)
 	}
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/api/v1/vm.restore", body, http.StatusNoContent)
 	return err
 }
 
+// addDiskVM and addNetVM are the same non-idempotent shape as add-fs/add-device
+// — a retry after CH already attached the device hits "duplicate id" and
+// masks the original success. Used during clone (cidata hot-plug, NIC swap)
+// after vm.restore.
 func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
 	body, err := json.Marshal(disk)
 	if err != nil {
 		return fmt.Errorf("marshal add-disk request: %w", err)
 	}
-	return vmAPI(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
+	_, err = vmAPIOnce(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
+	return err
 }
 
+// removeDeviceVM is non-idempotent: a retry after CH already detached the
+// device but the response was lost would surface as "id not found" and mask
+// the original success. Route through vmAPIOnce, same shape as the add-* hot
+// paths.
 func removeDeviceVM(ctx context.Context, hc *http.Client, deviceID string) error {
 	body, err := json.Marshal(map[string]string{"id": deviceID})
 	if err != nil {
 		return fmt.Errorf("marshal remove-device request: %w", err)
 	}
-	return vmAPI(ctx, hc, "vm.remove-device", body)
+	_, err = vmAPIOnce(ctx, hc, "vm.remove-device", body)
+	return err
 }
 
 func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
@@ -171,31 +195,8 @@ func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 	if err != nil {
 		return fmt.Errorf("marshal add-net request: %w", err)
 	}
-	return vmAPI(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
-}
-
-func addFsVM(ctx context.Context, hc *http.Client, fs chFs) (chPciDeviceInfo, error) {
-	body, err := json.Marshal(fs)
-	if err != nil {
-		return chPciDeviceInfo{}, fmt.Errorf("marshal add-fs request: %w", err)
-	}
-	resp, err := vmAPICall(ctx, hc, "vm.add-fs", body, http.StatusOK, http.StatusNoContent)
-	if err != nil {
-		return chPciDeviceInfo{}, err
-	}
-	return decodePciDeviceInfo(resp)
-}
-
-func addDeviceVM(ctx context.Context, hc *http.Client, dev chDevice) (chPciDeviceInfo, error) {
-	body, err := json.Marshal(dev)
-	if err != nil {
-		return chPciDeviceInfo{}, fmt.Errorf("marshal add-device request: %w", err)
-	}
-	resp, err := vmAPICall(ctx, hc, "vm.add-device", body, http.StatusOK, http.StatusNoContent)
-	if err != nil {
-		return chPciDeviceInfo{}, err
-	}
-	return decodePciDeviceInfo(resp)
+	_, err = vmAPIOnce(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
+	return err
 }
 
 // getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
@@ -227,17 +228,13 @@ func powerButton(ctx context.Context, hc *http.Client) error {
 	return vmAPI(ctx, hc, "vm.power-button", nil)
 }
 
-// queryConsolePTY retrieves the virtio-console PTY path from a running CH instance
-// via GET /api/v1/vm.info. Returns empty string if the console is not in Pty mode.
+// queryConsolePTY retrieves the virtio-console PTY path from a running CH
+// instance via GET /api/v1/vm.info. Returns empty string if the console is
+// not in Pty mode.
 func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
-	hc := utils.NewSocketHTTPClient(apiSocketPath)
-	body, err := utils.DoAPI(ctx, hc, http.MethodGet, "http://localhost/api/v1/vm.info", nil, http.StatusOK)
+	info, err := getVMInfo(ctx, utils.NewSocketHTTPClient(apiSocketPath))
 	if err != nil {
-		return "", fmt.Errorf("query vm.info: %w", err)
-	}
-	var info chVMInfoResponse
-	if err := json.Unmarshal(body, &info); err != nil {
-		return "", fmt.Errorf("decode vm.info: %w", err)
+		return "", err
 	}
 	if info.Config.Console.File == "" {
 		return "", fmt.Errorf("console PTY not available (mode=%s)", info.Config.Console.Mode)

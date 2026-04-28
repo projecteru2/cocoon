@@ -17,10 +17,6 @@ import (
 const (
 	DefaultNumQueues = 1
 	DefaultQueueSize = 1024
-
-	// Tag length cap mirrors the conservative virtio-fs mount tag limit;
-	// longer tags risk truncation across kernels.
-	MaxTagLen = 36
 )
 
 var (
@@ -60,25 +56,30 @@ type Lister interface {
 	FsList(ctx context.Context, vmRef string) ([]Attached, error)
 }
 
-// Validate enforces required fields and applies queue-size defaults.
-func (s *Spec) Validate() error {
+// Normalize enforces required fields and applies queue-size defaults.
+// Mutates the receiver — callers expect the post-call Spec to be ready
+// for serialization. Mirror vfio.Spec.NormalizedPath in spirit (compute
+// + validate in one call) so future Specs in extend/ converge on the
+// same idiom rather than fan out into pure-Validate vs. mutating-Validate
+// styles.
+func (s *Spec) Normalize() error {
 	if s.Socket == "" {
-		return fmt.Errorf("--socket is required")
+		return fmt.Errorf("socket is required")
 	}
 	if !filepath.IsAbs(s.Socket) {
-		return fmt.Errorf("--socket must be absolute, got %q", s.Socket)
+		return fmt.Errorf("socket must be absolute, got %q", s.Socket)
 	}
 	if s.Tag == "" {
-		return fmt.Errorf("--tag is required")
+		return fmt.Errorf("tag is required")
 	}
 	if !validTagRe.MatchString(s.Tag) {
-		return fmt.Errorf("--tag %q invalid: must match [A-Za-z0-9][A-Za-z0-9_-]{0,35}", s.Tag)
+		return fmt.Errorf("tag %q invalid: must match [A-Za-z0-9][A-Za-z0-9_-]{0,35}", s.Tag)
 	}
 	if s.NumQueues < 0 {
-		return fmt.Errorf("--num-queues must be non-negative, got %d", s.NumQueues)
+		return fmt.Errorf("num-queues must be non-negative, got %d", s.NumQueues)
 	}
 	if s.QueueSize < 0 {
-		return fmt.Errorf("--queue-size must be non-negative, got %d", s.QueueSize)
+		return fmt.Errorf("queue-size must be non-negative, got %d", s.QueueSize)
 	}
 	if s.NumQueues == 0 {
 		s.NumQueues = DefaultNumQueues

@@ -133,19 +133,34 @@ func IsRetryable(err error) bool {
 // successCodes[0] is the primary code passed to DoAPI; codes[1:] are accepted
 // as success on retry (silent nil-body return).
 func DoAPIWithRetry(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
-	if len(successCodes) == 0 {
-		successCodes = []int{http.StatusNoContent}
-	}
-	primary := successCodes[0]
 	return DoWithRetry(ctx, func() ([]byte, error) {
-		resp, apiErr := DoAPI(ctx, hc, method, url, body, primary)
-		if apiErr == nil {
-			return resp, nil
-		}
-		var ae *APIError
-		if errors.As(apiErr, &ae) && slices.Contains(successCodes[1:], ae.Code) {
-			return nil, nil
-		}
-		return nil, apiErr
+		return doAPI(ctx, hc, method, url, body, successCodes...)
 	})
+}
+
+// DoAPIOnce sends a single request without DoWithRetry. Use for endpoints
+// whose action is non-idempotent: a retry after the request landed but the
+// response was lost would surface as a duplicate / conflict error rather
+// than a real failure (e.g. CH vm.add-fs / vm.add-device, snapshot/create).
+func DoAPIOnce(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
+	return doAPI(ctx, hc, method, url, body, successCodes...)
+}
+
+// doAPI is DoAPI with two conveniences: it defaults to 204 No Content when
+// successCodes is empty, and accepts successCodes[1:] as success (returning
+// a nil body, mirroring the retry path's "tolerated alt" contract).
+func doAPI(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
+	primary := http.StatusNoContent
+	if len(successCodes) > 0 {
+		primary = successCodes[0]
+	}
+	resp, apiErr := DoAPI(ctx, hc, method, url, body, primary)
+	if apiErr == nil {
+		return resp, nil
+	}
+	var ae *APIError
+	if errors.As(apiErr, &ae) && len(successCodes) > 1 && slices.Contains(successCodes[1:], ae.Code) {
+		return nil, nil
+	}
+	return nil, apiErr
 }

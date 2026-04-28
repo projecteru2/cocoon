@@ -112,32 +112,6 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 	return cmdcore.OutputJSON(out)
 }
 
-// collectAttachedDevices reads runtime fs/vfio device lists from the
-// backend. Errors are logged and dropped — inspect should not fail just
-// because vm.info is briefly unreachable.
-func collectAttachedDevices(ctx context.Context, hyper hypervisor.Hypervisor, ref string) *attachedDevices {
-	logger := log.WithFunc("cmd.vm.inspect")
-	out := &attachedDevices{}
-	if l, ok := hyper.(fs.Lister); ok {
-		if devs, err := l.FsList(ctx, ref); err != nil {
-			logger.Warnf(ctx, "list fs devices for %s: %v", ref, err)
-		} else {
-			out.Fs = devs
-		}
-	}
-	if l, ok := hyper.(vfio.Lister); ok {
-		if devs, err := l.DeviceList(ctx, ref); err != nil {
-			logger.Warnf(ctx, "list vfio devices for %s: %v", ref, err)
-		} else {
-			out.Devices = devs
-		}
-	}
-	if len(out.Fs) == 0 && len(out.Devices) == 0 {
-		return nil
-	}
-	return out
-}
-
 func (h Handler) Console(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {
@@ -340,4 +314,34 @@ func batchRoutedCmd(ctx context.Context, cmd *cobra.Command, name, pastTense str
 		logger.Infof(ctx, "no VMs %s", pastTense)
 	}
 	return nil
+}
+
+// collectAttachedDevices reads runtime fs/vfio device lists from the
+// backend. Errors are logged and dropped — inspect should not fail just
+// because vm.info is briefly unreachable.
+//
+// TODO(inspect): the two Lister calls each fetch their own vm.info. A
+// combined Lister in extend/ would let inspect pay one HTTP round-trip
+// instead of two. Mirrored on cloudhypervisor/extend.go FsList/DeviceList.
+func collectAttachedDevices(ctx context.Context, hyper hypervisor.Hypervisor, ref string) *attachedDevices {
+	logger := log.WithFunc("cmd.vm.inspect")
+	out := &attachedDevices{}
+	if l, ok := hyper.(fs.Lister); ok {
+		if devs, err := l.FsList(ctx, ref); err != nil {
+			logger.Warnf(ctx, "list fs devices for %s: %v", ref, err)
+		} else {
+			out.Fs = devs
+		}
+	}
+	if l, ok := hyper.(vfio.Lister); ok {
+		if devs, err := l.DeviceList(ctx, ref); err != nil {
+			logger.Warnf(ctx, "list vfio devices for %s: %v", ref, err)
+		} else {
+			out.Devices = devs
+		}
+	}
+	if len(out.Fs) == 0 && len(out.Devices) == 0 {
+		return nil
+	}
+	return out
 }

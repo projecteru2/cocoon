@@ -87,14 +87,13 @@ type chFs struct {
 	ID        string `json:"id,omitempty"`
 	Tag       string `json:"tag"`
 	Socket    string `json:"socket"`
-	NumQueues int    `json:"num_queues"`
-	QueueSize int    `json:"queue_size"`
+	NumQueues int    `json:"num_queues,omitempty"`
+	QueueSize int    `json:"queue_size,omitempty"`
 }
 
 type chDevice struct {
-	ID    string `json:"id,omitempty"`
-	Path  string `json:"path"`
-	IOMMU bool   `json:"iommu,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Path string `json:"path"`
 }
 
 // chPciDeviceInfo is the response body from vm.add-fs / vm.add-device /
