@@ -144,11 +144,9 @@ func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid 
 	return fn(pid)
 }
 
-// WithPausedVM pauses a running VM, runs fn, then resumes it. Resume is
-// guaranteed via defer: if fn returns an error the resume failure is logged
-// and the inner error is propagated; if fn succeeds the resume error is
-// promoted to the return value (snapshot data is captured but the VM is
-// stuck). Both backends use this around snapshot capture.
+// WithPausedVM pauses, runs fn, resumes. Resume on the success path is eager
+// so its error promotes to the return; on fn-error the deferred resume only
+// logs (the inner error wins).
 func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume, fn func() error) error {
 	return b.WithRunningVM(ctx, rec, func(_ int) error {
 		if err := pause(); err != nil {
@@ -665,21 +663,17 @@ func SocketPath(runDir string) string { return filepath.Join(runDir, APISocketNa
 
 func ConsoleSockPath(runDir string) string { return filepath.Join(runDir, ConsoleSockName) }
 
-// LaunchSpec carries the per-call inputs to LaunchVMProcess. The shared
-// BinaryName / SocketWaitTimeout come from the Backend's BackendConfig and
-// don't repeat here.
 type LaunchSpec struct {
 	Cmd       *exec.Cmd
 	PIDPath   string
 	SockPath  string
 	NetnsPath string // empty = host netns
-	OnFail    func() // optional cleanup hook on any error path
+	OnFail    func() // optional cleanup on any error path
 }
 
-// LaunchVMProcess optionally enters a netns, starts spec.Cmd, writes the PID
-// file, and waits for the API socket. On any post-Start error the process is
-// killed and the PID file is removed before returning. The caller is
-// responsible for reaping cmd via cmd.Wait() in a goroutine on success.
+// LaunchVMProcess starts spec.Cmd and waits for the API socket. On any error
+// after Start, the process is killed and the PID file is removed. Caller
+// reaps cmd via cmd.Wait() in a goroutine on success.
 func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int, err error) {
 	started := false
 	pidWritten := false
@@ -725,8 +719,7 @@ func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int
 	return pid, nil
 }
 
-// PrepareStagingDir creates a sibling staging directory, extracts the snapshot
-// tar into it, and returns a cleanup function that removes the staging dir.
+// PrepareStagingDir extracts the snapshot tar into a sibling staging dir.
 func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cleanup func(), err error) {
 	stagingDir = runDir + ".restore-staging"
 	if err = os.RemoveAll(stagingDir); err != nil {
@@ -743,24 +736,18 @@ func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cl
 	return stagingDir, cleanup, nil
 }
 
-// RestoreSpec carries the backend-specific hooks for RestoreSequence. The
-// shared template handles host-CPU validation, ResolveForRestore, staging,
-// preflight, kill, and merge — backends supply only the differing pieces.
 type RestoreSpec struct {
 	VMCfg         *types.VMConfig
 	Snapshot      io.Reader
-	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error // optional pre-kill resource validation
+	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error
 	Preflight     func(stagingDir string, rec *VMRecord) error
 	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap          func(rec *VMRecord, fn func() error) error // optional disk lock wrapping merge+afterExtract
-	BeforeMerge   func(rec *VMRecord) error                  // optional pre-merge hook (e.g. FC removes stale COW)
+	Wrap          func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
+	BeforeMerge   func(rec *VMRecord) error                  // e.g. FC removes stale COW
 	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// DirectRestoreSpec mirrors RestoreSpec but takes a local source directory
-// rather than a streaming tar. Populate replaces the staging+merge step:
-// backends decide how to copy the snapshot files into rec.RunDir (typically
-// clean old artifacts, then per-file hardlink/reflink/copy).
+// DirectRestoreSpec is RestoreSpec for a local srcDir rather than a tar; Populate replaces staging+merge.
 type DirectRestoreSpec struct {
 	VMCfg         *types.VMConfig
 	SrcDir        string
@@ -772,9 +759,7 @@ type DirectRestoreSpec struct {
 	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// RestoreSequence runs the shared restore flow used by both backends:
-// validate host CPU, resolve VM, stage tar, preflight, kill, merge, then
-// hand off to AfterExtract for backend-specific resume.
+// RestoreSequence: validate CPU → resolve → stage → preflight → kill → merge → AfterExtract.
 func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec RestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -827,10 +812,7 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	return result, nil
 }
 
-// DirectRestoreSequence runs the local-snapshot-dir variant of restore: the
-// caller supplies a srcDir already on disk. Same outage-safe ordering as
-// RestoreSequence (preflight before kill, optional disk lock around populate
-// + afterExtract).
+// DirectRestoreSequence: like RestoreSequence but Populate replaces staging+merge.
 func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec DirectRestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err

@@ -18,7 +18,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Create reserves a VM record, prepares disks, and leaves the VM in Created state.
 func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (_ *types.VM, err error) {
 	if err = hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
 		return nil, err
@@ -70,7 +69,6 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 	return info, nil
 }
 
-// prepareOCI creates the raw COW disk and final kernel cmdline.
 func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
 	storageConfigs, err := hypervisor.PrepareOCICOW(ctx, fc.conf.COWRawPath(vmID), vmCfg.Storage, storageConfigs)
 	if err != nil {
@@ -99,7 +97,7 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 	return storageConfigs, nil
 }
 
-// EnsureVmlinux returns an uncompressed ELF kernel path.
+// EnsureVmlinux decompresses kernelPath if needed and returns the ELF path.
 func EnsureVmlinux(kernelPath string) (string, error) {
 	elfMagic := []byte{0x7f, 'E', 'L', 'F'}
 
@@ -138,7 +136,6 @@ func EnsureVmlinux(kernelPath string) (string, error) {
 	return vmlinuxPath, nil
 }
 
-// decompressKernel scans a bzImage for supported compressed payloads.
 func decompressKernel(data []byte) ([]byte, error) {
 	type kernelCodec struct {
 		name  string
@@ -178,8 +175,8 @@ func decompressZstd(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("new zstd reader: %w", err)
 	}
 	defer dec.Close()
-	// DecodeAll may error on trailing data after the first frame, but any
-	// prefix already written to out is valid — caller validates via ELF magic.
+	// DecodeAll may error on trailing data after the first frame; any prefix
+	// already in out is valid — caller validates via ELF magic.
 	out, err := dec.DecodeAll(data, nil)
 	if len(out) == 0 {
 		return nil, fmt.Errorf("zstd decode: %w", err)
@@ -202,12 +199,9 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	cowDev := devPath(len(layerDevs))
 
 	var cmdline strings.Builder
-	// FC serial console is ttyS0 (not hvc0 like CH's virtio-console).
-	// reboot=k: FC has no ACPI PM — use i8042 keyboard controller reset so
-	// guest reboot/shutdown triggers FC process exit instead of hanging.
-	// pci=off: FC has no PCI bus, skip probing (~50-100ms saved)
-	// i8042.noaux: no PS/2 mouse, skip auxiliary device probe timeout
-	// 8250.nr_uarts=1: FC exposes one serial port, skip probing for 3 others
+	// FC quirks: ttyS0 (not hvc0), reboot=k (no ACPI PM, use i8042 reset so
+	// shutdown exits FC instead of hanging), pci=off + i8042.noaux +
+	// 8250.nr_uarts=1 skip probes for absent hardware.
 	fmt.Fprintf(&cmdline,
 		"console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		strings.Join(layerDevs, ","), cowDev,
@@ -221,7 +215,7 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	return cmdline.String()
 }
 
-// Follows Linux naming: vda..vdz, vdaa..vdaz, vdba..vdbz, ...
+// devPath maps idx to vda..vdz, vdaa..vdaz, vdba..vdbz, ...
 func devPath(idx int) string {
 	const letters = 26
 	if idx < letters {

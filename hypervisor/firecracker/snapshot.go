@@ -17,9 +17,7 @@ const (
 	snapshotMemFile     = "mem"
 )
 
-// Snapshot pauses the VM, captures its full state (CPU/device state via FC
-// snapshot API + memory file + COW disk via reflink copy), resumes the VM,
-// and returns a streaming tar.gz reader of the snapshot directory.
+// Snapshot pauses, captures vmstate+mem+COW, resumes, and streams the result.
 func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
 	vmID, err := fc.ResolveRef(ctx, ref)
 	if err != nil {
@@ -45,9 +43,8 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 
 	pause := func() error { return pauseVM(ctx, hc) }
 	resume := func() error { return resumeVM(context.WithoutCancel(ctx), hc) }
-	// Lock every writable disk so a concurrent clone's rename+symlink
-	// redirect can't race this snapshot's reflink. Dictionary order keeps
-	// concurrent callers deadlock-free.
+	// Lock writable disks: a concurrent clone's rename+symlink redirect would
+	// otherwise race this snapshot's reflink. Dictionary order avoids deadlock.
 	if err := withSourceWritableDisksLocked(rec.StorageConfigs, func() error {
 		return fc.WithPausedVM(ctx, &rec, pause, resume, func() error {
 			if err := createSnapshotFC(ctx, sockPath, tmpDir); err != nil {
@@ -63,9 +60,6 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 		return nil, nil, fmt.Errorf("snapshot VM %s: %w", vmID, err)
 	}
 
-	// Save snapshot metadata (absolute paths) so clones can reconstruct
-	// storage/boot config without depending on live VM records.
-	// FC snapshots require the same directory layout — paths are stored as-is.
 	if metaErr := hypervisor.SaveSnapshotMeta(tmpDir, buildSnapshotMeta(&rec)); metaErr != nil {
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("save snapshot metadata: %w", metaErr)
@@ -79,9 +73,8 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	return fc.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
 }
 
-// buildSnapshotMeta builds the FC sidecar from a live VM record. The kernel
-// path is rewritten to vmlinuz so clones receive the portable artifact,
-// not the FC-specific vmlinux cache.
+// buildSnapshotMeta rewrites kernel path to vmlinuz so clones get the portable
+// artifact instead of the FC-specific vmlinux cache.
 func buildSnapshotMeta(rec *hypervisor.VMRecord) *hypervisor.SnapshotMeta {
 	meta := &hypervisor.SnapshotMeta{
 		CPU:            rec.Config.CPU,

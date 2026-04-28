@@ -11,16 +11,10 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// SnapshotMetaFile is the cocoon-owned sidecar persisted alongside the
-// hypervisor's native snapshot files. It carries data the hypervisor's
-// own config schema cannot hold (Role/MountPoint/FSType/DirectIO on disks)
-// and FC-specific resource numbers (CPU/Memory) that are not in the
-// vmstate binary.
+// SnapshotMetaFile is the cocoon-owned sidecar carrying fields the hypervisor's
+// native config can't hold (Role/MountPoint/FSType/DirectIO; FC CPU/Memory).
 const SnapshotMetaFile = "cocoon.json"
 
-// SnapshotMeta is the on-disk shape of the cocoon sidecar. CH leaves
-// CPU/Memory zero (omitempty drops them); FC fills them in because FC
-// snapshot/load cannot resize the guest after restore.
 type SnapshotMeta struct {
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
@@ -28,15 +22,10 @@ type SnapshotMeta struct {
 	Memory         int64                  `json:"memory,omitempty"`
 }
 
-// SaveSnapshotMeta atomically writes meta to dir/SnapshotMetaFile. Atomic
-// rename matters: clone/restore later read the sidecar after this write,
-// and a partial file from a crashed cocoon would surface as a JSON decode
-// error blocking those flows.
 func SaveSnapshotMeta(dir string, meta *SnapshotMeta) error {
 	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotMetaFile), meta)
 }
 
-// LoadSnapshotMeta reads and decodes dir/SnapshotMetaFile.
 func LoadSnapshotMeta(dir string) (*SnapshotMeta, error) {
 	data, err := os.ReadFile(filepath.Join(dir, SnapshotMetaFile)) //nolint:gosec
 	if err != nil {
@@ -49,10 +38,6 @@ func LoadSnapshotMeta(dir string) (*SnapshotMeta, error) {
 	return &meta, nil
 }
 
-// LoadAndValidateMeta loads the sidecar from dir and rejects paths that
-// escape rootDir or runDir. Both backends use this entry point so an
-// imported snapshot's cocoon.json cannot smuggle paths outside cocoon-managed
-// roots before any subsequent open/rename operation runs.
 func LoadAndValidateMeta(dir, rootDir, runDir string) (*SnapshotMeta, error) {
 	meta, err := LoadSnapshotMeta(dir)
 	if err != nil {
@@ -64,9 +49,6 @@ func LoadAndValidateMeta(dir, rootDir, runDir string) (*SnapshotMeta, error) {
 	return meta, nil
 }
 
-// CloneStorageConfigs returns a deep copy of storageConfigs suitable for
-// embedding in an on-disk sidecar — subsequent mutations on the live VM
-// record won't taint the persisted JSON.
 func CloneStorageConfigs(storageConfigs []*types.StorageConfig) []*types.StorageConfig {
 	out := make([]*types.StorageConfig, 0, len(storageConfigs))
 	for _, sc := range storageConfigs {
@@ -76,10 +58,8 @@ func CloneStorageConfigs(storageConfigs []*types.StorageConfig) []*types.Storage
 	return out
 }
 
-// IsUnderDir reports whether path resolves to a location strictly under dir.
-// Used to reject snapshot-imported paths that escape cocoon-managed roots.
-// An empty dir always returns false to disable the check rather than match
-// every path.
+// IsUnderDir reports whether path is strictly under dir. An empty dir returns
+// false (disables the check) rather than matching every path.
 func IsUnderDir(path, dir string) bool {
 	if dir == "" {
 		return false
@@ -89,9 +69,8 @@ func IsUnderDir(path, dir string) bool {
 	return strings.HasPrefix(cleaned, root+string(filepath.Separator))
 }
 
-// ValidateMetaPaths rejects sidecar paths that escape cocoon-managed roots.
-// Snapshots may be imported across hosts with arbitrary cocoon.json content,
-// so every path is checked before subsequent code opens the file.
+// ValidateMetaPaths rejects sidecar paths escaping cocoon-managed roots; an
+// imported snapshot's cocoon.json is otherwise untrusted.
 func ValidateMetaPaths(meta *SnapshotMeta, rootDir, runDir string) error {
 	for _, sc := range meta.StorageConfigs {
 		if !IsUnderDir(sc.Path, rootDir) && !IsUnderDir(sc.Path, runDir) {
@@ -109,9 +88,8 @@ func ValidateMetaPaths(meta *SnapshotMeta, rootDir, runDir string) error {
 	return nil
 }
 
-// ReverseLayers walks storageConfigs once, collecting Role==Layer entries in
-// reverse order via project. The reversed result mirrors overlayfs lowerdir
-// semantics where the topmost layer comes first.
+// ReverseLayers projects Role==Layer entries through fn in reverse order
+// (topmost layer first, matching overlayfs lowerdir semantics).
 func ReverseLayers[T any](storageConfigs []*types.StorageConfig, project func(idx int, sc *types.StorageConfig) T) []T {
 	var layers []*types.StorageConfig
 	for _, sc := range storageConfigs {

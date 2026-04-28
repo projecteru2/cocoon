@@ -5,11 +5,8 @@ import (
 	"maps"
 )
 
-// LookupCopy returns a shallow copy of the value at key in m.
-// Returns an error if the key is absent or the stored pointer is nil.
-// NOTE: this is a shallow copy — pointer, slice, and map fields inside T
-// still reference the original data. Callers must not mutate such fields
-// on the returned value without additional deep-copy logic.
+// LookupCopy returns a shallow copy at key. Pointer/slice/map fields inside T
+// still alias the original — callers must not mutate them without deep-copying.
 func LookupCopy[T any](m map[string]*T, key string) (T, error) {
 	v := m[key]
 	if v == nil {
@@ -33,7 +30,6 @@ func MergeSets[K comparable](sets ...map[K]struct{}) map[K]struct{} {
 }
 
 // MapValues projects every non-nil value in m through fn into a slice.
-// Used by List endpoints to materialize record maps without hand-rolled loops.
 func MapValues[K comparable, V, R any](m map[K]*V, fn func(*V) R) []R {
 	if len(m) == 0 {
 		return nil

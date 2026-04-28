@@ -10,16 +10,12 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// DirectClone creates a new VM from a local snapshot directory.
-// Files are handled per-type: hardlink for memory-range-*, reflink/copy for
-// the COW disk, plain copy for small metadata, and cidata is regenerated.
+// DirectClone clones from a local snapshot dir. Per-type: hardlink memory-range-*,
+// reflink/copy COW, plain copy metadata; cidata is regenerated.
 func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error) {
 	return ch.DirectCloneBase(ctx, vmID, vmCfg, networkConfigs, snapshotConfig, srcDir, cloneSnapshotFiles, ch.cloneAfterExtract)
 }
 
-// DirectRestore reverts a running VM using a local snapshot directory.
-// Files are handled per-type: hardlink for memory-range-*, reflink/copy for
-// the COW disk, plain copy for small metadata.
 func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
 	return ch.DirectRestoreSequence(ctx, vmRef, hypervisor.DirectRestoreSpec{
 		VMCfg:     vmCfg,
@@ -34,8 +30,6 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 	})
 }
 
-// populateRunDirFromSrc cleans rec.RunDir of old snapshot files then copies
-// new ones from srcDir using the per-backend cloneSnapshotFiles strategy.
 func populateRunDirFromSrc(rec *hypervisor.VMRecord, srcDir string) error {
 	if err := cleanSnapshotFiles(rec.RunDir); err != nil {
 		return fmt.Errorf("clean old snapshot files: %w", err)
@@ -46,9 +40,6 @@ func populateRunDirFromSrc(rec *hypervisor.VMRecord, srcDir string) error {
 	return nil
 }
 
-// cloneSnapshotFiles copies snapshot files from srcDir to dstDir using
-// per-file strategies: hardlink/symlink for memory-range-*, reflink/sparse
-// for COW disks, plain copy for metadata (config.json, state.json).
 func cloneSnapshotFiles(dstDir, srcDir string) error {
 	chCfg, _, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
 	if err != nil {
@@ -67,10 +58,8 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 	})
 }
 
-// cleanSnapshotFiles removes snapshot-specific files from runDir.
-// COW files have arbitrary names and are overwritten by cloneSnapshotFiles;
-// data disks (data-<name>.raw) and the cocoon.json sidecar are listed
-// explicitly so stale survivors from a previous incarnation don't linger.
+// cleanSnapshotFiles enumerates by name so stale data-*.raw and cocoon.json
+// from a previous incarnation don't linger; COW files are overwritten anyway.
 func cleanSnapshotFiles(runDir string) error {
 	return hypervisor.CleanSnapshotFiles(runDir, func(name string) bool {
 		switch {
@@ -87,7 +76,6 @@ func cleanSnapshotFiles(runDir string) error {
 	})
 }
 
-// identifyCOWFiles returns the set of basenames of writable (COW) disk files.
 func identifyCOWFiles(cfg *chVMConfig) map[string]bool {
 	m := make(map[string]bool)
 	for _, d := range cfg.Disks {

@@ -18,8 +18,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Start launches the Firecracker process for each VM ref, configures it
-// via the REST API, and issues InstanceStart.
+// Start launches FC, configures via REST, then InstanceStart.
 func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, error) {
 	return fc.StartAll(ctx, refs, fc.startOne)
 }
@@ -46,7 +45,6 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 		return fmt.Errorf("launch VM: %w", err)
 	}
 
-	// Configure VM via REST API and start the instance.
 	if err := fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), rec); err != nil {
 		fc.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
 		fc.MarkError(ctx, id)
@@ -55,8 +53,7 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 	return nil
 }
 
-// configureVM sends the pre-boot configuration to FC via REST API,
-// then issues InstanceStart to boot the guest.
+// configureVM sends pre-boot config via REST then InstanceStart.
 func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hypervisor.VMRecord) error {
 	memMiB := int(rec.Config.Memory >> 20) //nolint:mnd
 	hugePages := hugePagesNone
@@ -113,8 +110,7 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 		}
 	}
 
-	// Balloon: 25% of memory returned, only when memory >= MinBalloonMemory.
-	// Matches Cloud Hypervisor's balloon behavior.
+	// Balloon 25% of memory above MinBalloonMemory (matches CH).
 	if rec.Config.Memory >= hypervisor.MinBalloonMemory {
 		balloonMiB := memMiB / hypervisor.DefaultBalloonDiv
 		if err := putBalloon(ctx, hc, fcBalloon{
@@ -136,13 +132,10 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 	return nil
 }
 
-// launchProcess starts the firecracker binary with --api-sock,
-// creates a PTY pair for the serial console, starts a background
-// relay process for console.sock, writes the PID file, and waits
-// for the API socket.
+// launchProcess starts firecracker, sets up PTY+console relay, waits for socket.
 func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, sockPath string, withNetwork bool) (int, error) {
 	fcLog := filepath.Join(rec.LogDir, "firecracker.log")
-	// FC requires the log file to exist before startup (opens O_WRONLY|O_APPEND, no O_CREATE).
+	// FC opens log O_WRONLY|O_APPEND without O_CREATE — touch first.
 	if f, createErr := os.Create(fcLog); createErr == nil { //nolint:gosec
 		_ = f.Close()
 	}

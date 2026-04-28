@@ -12,9 +12,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Snapshot pauses the VM, captures its full state (CPU, memory, devices via CH
-// snapshot API, plus the COW disk via sparse copy), resumes the VM, and returns
-// a streaming tar.gz reader of the snapshot directory.
+// Snapshot pauses, captures CH state+COW, resumes, and streams the result.
 func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
 	vmID, err := ch.ResolveRef(ctx, ref)
 	if err != nil {
@@ -32,7 +30,6 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 	hc := utils.NewSocketHTTPClient(sockPath)
 
-	// Determine COW file path and name inside the tar archive.
 	directBoot := isDirectBoot(rec.BootConfig)
 	cowPath := ch.cowPath(vmID, directBoot)
 	cowName := "overlay.qcow2"
@@ -40,7 +37,6 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		cowName = "cow.raw"
 	}
 
-	// Create a temporary directory for the snapshot data.
 	tmpDir, err := os.MkdirTemp(ch.conf.VMRunDir(vmID), "snapshot-")
 	if err != nil {
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
@@ -61,8 +57,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		return nil, nil, fmt.Errorf("snapshot VM %s: %w", vmID, err)
 	}
 
-	// For cloudimg VMs, include cidata.img (per-VM cloud-init disk).
-	// cidata is read-only and static, so it can be copied outside the pause window.
+	// cidata is RO + static — safe to copy outside the pause window.
 	if !directBoot && !rec.Config.Windows {
 		cidataSrc := ch.conf.CidataPath(vmID)
 		if _, statErr := os.Stat(cidataSrc); statErr == nil {
@@ -78,7 +73,6 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		return nil, nil, fmt.Errorf("write snapshot metadata: %w", metaErr)
 	}
 
-	// Generate snapshot ID and record it on the VM atomically.
 	snapID, recErr := ch.RecordSnapshot(ctx, vmID, tmpDir)
 	if recErr != nil {
 		return nil, nil, recErr
@@ -87,10 +81,9 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 	return ch.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
 }
 
-// writeSnapshotMeta builds the cocoon.json sidecar by mirroring the
-// snapshot's config.json shape. Using activeDisks(rec) would diverge for a
-// cloudimg VM snapshotted post-FirstBooted but pre-restart: CH still holds
-// cidata, but activeDisks would skip it.
+// writeSnapshotMeta mirrors config.json's disk shape. activeDisks(rec) would
+// diverge for cloudimg post-FirstBooted but pre-restart: CH still holds cidata,
+// activeDisks would skip it.
 func writeSnapshotMeta(tmpDir string, rec *hypervisor.VMRecord) error {
 	chCfg, _, err := parseCHConfig(filepath.Join(tmpDir, "config.json"))
 	if err != nil {

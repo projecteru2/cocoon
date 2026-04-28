@@ -69,10 +69,9 @@ func TarDirStreamWithRemove(dir string) io.ReadCloser {
 	})
 }
 
-// PeekReader reads up to n bytes from the head of r and returns those bytes
-// alongside a reader that re-emits them followed by the rest of r. A short
-// read at EOF is not an error — the caller checks len(head). Used to sniff
-// magic bytes (gzip, qcow2) without forfeiting the stream.
+// PeekReader peeks up to n bytes and returns them along with a reader that
+// re-emits the head followed by the rest of r. A short read at EOF is not an
+// error — caller checks len(head).
 func PeekReader(r io.Reader, n int) ([]byte, io.Reader, error) {
 	head := make([]byte, n)
 	actual, err := io.ReadFull(r, head)

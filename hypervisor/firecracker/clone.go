@@ -17,20 +17,16 @@ import (
 
 const cloneBackupSuffix = ".cocoon-clone-backup"
 
-// driveRedirect records a temporary symlink replacing a source drive path.
 type driveRedirect struct {
 	symlinkPath string
 	backupPath  string
 	createdDir  bool
 }
 
-// Clone creates a new VM from a snapshot tar stream via FC snapshot/load.
 func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
 	return fc.CloneFromStream(ctx, vmID, vmCfg, networkConfigs, snapshotConfig, snapshot, fc.cloneAfterExtract)
 }
 
-// cloneAfterExtract contains all clone logic after snapshot data is in runDir.
-// FC snapshots require the same directory layout — paths are absolute.
 func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
 	logger := log.WithFunc("firecracker.Clone")
 
@@ -39,7 +35,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		return nil, fmt.Errorf("load snapshot metadata: %w", err)
 	}
 
-	// FC cannot update CPU/memory after snapshot/load. Reject overrides early.
+	// FC cannot update CPU/memory after snapshot/load.
 	if meta.CPU > 0 && vmCfg.CPU != meta.CPU {
 		return nil, fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", vmCfg.CPU, meta.CPU)
 	}
@@ -47,14 +43,12 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		return nil, fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
 	}
 
-	// Move extracted COW to canonical path.
 	cowPath := fc.conf.COWRawPath(vmID)
 	snapshotCOW := filepath.Join(runDir, cowFileName)
 	if renameErr := os.Rename(snapshotCOW, cowPath); renameErr != nil {
 		return nil, fmt.Errorf("move COW to canonical path: %w", renameErr)
 	}
 
-	// Rebuild storage: reuse RO layer paths from metadata, new COW path.
 	storageConfigs, err := rebuildCloneStorage(meta, cowPath)
 	if err != nil {
 		return nil, err
@@ -88,10 +82,9 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		bootCfg.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, dns)
 	}
 
-	// FC snapshot/load requires drives at the same absolute paths as the source.
-	// RO layers are shared blobs (same path). Only the COW path changed.
-	// TODO: Replace symlink redirect with drive_overrides when FC PR #5774
-	// (github.com/firecracker-microvm/firecracker/pull/5774) is merged.
+	// FC snapshot/load requires drives at source absolute paths; only COW path
+	// changed, so symlink-redirect the source path until drive_overrides
+	// (firecracker-microvm/firecracker#5774) lands.
 	sockPath := hypervisor.SocketPath(runDir)
 	withNetwork := len(networkConfigs) > 0
 	var pid int
@@ -144,13 +137,10 @@ func (fc *Firecracker) restoreAndResumeClone(
 		}
 	}()
 
-	// Use network_overrides to provide clone's TAP devices during snapshot/load.
-	// FC re-creates network devices from vmstate — overrides replace the
-	// source TAP with the clone's TAP so FC opens the right device.
+	// network_overrides points FC at the clone's TAP instead of the source TAP
+	// (FC recreates devices from vmstate). The earlier symlink redirect makes
+	// FC open the clone's COW; held fds survive its cleanup.
 	netOverrides := buildNetworkOverrides(networkConfigs)
-	// FC opens drive files during snapshot/load and holds the fds.
-	// The symlink redirect ensures FC opens the clone's COW, not the source's.
-	// No drive reconfiguration needed — fds survive symlink cleanup.
 	if err = loadSnapshotFC(ctx, sockPath, runDir, netOverrides); err != nil {
 		return fmt.Errorf("snapshot/load: %w", err)
 	}
@@ -161,21 +151,15 @@ func (fc *Firecracker) restoreAndResumeClone(
 	return nil
 }
 
-// rebuildCloneStorage produces the clone's storage list in the same order as
-// the snapshot's, rewriting paths as needed:
-//   - Layer disks keep their absolute paths (shared image blobs)
-//   - COW moves to the clone's cowPath
-//   - Data disks move to the clone's runDir under data-<serial>.raw
-//
-// FC has no cloudimg path, so Role==Cidata in meta is unexpected; treat it
-// as an error rather than silently dropping or copying it.
+// rebuildCloneStorage rewrites paths per role: Layer keeps source path (shared
+// blob), COW → clone cowPath, Data → clone runDir. Cidata is rejected (FC has
+// no cloudimg path).
 func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*types.StorageConfig, error) {
 	runDir := filepath.Dir(cowPath)
 	configs := hypervisor.CloneStorageConfigs(meta.StorageConfigs)
 	for i, sc := range configs {
 		switch sc.Role {
 		case types.StorageRoleLayer:
-			// keep Path as-is
 		case types.StorageRoleCOW:
 			sc.Path = cowPath
 		case types.StorageRoleData:

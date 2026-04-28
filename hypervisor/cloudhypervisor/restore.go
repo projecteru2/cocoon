@@ -13,7 +13,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Restore stages a snapshot tar before replacing the running VM state.
 func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
 	return ch.RestoreSequence(ctx, vmRef, hypervisor.RestoreSpec{
 		VMCfg:     vmCfg,
@@ -27,9 +26,8 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 	})
 }
 
-// preflightRestore loads the sidecar from srcDir, runs structural validation,
-// then asserts the snapshot's role sequence is a valid prefix of the live
-// record (cidata-only suffix on rec is the one allowed extension).
+// preflightRestore validates the sidecar and asserts the snapshot's role
+// sequence is a valid prefix of rec (cidata-only suffix is the one extension).
 func (ch *CloudHypervisor) preflightRestore(srcDir string, rec *hypervisor.VMRecord) error {
 	meta, err := hypervisor.LoadAndValidateMeta(srcDir, ch.conf.RootDir, ch.conf.Config.RunDir)
 	if err != nil {
@@ -41,7 +39,6 @@ func (ch *CloudHypervisor) preflightRestore(srcDir string, rec *hypervisor.VMRec
 	return hypervisor.ValidateRoleSequence(meta.StorageConfigs, rec.StorageConfigs)
 }
 
-// killForRestore stops the running CH process and cleans up runtime files.
 func (ch *CloudHypervisor) killForRestore(ctx context.Context, vmID string, rec *hypervisor.VMRecord) error {
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 	return ch.KillForRestore(ctx, vmID, rec, func(pid int) error {
@@ -49,7 +46,6 @@ func (ch *CloudHypervisor) killForRestore(ctx context.Context, vmID string, rec 
 	}, runtimeFiles)
 }
 
-// restoreAfterExtract resumes from snapshot data already placed in runDir.
 func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord, directBoot bool, cowPath string) (_ *types.VM, err error) {
 	logger := log.WithFunc("cloudhypervisor.Restore")
 
@@ -60,8 +56,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	}()
 
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
-	// Use sidecar length; rec may have trailing cidata that the snapshot
-	// lacks (cloudimg post-first-boot), prefix-slice trims it.
+	// rec may have trailing cidata absent from the snapshot (cloudimg post-first-boot); slice to sidecar length.
 	meta, metaErr := hypervisor.LoadAndValidateMeta(rec.RunDir, ch.conf.RootDir, ch.conf.Config.RunDir)
 	if metaErr != nil {
 		return nil, fmt.Errorf("load snapshot meta: %w", metaErr)
