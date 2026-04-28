@@ -112,16 +112,22 @@ func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byt
 	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
 
+// shutdownVM, pauseVM, resumeVM are all CH state transitions; a second call
+// in the wrong state returns an error. Route through vmAPIOnce so a retry
+// after a lost response cannot mask the original success.
 func shutdownVM(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.shutdown", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.shutdown", nil)
+	return err
 }
 
 func pauseVM(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.pause", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.pause", nil)
+	return err
 }
 
 func resumeVM(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.resume", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.resume", nil)
+	return err
 }
 
 // snapshotVM and restoreVM temporarily extend the client timeout for
@@ -158,12 +164,17 @@ func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand 
 	return err
 }
 
+// addDiskVM and addNetVM are the same non-idempotent shape as add-fs/add-device
+// — a retry after CH already attached the device hits "duplicate id" and
+// masks the original success. Used during clone (cidata hot-plug, NIC swap)
+// after vm.restore.
 func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
 	body, err := json.Marshal(disk)
 	if err != nil {
 		return fmt.Errorf("marshal add-disk request: %w", err)
 	}
-	return vmAPI(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
+	_, err = vmAPIOnce(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
+	return err
 }
 
 // removeDeviceVM is non-idempotent: a retry after CH already detached the
@@ -184,7 +195,8 @@ func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 	if err != nil {
 		return fmt.Errorf("marshal add-net request: %w", err)
 	}
-	return vmAPI(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
+	_, err = vmAPIOnce(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
+	return err
 }
 
 // getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
