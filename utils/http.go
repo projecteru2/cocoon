@@ -133,35 +133,33 @@ func IsRetryable(err error) bool {
 // successCodes[0] is the primary code passed to DoAPI; codes[1:] are accepted
 // as success on retry (silent nil-body return).
 func DoAPIWithRetry(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
-	primary, alt := splitSuccessCodes(successCodes)
 	return DoWithRetry(ctx, func() ([]byte, error) {
-		return doAPIAcceptingAlt(ctx, hc, method, url, body, primary, alt)
+		return doAPI(ctx, hc, method, url, body, successCodes...)
 	})
 }
 
 // DoAPIOnce sends a single request without DoWithRetry. Use for endpoints
 // whose action is non-idempotent: a retry after the request landed but the
 // response was lost would surface as a duplicate / conflict error rather
-// than a real failure (e.g. CH vm.add-fs / vm.add-device).
+// than a real failure (e.g. CH vm.add-fs / vm.add-device, snapshot/create).
 func DoAPIOnce(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
-	primary, alt := splitSuccessCodes(successCodes)
-	return doAPIAcceptingAlt(ctx, hc, method, url, body, primary, alt)
+	return doAPI(ctx, hc, method, url, body, successCodes...)
 }
 
-func splitSuccessCodes(codes []int) (primary int, alt []int) {
-	if len(codes) == 0 {
-		return http.StatusNoContent, nil
+// doAPI is DoAPI with two conveniences: it defaults to 204 No Content when
+// successCodes is empty, and accepts successCodes[1:] as success (returning
+// a nil body, mirroring the retry path's "tolerated alt" contract).
+func doAPI(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
+	primary := http.StatusNoContent
+	if len(successCodes) > 0 {
+		primary = successCodes[0]
 	}
-	return codes[0], codes[1:]
-}
-
-func doAPIAcceptingAlt(ctx context.Context, hc *http.Client, method, url string, body []byte, primary int, alt []int) ([]byte, error) {
 	resp, apiErr := DoAPI(ctx, hc, method, url, body, primary)
 	if apiErr == nil {
 		return resp, nil
 	}
 	var ae *APIError
-	if errors.As(apiErr, &ae) && slices.Contains(alt, ae.Code) {
+	if errors.As(apiErr, &ae) && len(successCodes) > 1 && slices.Contains(successCodes[1:], ae.Code) {
 		return nil, nil
 	}
 	return nil, apiErr

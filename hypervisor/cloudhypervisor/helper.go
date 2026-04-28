@@ -135,7 +135,7 @@ func snapshotVM(ctx context.Context, hc *http.Client, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("marshal snapshot request: %w", err)
 	}
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/api/v1/vm.snapshot", body, http.StatusNoContent)
 	return err
 }
@@ -153,7 +153,7 @@ func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand 
 	if err != nil {
 		return fmt.Errorf("marshal restore request: %w", err)
 	}
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/api/v1/vm.restore", body, http.StatusNoContent)
 	return err
 }

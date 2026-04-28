@@ -180,7 +180,8 @@ func resumeVM(ctx context.Context, hc *http.Client) error {
 }
 
 // createSnapshotFC creates a full VM snapshot (vmstate + memory file) in destDir.
-// Bypasses fcAPI's retry layer — see hypervisor.VMMemTransferTimeout.
+// Bypasses retry — memory transfer takes minutes; resending after a transient
+// error would re-transfer multi-GiB and overwrite a partial state.json.
 func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 	body, err := json.Marshal(fcSnapshotCreate{
 		SnapshotPath: filepath.Join(destDir, snapshotVMStateFile),
@@ -190,14 +191,14 @@ func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 		return fmt.Errorf("marshal snapshot/create request: %w", err)
 	}
 	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/snapshot/create", body, http.StatusNoContent)
 	return err
 }
 
 // loadSnapshotFC loads a VM snapshot from sourceDir into a freshly started FC process.
 // networkOverrides replaces TAP devices from the snapshot with new ones.
-// Bypasses fcAPI's retry layer — see hypervisor.VMMemTransferTimeout.
+// Bypasses retry — same memory-transfer reasoning as createSnapshotFC.
 func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOverrides []fcNetworkOverride) error {
 	body, err := json.Marshal(fcSnapshotLoad{
 		SnapshotPath: filepath.Join(sourceDir, snapshotVMStateFile),
@@ -211,7 +212,7 @@ func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOver
 		return fmt.Errorf("marshal snapshot/load request: %w", err)
 	}
 	hc := utils.NewSocketHTTPClientWithTimeout(sockPath, hypervisor.VMMemTransferTimeout)
-	_, err = utils.DoAPI(ctx, hc, http.MethodPut,
+	_, err = utils.DoAPIOnce(ctx, hc, http.MethodPut,
 		"http://localhost/snapshot/load", body, http.StatusNoContent)
 	return err
 }
