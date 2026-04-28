@@ -49,7 +49,7 @@ func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath 
 
 	cfg := &chVMConfig{
 		CPUs:     chCPUs{BootVCPUs: cpu, MaxVCPUs: maxVCPUs, KVMHyperV: rec.Config.Windows},
-		Memory:   chMemory{Size: mem, HugePages: utils.DetectHugePages()},
+		Memory:   chMemory{Size: mem, HugePages: utils.DetectHugePages(), Shared: rec.Config.SharedMemory},
 		RNG:      chRNG{Src: "/dev/urandom"},
 		Watchdog: true,
 	}
@@ -108,6 +108,9 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	mem := fmt.Sprintf("size=%d", cfg.Memory.Size)
 	if cfg.Memory.HugePages {
 		mem += ",hugepages=on"
+	}
+	if cfg.Memory.Shared {
+		mem += ",shared=on"
 	}
 	args = append(args, "--memory", mem)
 

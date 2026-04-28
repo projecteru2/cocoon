@@ -13,11 +13,27 @@ import (
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/console"
+	"github.com/cocoonstack/cocoon/extend/fs"
+	"github.com/cocoonstack/cocoon/extend/vfio"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/network"
 	bridgenet "github.com/cocoonstack/cocoon/network/bridge"
 	"github.com/cocoonstack/cocoon/types"
 )
+
+// attachedDevices is the inspect-only view of runtime hot-plugged devices.
+// Cocoon never persists this structure; it is read from CH vm.info on demand.
+type attachedDevices struct {
+	Fs      []fs.Attached   `json:"fs,omitempty"`
+	Devices []vfio.Attached `json:"devices,omitempty"`
+}
+
+// inspectOutput wraps types.VM with an extra runtime field. Defined in the
+// CLI layer to keep types.VM free of inspect-only fields.
+type inspectOutput struct {
+	*types.VM
+	AttachedDevices *attachedDevices `json:"attached_devices,omitempty"`
+}
 
 func (h Handler) Start(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
@@ -88,7 +104,38 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("inspect: %w", err)
 	}
 	info.State = types.VMState(cmdcore.ReconcileState(info))
-	return cmdcore.OutputJSON(info)
+
+	out := inspectOutput{VM: info}
+	if info.State == types.VMStateRunning {
+		out.AttachedDevices = collectAttachedDevices(ctx, hyper, args[0])
+	}
+	return cmdcore.OutputJSON(out)
+}
+
+// collectAttachedDevices reads runtime fs/vfio device lists from the
+// backend. Errors are logged and dropped — inspect should not fail just
+// because vm.info is briefly unreachable.
+func collectAttachedDevices(ctx context.Context, hyper hypervisor.Hypervisor, ref string) *attachedDevices {
+	logger := log.WithFunc("cmd.vm.inspect")
+	out := &attachedDevices{}
+	if l, ok := hyper.(fs.Lister); ok {
+		if devs, err := l.FsList(ctx, ref); err != nil {
+			logger.Warnf(ctx, "list fs devices for %s: %v", ref, err)
+		} else {
+			out.Fs = devs
+		}
+	}
+	if l, ok := hyper.(vfio.Lister); ok {
+		if devs, err := l.DeviceList(ctx, ref); err != nil {
+			logger.Warnf(ctx, "list vfio devices for %s: %v", ref, err)
+		} else {
+			out.Devices = devs
+		}
+	}
+	if len(out.Fs) == 0 && len(out.Devices) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (h Handler) Console(cmd *cobra.Command, args []string) error {

@@ -44,6 +44,7 @@ type chCPUs struct {
 type chMemory struct {
 	Size      int64 `json:"size"`
 	HugePages bool  `json:"hugepages,omitempty"`
+	Shared    bool  `json:"shared,omitempty"`
 }
 
 type chDisk struct {
@@ -82,9 +83,35 @@ type chRuntimeFile struct {
 	Socket string `json:"socket,omitempty"`
 }
 
+type chFs struct {
+	ID        string `json:"id,omitempty"`
+	Tag       string `json:"tag"`
+	Socket    string `json:"socket"`
+	NumQueues int    `json:"num_queues"`
+	QueueSize int    `json:"queue_size"`
+}
+
+type chDevice struct {
+	ID    string `json:"id,omitempty"`
+	Path  string `json:"path"`
+	IOMMU bool   `json:"iommu,omitempty"`
+}
+
+// chPciDeviceInfo is the response body from vm.add-fs / vm.add-device /
+// vm.add-disk / vm.add-net (HTTP 200).
+type chPciDeviceInfo struct {
+	ID  string `json:"id"`
+	BDF string `json:"bdf"`
+}
+
 type chVMInfoResponse struct {
-	Config struct {
-		Serial  chRuntimeFile `json:"serial"`
-		Console chRuntimeFile `json:"console"`
-	} `json:"config"`
+	Config chVMInfoConfig `json:"config"`
+}
+
+type chVMInfoConfig struct {
+	Serial  chRuntimeFile `json:"serial"`
+	Console chRuntimeFile `json:"console"`
+	Memory  chMemory      `json:"memory"`
+	Fs      []chFs        `json:"fs,omitempty"`
+	Devices []chDevice    `json:"devices,omitempty"`
 }
