@@ -166,12 +166,17 @@ func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
 	return vmAPI(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
 }
 
+// removeDeviceVM is non-idempotent: a retry after CH already detached the
+// device but the response was lost would surface as "id not found" and mask
+// the original success. Route through vmAPIOnce, same shape as the add-* hot
+// paths.
 func removeDeviceVM(ctx context.Context, hc *http.Client, deviceID string) error {
 	body, err := json.Marshal(map[string]string{"id": deviceID})
 	if err != nil {
 		return fmt.Errorf("marshal remove-device request: %w", err)
 	}
-	return vmAPI(ctx, hc, "vm.remove-device", body)
+	_, err = vmAPIOnce(ctx, hc, "vm.remove-device", body)
+	return err
 }
 
 func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
