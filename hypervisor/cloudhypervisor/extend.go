@@ -94,9 +94,11 @@ func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec 
 		// host stat happens after the running-VM gate inside attachWith,
 		// so a stopped VM reports the VM-state error instead of misleading
 		// host path output.
-		if st, statErr := os.Stat(path); statErr != nil {
+		st, statErr := os.Stat(path)
+		if statErr != nil {
 			return fmt.Errorf("pci path %s: %w", path, statErr)
-		} else if !st.IsDir() {
+		}
+		if !st.IsDir() {
 			return fmt.Errorf("pci path %s: not a directory", path)
 		}
 		for _, ex := range info.Config.Devices {
@@ -171,7 +173,10 @@ func (ch *CloudHypervisor) attachWith(
 	if err != nil {
 		return "", fmt.Errorf("marshal %s: %w", endpoint, err)
 	}
-	resp, err := vmAPICall(ctx, hc, endpoint, bodyBytes, http.StatusOK, http.StatusNoContent)
+	// vm.add-fs / vm.add-device are not idempotent: a retry after CH already
+	// accepted the device but the response was lost would echo back as a
+	// misleading "duplicate id" rejection. vmAPIOnce skips the retry layer.
+	resp, err := vmAPIOnce(ctx, hc, endpoint, bodyBytes, http.StatusOK, http.StatusNoContent)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", endpoint, err)
 	}

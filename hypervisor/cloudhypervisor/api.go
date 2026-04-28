@@ -87,8 +87,8 @@ type chFs struct {
 	ID        string `json:"id,omitempty"`
 	Tag       string `json:"tag"`
 	Socket    string `json:"socket"`
-	NumQueues int    `json:"num_queues"`
-	QueueSize int    `json:"queue_size"`
+	NumQueues int    `json:"num_queues,omitempty"`
+	QueueSize int    `json:"queue_size,omitempty"`
 }
 
 type chDevice struct {

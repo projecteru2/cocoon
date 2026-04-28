@@ -104,6 +104,14 @@ func vmAPICall(ctx context.Context, hc *http.Client, endpoint string, body []byt
 	return utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
 
+// vmAPIOnce sends a single PUT without DoWithRetry. Use for non-idempotent
+// endpoints — e.g. vm.add-fs / vm.add-device — where a retry after a
+// network drop or 5xx that landed on CH after the device was already added
+// would surface as a misleading "duplicate id" rejection.
+func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) ([]byte, error) {
+	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
+}
+
 func shutdownVM(ctx context.Context, hc *http.Client) error {
 	return vmAPI(ctx, hc, "vm.shutdown", nil)
 }

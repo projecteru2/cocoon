@@ -115,6 +115,10 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 // collectAttachedDevices reads runtime fs/vfio device lists from the
 // backend. Errors are logged and dropped — inspect should not fail just
 // because vm.info is briefly unreachable.
+//
+// TODO(inspect): the two Lister calls each fetch their own vm.info. A
+// combined Lister in extend/ would let inspect pay one HTTP round-trip
+// instead of two. Mirrored on cloudhypervisor/extend.go FsList/DeviceList.
 func collectAttachedDevices(ctx context.Context, hyper hypervisor.Hypervisor, ref string) *attachedDevices {
 	logger := log.WithFunc("cmd.vm.inspect")
 	out := &attachedDevices{}

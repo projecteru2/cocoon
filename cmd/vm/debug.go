@@ -194,22 +194,40 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize, noDirectIO)
 		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
-	printCommonCHArgs(cpu, maxCPU, memory, balloon, vmCfg.Windows, vmCfg.SharedMemory)
+	printCommonCHArgs(chDebugArgs{
+		CPU:          cpu,
+		MaxCPU:       maxCPU,
+		MemoryMB:     memory,
+		BalloonMB:    balloon,
+		Windows:      vmCfg.Windows,
+		SharedMemory: vmCfg.SharedMemory,
+	})
 }
 
-func printCommonCHArgs(cpu, maxCPU, memory, balloon int, windows, sharedMemory bool) {
+// chDebugArgs is the per-call CH command-line shape for the debug printer.
+// A struct keeps the printCommonCHArgs signature stable as more flags accrue.
+type chDebugArgs struct {
+	CPU          int
+	MaxCPU       int
+	MemoryMB     int
+	BalloonMB    int
+	Windows      bool
+	SharedMemory bool
+}
+
+func printCommonCHArgs(a chDebugArgs) {
 	cpuExtra := ""
-	if windows {
+	if a.Windows {
 		cpuExtra = ",kvm_hyperv=on"
 	}
 	memExtra := ""
-	if sharedMemory {
+	if a.SharedMemory {
 		memExtra = ",shared=on"
 	}
-	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", cpu, maxCPU, cpuExtra)
-	fmt.Printf("  --memory size=%dM%s \\\n", memory, memExtra)
+	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", a.CPU, a.MaxCPU, cpuExtra)
+	fmt.Printf("  --memory size=%dM%s \\\n", a.MemoryMB, memExtra)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
-	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", balloon)
+	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", a.BalloonMB)
 	fmt.Printf("  --watchdog \\\n")
 	fmt.Printf("  --serial tty --console off\n")
 }
