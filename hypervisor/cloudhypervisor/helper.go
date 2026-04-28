@@ -174,30 +174,6 @@ func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 	return vmAPI(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
 }
 
-func addFsVM(ctx context.Context, hc *http.Client, fs chFs) (chPciDeviceInfo, error) {
-	body, err := json.Marshal(fs)
-	if err != nil {
-		return chPciDeviceInfo{}, fmt.Errorf("marshal add-fs request: %w", err)
-	}
-	resp, err := vmAPICall(ctx, hc, "vm.add-fs", body, http.StatusOK, http.StatusNoContent)
-	if err != nil {
-		return chPciDeviceInfo{}, err
-	}
-	return decodePciDeviceInfo(resp)
-}
-
-func addDeviceVM(ctx context.Context, hc *http.Client, dev chDevice) (chPciDeviceInfo, error) {
-	body, err := json.Marshal(dev)
-	if err != nil {
-		return chPciDeviceInfo{}, fmt.Errorf("marshal add-device request: %w", err)
-	}
-	resp, err := vmAPICall(ctx, hc, "vm.add-device", body, http.StatusOK, http.StatusNoContent)
-	if err != nil {
-		return chPciDeviceInfo{}, err
-	}
-	return decodePciDeviceInfo(resp)
-}
-
 // getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
 // before hot-add and to surface attached devices through inspect.
 func getVMInfo(ctx context.Context, hc *http.Client) (*chVMInfoResponse, error) {

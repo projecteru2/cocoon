@@ -2,6 +2,7 @@ package cloudhypervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,89 +28,57 @@ func (ch *CloudHypervisor) FsAttach(ctx context.Context, vmRef string, spec fs.S
 	if err := spec.Validate(); err != nil {
 		return "", err
 	}
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		return "", err
-	}
-	info, err := getVMInfo(ctx, hc)
-	if err != nil {
-		return "", err
-	}
-	if !info.Config.Memory.Shared {
-		return "", fmt.Errorf("fs attach requires the VM to be created with --shared-memory (current memory shared=off; cannot be flipped on a running VM)")
-	}
 	id := fs.DeriveID(spec.Tag)
-	for _, existing := range info.Config.Fs {
-		if existing.Tag == spec.Tag {
-			return "", fmt.Errorf("fs tag %q already attached", spec.Tag)
-		}
-		if existing.ID == id {
-			return "", fmt.Errorf("fs id %q already attached", id)
-		}
-	}
-	resp, err := addFsVM(ctx, hc, chFs{
+	return ch.attachWith(ctx, vmRef, "vm.add-fs", chFs{
 		ID:        id,
 		Tag:       spec.Tag,
 		Socket:    spec.Socket,
 		NumQueues: spec.NumQueues,
 		QueueSize: spec.QueueSize,
+	}, id, func(info *chVMInfoResponse) error {
+		if !info.Config.Memory.Shared {
+			return fmt.Errorf("fs attach requires the VM to be created with --shared-memory (current memory shared=off; cannot be flipped on a running VM)")
+		}
+		for _, ex := range info.Config.Fs {
+			if ex.Tag == spec.Tag {
+				return fmt.Errorf("fs tag %q already attached", spec.Tag)
+			}
+			if ex.ID == id {
+				return fmt.Errorf("fs id %q already attached", id)
+			}
+		}
+		return nil
 	})
-	if err != nil {
-		return "", fmt.Errorf("vm.add-fs: %w", err)
-	}
-	if resp.ID != "" {
-		return resp.ID, nil
-	}
-	return id, nil
 }
 
 // FsDetach removes a previously attached vhost-user-fs device by tag.
 func (ch *CloudHypervisor) FsDetach(ctx context.Context, vmRef, tag string) error {
 	if tag == "" {
-		return fmt.Errorf("--tag is required")
+		return fmt.Errorf("tag is required")
 	}
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		return err
-	}
-	info, err := getVMInfo(ctx, hc)
-	if err != nil {
-		return err
-	}
-	deviceID := ""
-	for _, existing := range info.Config.Fs {
-		if existing.Tag == tag {
-			deviceID = existing.ID
-			break
+	return ch.detachWith(ctx, vmRef, func(info *chVMInfoResponse) (string, error) {
+		for _, ex := range info.Config.Fs {
+			if ex.Tag == tag {
+				return ex.ID, nil
+			}
 		}
-	}
-	if deviceID == "" {
-		return fmt.Errorf("fs tag %q not attached", tag)
-	}
-	if err := removeDeviceVM(ctx, hc, deviceID); err != nil {
-		return fmt.Errorf("vm.remove-device %s: %w", deviceID, err)
-	}
-	return nil
+		return "", fmt.Errorf("fs tag %q not attached", tag)
+	})
 }
 
 // FsList enumerates currently attached vhost-user-fs devices.
+//
+// TODO(inspect): cmd/vm Inspect calls FsList and DeviceList back-to-back,
+// each fetching its own vm.info. A combined Lister returning both arrays
+// from a single vm.info call would halve the round-trips on a running VM.
 func (ch *CloudHypervisor) FsList(ctx context.Context, vmRef string) ([]fs.Attached, error) {
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		if errors.Is(err, hypervisor.ErrNotRunning) {
-			return nil, nil
+	return listWith(ctx, ch, vmRef, func(info *chVMInfoResponse) []fs.Attached {
+		out := make([]fs.Attached, 0, len(info.Config.Fs))
+		for _, f := range info.Config.Fs {
+			out = append(out, fs.Attached{ID: f.ID, Tag: f.Tag, Socket: f.Socket})
 		}
-		return nil, err
-	}
-	info, err := getVMInfo(ctx, hc)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]fs.Attached, 0, len(info.Config.Fs))
-	for _, f := range info.Config.Fs {
-		out = append(out, fs.Attached{ID: f.ID, Tag: f.Tag, Socket: f.Socket})
-	}
-	return out, nil
+		return out
+	})
 }
 
 // DeviceAttach hot-plugs a VFIO PCI passthrough device onto a running CH VM.
@@ -118,44 +87,102 @@ func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec 
 	if err != nil {
 		return "", err
 	}
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		return "", err
-	}
-	// Stat after the running-VM check: a stopped VM should report the VM
-	// state error first, not a misleading host-path error.
-	if st, statErr := os.Stat(path); statErr != nil {
-		return "", fmt.Errorf("pci path %s: %w", path, statErr)
-	} else if !st.IsDir() {
-		return "", fmt.Errorf("pci path %s: not a directory", path)
-	}
-	info, err := getVMInfo(ctx, hc)
-	if err != nil {
-		return "", err
-	}
-	for _, existing := range info.Config.Devices {
-		if existing.Path == path {
-			return "", fmt.Errorf("device %s already attached (id=%s)", path, existing.ID)
+	return ch.attachWith(ctx, vmRef, "vm.add-device", chDevice{
+		ID:   spec.ID,
+		Path: path,
+	}, spec.ID, func(info *chVMInfoResponse) error {
+		// host stat happens after the running-VM gate inside attachWith,
+		// so a stopped VM reports the VM-state error instead of misleading
+		// host path output.
+		if st, statErr := os.Stat(path); statErr != nil {
+			return fmt.Errorf("pci path %s: %w", path, statErr)
+		} else if !st.IsDir() {
+			return fmt.Errorf("pci path %s: not a directory", path)
 		}
-		if spec.ID != "" && existing.ID == spec.ID {
-			return "", fmt.Errorf("device id %q already in use", spec.ID)
+		for _, ex := range info.Config.Devices {
+			if ex.Path == path {
+				return fmt.Errorf("device %s already attached (id=%s)", path, ex.ID)
+			}
+			if spec.ID != "" && ex.ID == spec.ID {
+				return fmt.Errorf("device id %q already in use", spec.ID)
+			}
 		}
-	}
-	resp, err := addDeviceVM(ctx, hc, chDevice{ID: spec.ID, Path: path})
-	if err != nil {
-		return "", fmt.Errorf("vm.add-device: %w", err)
-	}
-	if resp.ID != "" {
-		return resp.ID, nil
-	}
-	return spec.ID, nil
+		return nil
+	})
 }
 
 // DeviceDetach removes a previously attached VFIO device by id.
 func (ch *CloudHypervisor) DeviceDetach(ctx context.Context, vmRef, id string) error {
 	if id == "" {
-		return fmt.Errorf("--id is required")
+		return fmt.Errorf("id is required")
 	}
+	return ch.detachWith(ctx, vmRef, func(info *chVMInfoResponse) (string, error) {
+		for _, ex := range info.Config.Devices {
+			if ex.ID == id {
+				return id, nil
+			}
+		}
+		return "", fmt.Errorf("device id %q not attached", id)
+	})
+}
+
+// DeviceList enumerates currently attached VFIO PCI passthrough devices.
+//
+// TODO(inspect): see FsList note — combined Lister would dedupe vm.info.
+func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio.Attached, error) {
+	return listWith(ctx, ch, vmRef, func(info *chVMInfoResponse) []vfio.Attached {
+		out := make([]vfio.Attached, 0, len(info.Config.Devices))
+		for _, d := range info.Config.Devices {
+			out = append(out, vfio.Attached{ID: d.ID, BDF: bdfFromSysfsPath(d.Path)})
+		}
+		return out
+	})
+}
+
+// attachWith is the shared skeleton for hot-add operations: gate on a
+// live VM, fetch vm.info, run preCheck (memory/conflict/host-path), call
+// the CH endpoint, return the device id (CH-assigned or fallback).
+func (ch *CloudHypervisor) attachWith(
+	ctx context.Context, vmRef, endpoint string,
+	body any, fallbackID string,
+	preCheck func(*chVMInfoResponse) error,
+) (string, error) {
+	hc, err := ch.runningVMClient(ctx, vmRef)
+	if err != nil {
+		return "", err
+	}
+	info, err := getVMInfo(ctx, hc)
+	if err != nil {
+		return "", err
+	}
+	if checkErr := preCheck(info); checkErr != nil {
+		return "", checkErr
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshal %s: %w", endpoint, err)
+	}
+	resp, err := vmAPICall(ctx, hc, endpoint, bodyBytes, http.StatusOK, http.StatusNoContent)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", endpoint, err)
+	}
+	pci, err := decodePciDeviceInfo(resp)
+	if err != nil {
+		return "", err
+	}
+	if pci.ID != "" {
+		return pci.ID, nil
+	}
+	return fallbackID, nil
+}
+
+// detachWith is the shared skeleton for hot-remove: gate on a live VM,
+// fetch vm.info, let the caller find the target device id, then call
+// vm.remove-device.
+func (ch *CloudHypervisor) detachWith(
+	ctx context.Context, vmRef string,
+	findID func(*chVMInfoResponse) (string, error),
+) error {
 	hc, err := ch.runningVMClient(ctx, vmRef)
 	if err != nil {
 		return err
@@ -164,24 +191,23 @@ func (ch *CloudHypervisor) DeviceDetach(ctx context.Context, vmRef, id string) e
 	if err != nil {
 		return err
 	}
-	found := false
-	for _, existing := range info.Config.Devices {
-		if existing.ID == id {
-			found = true
-			break
-		}
+	deviceID, err := findID(info)
+	if err != nil {
+		return err
 	}
-	if !found {
-		return fmt.Errorf("device id %q not attached", id)
-	}
-	if err := removeDeviceVM(ctx, hc, id); err != nil {
-		return fmt.Errorf("vm.remove-device %s: %w", id, err)
+	if err := removeDeviceVM(ctx, hc, deviceID); err != nil {
+		return fmt.Errorf("vm.remove-device %s: %w", deviceID, err)
 	}
 	return nil
 }
 
-// DeviceList enumerates currently attached VFIO PCI passthrough devices.
-func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio.Attached, error) {
+// listWith is the shared skeleton for inspect-time enumeration.
+// Stopped VMs return a nil slice (not an error) so inspect can omit the
+// field cleanly.
+func listWith[A any](
+	ctx context.Context, ch *CloudHypervisor, vmRef string,
+	extract func(*chVMInfoResponse) []A,
+) ([]A, error) {
 	hc, err := ch.runningVMClient(ctx, vmRef)
 	if err != nil {
 		if errors.Is(err, hypervisor.ErrNotRunning) {
@@ -193,16 +219,12 @@ func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio
 	if err != nil {
 		return nil, err
 	}
-	out := make([]vfio.Attached, 0, len(info.Config.Devices))
-	for _, d := range info.Config.Devices {
-		out = append(out, vfio.Attached{ID: d.ID, BDF: bdfFromSysfsPath(d.Path)})
-	}
-	return out, nil
+	return extract(info), nil
 }
 
 // runningVMClient resolves vmRef, asserts the recorded CH process is still
-// alive (PID file + cmdline match — same gate as WithRunningVM), and
-// returns an http.Client connected to its CH API socket.
+// alive (PID file + cmdline match — same gate as Backend.WithRunningVM),
+// and returns an http.Client connected to its CH API socket.
 func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*http.Client, error) {
 	vmID, err := ch.ResolveRef(ctx, vmRef)
 	if err != nil {
