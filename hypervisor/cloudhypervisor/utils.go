@@ -46,7 +46,10 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 	if targetSize <= virtualSize {
 		return nil
 	}
-	return utils.RunQemuImg(ctx, "resize", path, fmt.Sprintf("%d", targetSize))
+	if err := utils.RunQemuImg(ctx, "resize", path, fmt.Sprintf("%d", targetSize)); err != nil {
+		return fmt.Errorf("resize %s: %w", path, err)
+	}
+	return nil
 }
 
 // readQcow2VirtualSize reads the virtual size from a qcow2 file header.

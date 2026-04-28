@@ -18,10 +18,6 @@ import (
 const (
 	snapshotVMStateFile = "vmstate"
 	snapshotMemFile     = "mem"
-
-	// snapshotMetaFile re-exports the shared cocoon sidecar filename so
-	// FC-internal call sites stay unchanged after consolidation.
-	snapshotMetaFile = hypervisor.SnapshotMetaFile
 )
 
 // Snapshot pauses the VM, captures its full state (CPU/device state via FC
@@ -100,7 +96,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	// Save snapshot metadata (absolute paths) so clones can reconstruct
 	// storage/boot config without depending on live VM records.
 	// FC snapshots require the same directory layout — paths are stored as-is.
-	if metaErr := saveSnapshotMeta(tmpDir, rec.StorageConfigs, rec.BootConfig, rec.Config.CPU, rec.Config.Memory); metaErr != nil {
+	if metaErr := hypervisor.SaveSnapshotMeta(tmpDir, buildSnapshotMeta(&rec)); metaErr != nil {
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("save snapshot metadata: %w", metaErr)
 	}
@@ -113,22 +109,25 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	return fc.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
 }
 
-func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *types.BootConfig, cpu int, memory int64) error {
-	meta := &hypervisor.SnapshotMeta{CPU: cpu, Memory: memory}
-	for _, sc := range storageConfigs {
+// buildSnapshotMeta builds the FC sidecar from a live VM record. Storage
+// configs are deep-copied (subsequent VM-record mutations would otherwise
+// taint the on-disk JSON) and the kernel path is rewritten to vmlinuz so
+// clones receive the portable artifact, not the FC-specific vmlinux cache.
+func buildSnapshotMeta(rec *hypervisor.VMRecord) *hypervisor.SnapshotMeta {
+	meta := &hypervisor.SnapshotMeta{CPU: rec.Config.CPU, Memory: rec.Config.Memory}
+	for _, sc := range rec.StorageConfigs {
 		cp := *sc
 		meta.StorageConfigs = append(meta.StorageConfigs, &cp)
 	}
-	if boot != nil {
-		b := *boot
-		// Store vmlinuz (portable), not vmlinux (FC-specific cache).
+	if rec.BootConfig != nil {
+		b := *rec.BootConfig
 		if filepath.Base(b.KernelPath) == "vmlinux" {
 			b.KernelPath = filepath.Join(filepath.Dir(b.KernelPath), "vmlinuz")
 		}
 		b.Cmdline = "" // cmdline is rebuilt on clone with new VM name/IP
 		meta.BootConfig = &b
 	}
-	return hypervisor.SaveSnapshotMeta(dir, meta)
+	return meta
 }
 
 // loadSnapshotMeta reads metadata and validates paths are in cocoon-managed

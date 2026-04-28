@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // SnapshotMetaFile is the cocoon-owned sidecar persisted alongside the
@@ -26,13 +27,12 @@ type SnapshotMeta struct {
 	Memory         int64                  `json:"memory,omitempty"`
 }
 
-// SaveSnapshotMeta marshals meta to dir/SnapshotMetaFile.
+// SaveSnapshotMeta atomically writes meta to dir/SnapshotMetaFile. Atomic
+// rename matters: clone/restore later read the sidecar after this write,
+// and a partial file from a crashed cocoon would surface as a JSON decode
+// error blocking those flows.
 func SaveSnapshotMeta(dir string, meta *SnapshotMeta) error {
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("marshal snapshot meta: %w", err)
-	}
-	return os.WriteFile(filepath.Join(dir, SnapshotMetaFile), data, 0o600)
+	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotMetaFile), meta)
 }
 
 // LoadSnapshotMeta reads and decodes dir/SnapshotMetaFile.

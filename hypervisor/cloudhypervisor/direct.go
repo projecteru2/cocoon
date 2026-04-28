@@ -85,7 +85,7 @@ func cleanSnapshotFiles(runDir string) error {
 			return true
 		case name == "config.json" || name == "state.json":
 			return true
-		case name == snapshotMetaFile:
+		case name == hypervisor.SnapshotMetaFile:
 			return true
 		case hypervisor.IsDataDiskFile(name):
 			return true

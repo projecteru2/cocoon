@@ -14,12 +14,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// snapshotMetaFile re-exports the shared cocoon sidecar filename so the
-// CH-internal call sites stay unchanged after the consolidation.
-// CH's sidecar mirrors chCfg.Disks order and length so each entry pairs
-// with the correct disk slot during patchCHConfig.
-const snapshotMetaFile = hypervisor.SnapshotMetaFile
-
 // Snapshot pauses the VM, captures its full state (CPU, memory, devices via CH
 // snapshot API, plus the COW disk via sparse copy), resumes the VM, and returns
 // a streaming tar.gz reader of the snapshot directory.

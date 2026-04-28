@@ -101,7 +101,6 @@ func hasMemoryRangeFile(srcDir string) (bool, error) {
 	return false, nil
 }
 
-// vmAPI sends a PUT to a CH /api/v1/* endpoint with retry and tolerated codes.
 func vmAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) error {
 	_, err := utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 	return err

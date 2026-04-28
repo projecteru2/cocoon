@@ -85,7 +85,7 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 func cleanSnapshotFiles(runDir string) error {
 	return hypervisor.CleanSnapshotFiles(runDir, func(name string) bool {
 		switch name {
-		case snapshotVMStateFile, snapshotMemFile, cowFileName, snapshotMetaFile:
+		case snapshotVMStateFile, snapshotMemFile, cowFileName, hypervisor.SnapshotMetaFile:
 			return true
 		}
 		return hypervisor.IsDataDiskFile(name)

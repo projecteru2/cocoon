@@ -384,6 +384,43 @@ func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(conte
 	return succeeded, forEachErr
 }
 
+// DeleteAll is the shared Delete template: gracefully stop a running VM when
+// force=true via the supplied stopOne, remove the VM dirs, then delete the
+// index record. The dir-cleanup intentionally precedes the DB delete so a
+// failed cleanup leaves the record intact and the user can retry rm.
+func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stopOne func(context.Context, string) error) ([]string, error) {
+	ids, err := b.ResolveRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	return b.ForEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
+		rec, loadErr := b.LoadRecord(ctx, id)
+		if loadErr != nil {
+			return loadErr
+		}
+		if runningErr := b.WithRunningVM(ctx, &rec, func(_ int) error {
+			if !force {
+				return fmt.Errorf("running (force required)")
+			}
+			return stopOne(ctx, id)
+		}); runningErr != nil && !errors.Is(runningErr, ErrNotRunning) {
+			return fmt.Errorf("stop before delete: %w", runningErr)
+		}
+		if rmErr := RemoveVMDirs(rec.RunDir, rec.LogDir); rmErr != nil {
+			return fmt.Errorf("cleanup VM dirs: %w", rmErr)
+		}
+		return b.DB.Update(ctx, func(idx *VMIndex) error {
+			r := idx.VMs[id]
+			if r == nil {
+				return ErrNotFound
+			}
+			delete(idx.Names, r.Config.Name)
+			delete(idx.VMs, id)
+			return nil
+		})
+	})
+}
+
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

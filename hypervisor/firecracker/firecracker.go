@@ -2,7 +2,6 @@ package firecracker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/cocoonstack/cocoon/config"
@@ -51,34 +50,5 @@ func New(conf *config.Config) (*Firecracker, error) {
 
 // Delete removes VMs. Running VMs require force=true (stops them first).
 func (fc *Firecracker) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
-	ids, err := fc.ResolveRefs(ctx, refs)
-	if err != nil {
-		return nil, err
-	}
-	return fc.ForEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
-		rec, loadErr := fc.LoadRecord(ctx, id)
-		if loadErr != nil {
-			return loadErr
-		}
-		if err := fc.WithRunningVM(ctx, &rec, func(_ int) error {
-			if !force {
-				return fmt.Errorf("running (force required)")
-			}
-			return fc.stopOne(ctx, id)
-		}); err != nil && !errors.Is(err, hypervisor.ErrNotRunning) {
-			return fmt.Errorf("stop before delete: %w", err)
-		}
-		if err := hypervisor.RemoveVMDirs(rec.RunDir, rec.LogDir); err != nil {
-			return fmt.Errorf("cleanup VM dirs: %w", err)
-		}
-		return fc.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
-			r := idx.VMs[id]
-			if r == nil {
-				return hypervisor.ErrNotFound
-			}
-			delete(idx.Names, r.Config.Name)
-			delete(idx.VMs, id)
-			return nil
-		})
-	})
+	return fc.DeleteAll(ctx, refs, force, fc.stopOne)
 }
