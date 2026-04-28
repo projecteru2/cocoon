@@ -209,23 +209,6 @@ func (ch *CloudHypervisor) detachWith(
 	return nil
 }
 
-// listWith is the shared skeleton for inspect-time enumeration.
-// Stopped VMs return a nil slice (not an error) so inspect can omit the
-// field cleanly.
-func listWith[A any](
-	ctx context.Context, ch *CloudHypervisor, vmRef string,
-	extract func(*chVMInfoResponse) []A,
-) ([]A, error) {
-	_, info, err := ch.inspectRunning(ctx, vmRef)
-	if err != nil {
-		if errors.Is(err, hypervisor.ErrNotRunning) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return extract(info), nil
-}
-
 // runningVMClient resolves vmRef, asserts the recorded CH process is still
 // alive (PID file + cmdline match — same gate as Backend.WithRunningVM),
 // and returns an http.Client connected to its CH API socket.
@@ -250,6 +233,23 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, pid, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
 	}
 	return utils.NewSocketHTTPClient(sockPath), nil
+}
+
+// listWith is the shared skeleton for inspect-time enumeration.
+// Stopped VMs return a nil slice (not an error) so inspect can omit the
+// field cleanly.
+func listWith[A any](
+	ctx context.Context, ch *CloudHypervisor, vmRef string,
+	extract func(*chVMInfoResponse) []A,
+) ([]A, error) {
+	_, info, err := ch.inspectRunning(ctx, vmRef)
+	if err != nil {
+		if errors.Is(err, hypervisor.ErrNotRunning) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return extract(info), nil
 }
 
 // bdfFromSysfsPath returns the BDF suffix when path is under the canonical

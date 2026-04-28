@@ -15,6 +15,17 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
+// chDebugArgs is the per-call CH command-line shape for the debug printer.
+// A struct keeps the printCommonCHArgs signature stable as more flags accrue.
+type chDebugArgs struct {
+	CPU          int
+	MaxCPU       int
+	MemoryMB     int
+	BalloonMB    int
+	Windows      bool
+	SharedMemory bool
+}
+
 func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {
@@ -202,17 +213,6 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		Windows:      vmCfg.Windows,
 		SharedMemory: vmCfg.SharedMemory,
 	})
-}
-
-// chDebugArgs is the per-call CH command-line shape for the debug printer.
-// A struct keeps the printCommonCHArgs signature stable as more flags accrue.
-type chDebugArgs struct {
-	CPU          int
-	MaxCPU       int
-	MemoryMB     int
-	BalloonMB    int
-	Windows      bool
-	SharedMemory bool
 }
 
 func printCommonCHArgs(a chDebugArgs) {
