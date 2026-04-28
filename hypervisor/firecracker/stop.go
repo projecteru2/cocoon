@@ -5,10 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/projecteru2/core/log"
-
 	"github.com/cocoonstack/cocoon/hypervisor"
-	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
 
@@ -16,15 +13,7 @@ import (
 // Honors --force (skip SendCtrlAltDel, immediate kill) and --timeout
 // (wait for guest to respond to SendCtrlAltDel before escalating).
 func (fc *Firecracker) Stop(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := fc.ResolveRefs(ctx, refs)
-	if err != nil {
-		return nil, err
-	}
-	succeeded, forEachErr := fc.ForEachVM(ctx, ids, "Stop", fc.stopOne)
-	if batchErr := fc.UpdateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
-		log.WithFunc("firecracker.Stop").Warnf(ctx, "batch state update: %v", batchErr)
-	}
-	return succeeded, forEachErr
+	return fc.StopAll(ctx, refs, fc.stopOne)
 }
 
 func (fc *Firecracker) stopOne(ctx context.Context, id string) error {

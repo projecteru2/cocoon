@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/projecteru2/core/log"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 func (ch *CloudHypervisor) saveCmdline(ctx context.Context, rec *hypervisor.VMRecord, args []string) {
@@ -46,13 +46,7 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 	if targetSize <= virtualSize {
 		return nil
 	}
-	// shell out because no mature Go qcow2 writer library; qemu-img is authoritative.
-	if out, err := exec.CommandContext(ctx, //nolint:gosec
-		"qemu-img", "resize", path, fmt.Sprintf("%d", targetSize),
-	).CombinedOutput(); err != nil {
-		return fmt.Errorf("qemu-img resize %s: %s: %w", path, strings.TrimSpace(string(out)), err)
-	}
-	return nil
+	return utils.RunQemuImg(ctx, "resize", path, fmt.Sprintf("%d", targetSize))
 }
 
 // readQcow2VirtualSize reads the virtual size from a qcow2 file header.

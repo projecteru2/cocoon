@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -208,10 +209,7 @@ func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
 		if inspectErr != nil {
 			return fmt.Errorf("inspect: %w", inspectErr)
 		}
-		base := snap.Name
-		if base == "" {
-			base = snap.ID
-		}
+		base := cmp.Or(snap.Name, snap.ID)
 		ext := ".tar"
 		if useGzip {
 			ext = ".tar.gz"

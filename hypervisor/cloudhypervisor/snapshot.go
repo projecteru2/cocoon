@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,14 +14,11 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// snapshotMetaFile carries Role/MountPoint/FSType/DirectIO that CH's chDisk
-// schema can't hold; mirrors chCfg.Disks order and length.
-const snapshotMetaFile = "cocoon.json"
-
-type snapshotMeta struct {
-	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
-	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
-}
+// snapshotMetaFile re-exports the shared cocoon sidecar filename so the
+// CH-internal call sites stay unchanged after the consolidation.
+// CH's sidecar mirrors chCfg.Disks order and length so each entry pairs
+// with the correct disk slot during patchCHConfig.
+const snapshotMetaFile = hypervisor.SnapshotMetaFile
 
 // Snapshot pauses the VM, captures its full state (CPU, memory, devices via CH
 // snapshot API, plus the COW disk via sparse copy), resumes the VM, and returns
@@ -153,26 +149,8 @@ func writeSnapshotMeta(tmpDir string, rec *hypervisor.VMRecord) error {
 		cp := *sc
 		storage = append(storage, &cp)
 	}
-	meta := snapshotMeta{
+	return hypervisor.SaveSnapshotMeta(tmpDir, &hypervisor.SnapshotMeta{
 		StorageConfigs: storage,
 		BootConfig:     rec.BootConfig,
-	}
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("marshal snapshot meta: %w", err)
-	}
-	return os.WriteFile(filepath.Join(tmpDir, snapshotMetaFile), data, 0o600)
-}
-
-// loadSnapshotMeta reads cocoon.json from a CH snapshot directory.
-func loadSnapshotMeta(dir string) (*snapshotMeta, error) {
-	data, err := os.ReadFile(filepath.Join(dir, snapshotMetaFile)) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", snapshotMetaFile, err)
-	}
-	var meta snapshotMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
-	}
-	return &meta, nil
+	})
 }

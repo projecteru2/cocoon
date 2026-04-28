@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -125,4 +126,26 @@ func IsRetryable(err error) bool {
 	}
 	// Non-APIError = connection-level failure, always retry.
 	return true
+}
+
+// DoAPIWithRetry wraps DoAPI in DoWithRetry and tolerates extra success codes
+// (e.g. some endpoints return 200 OK while their idiomatic success is 204).
+// successCodes[0] is the primary code passed to DoAPI; codes[1:] are accepted
+// as success on retry (silent nil-body return).
+func DoAPIWithRetry(ctx context.Context, hc *http.Client, method, url string, body []byte, successCodes ...int) ([]byte, error) {
+	if len(successCodes) == 0 {
+		successCodes = []int{http.StatusNoContent}
+	}
+	primary := successCodes[0]
+	return DoWithRetry(ctx, func() ([]byte, error) {
+		resp, apiErr := DoAPI(ctx, hc, method, url, body, primary)
+		if apiErr == nil {
+			return resp, nil
+		}
+		var ae *APIError
+		if errors.As(apiErr, &ae) && slices.Contains(successCodes[1:], ae.Code) {
+			return nil, nil
+		}
+		return nil, apiErr
+	})
 }

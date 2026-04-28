@@ -2,7 +2,6 @@ package firecracker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,18 +18,11 @@ import (
 const (
 	snapshotVMStateFile = "vmstate"
 	snapshotMemFile     = "mem"
-	snapshotMetaFile    = "cocoon.json"
-)
 
-// snapshotMeta is persisted as cocoon.json inside the snapshot tar.
-// All paths are stored as absolute — FC snapshots require the same
-// directory layout on the target host.
-type snapshotMeta struct {
-	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
-	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
-	CPU            int                    `json:"cpu,omitempty"`
-	Memory         int64                  `json:"memory,omitempty"`
-}
+	// snapshotMetaFile re-exports the shared cocoon sidecar filename so
+	// FC-internal call sites stay unchanged after consolidation.
+	snapshotMetaFile = hypervisor.SnapshotMetaFile
+)
 
 // Snapshot pauses the VM, captures its full state (CPU/device state via FC
 // snapshot API + memory file + COW disk via reflink copy), resumes the VM,
@@ -122,7 +114,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 }
 
 func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *types.BootConfig, cpu int, memory int64) error {
-	meta := snapshotMeta{CPU: cpu, Memory: memory}
+	meta := &hypervisor.SnapshotMeta{CPU: cpu, Memory: memory}
 	for _, sc := range storageConfigs {
 		cp := *sc
 		meta.StorageConfigs = append(meta.StorageConfigs, &cp)
@@ -136,22 +128,16 @@ func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *t
 		b.Cmdline = "" // cmdline is rebuilt on clone with new VM name/IP
 		meta.BootConfig = &b
 	}
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	return os.WriteFile(filepath.Join(dir, snapshotMetaFile), data, 0o600)
+	return hypervisor.SaveSnapshotMeta(dir, meta)
 }
 
-// loadSnapshotMeta reads metadata and validates paths are in Cocoon-managed dirs.
-func loadSnapshotMeta(dir, rootDir, runDir string) (*snapshotMeta, error) {
-	data, err := os.ReadFile(filepath.Join(dir, snapshotMetaFile)) //nolint:gosec
+// loadSnapshotMeta reads metadata and validates paths are in cocoon-managed
+// dirs — FC accepts paths from snapshot files imported from other hosts, so
+// the validator rejects symlink/escape attempts before opening the files.
+func loadSnapshotMeta(dir, rootDir, runDir string) (*hypervisor.SnapshotMeta, error) {
+	meta, err := hypervisor.LoadSnapshotMeta(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", snapshotMetaFile, err)
-	}
-	var meta snapshotMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
+		return nil, err
 	}
 	for _, sc := range meta.StorageConfigs {
 		if !isUnderDir(sc.Path, rootDir) && !isUnderDir(sc.Path, runDir) {
@@ -166,7 +152,7 @@ func loadSnapshotMeta(dir, rootDir, runDir string) (*snapshotMeta, error) {
 			return nil, fmt.Errorf("untrusted initrd path in snapshot metadata: %s", b.InitrdPath)
 		}
 	}
-	return &meta, nil
+	return meta, nil
 }
 
 func isUnderDir(path, dir string) bool {

@@ -169,7 +169,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 //
 // FC has no cloudimg path, so Role==Cidata in meta is unexpected; treat it
 // as an error rather than silently dropping or copying it.
-func rebuildCloneStorage(meta *snapshotMeta, cowPath string) ([]*types.StorageConfig, error) {
+func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*types.StorageConfig, error) {
 	runDir := filepath.Dir(cowPath)
 	configs := make([]*types.StorageConfig, 0, len(meta.StorageConfigs))
 	for i, sc := range meta.StorageConfigs {

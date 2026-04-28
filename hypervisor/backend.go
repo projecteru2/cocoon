@@ -356,6 +356,34 @@ func (b *Backend) AbortLaunch(ctx context.Context, pid int, sockPath, runDir str
 	CleanupRuntimeFiles(ctx, runDir, runtimeFiles)
 }
 
+// StartAll is the shared Start template: resolve refs, run startOne per ID,
+// flip succeeded records to Running. Both backends call it as a one-liner.
+func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) error) ([]string, error) {
+	ids, err := b.ResolveRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	succeeded, forEachErr := b.ForEachVM(ctx, ids, "Start", startOne)
+	if batchErr := b.BatchMarkStarted(ctx, succeeded); batchErr != nil {
+		log.WithFunc(b.Typ+".Start").Warnf(ctx, "batch state update: %v", batchErr)
+	}
+	return succeeded, forEachErr
+}
+
+// StopAll is the shared Stop template: resolve refs, run stopOne per ID,
+// flip succeeded records to Stopped.
+func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(context.Context, string) error) ([]string, error) {
+	ids, err := b.ResolveRefs(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	succeeded, forEachErr := b.ForEachVM(ctx, ids, "Stop", stopOne)
+	if batchErr := b.UpdateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
+		log.WithFunc(b.Typ+".Stop").Warnf(ctx, "batch state update: %v", batchErr)
+	}
+	return succeeded, forEachErr
+}
+
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

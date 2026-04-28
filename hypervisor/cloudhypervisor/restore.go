@@ -52,7 +52,7 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 // then asserts the snapshot's role sequence is a valid prefix of the live
 // record (cidata-only suffix on rec is the one allowed extension).
 func (ch *CloudHypervisor) preflightRestore(srcDir string, rec *hypervisor.VMRecord) error {
-	meta, err := loadSnapshotMeta(srcDir)
+	meta, err := hypervisor.LoadSnapshotMeta(srcDir)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
 	// Use sidecar length; rec may have trailing cidata that the snapshot
 	// lacks (cloudimg post-first-boot), prefix-slice trims it.
-	meta, metaErr := loadSnapshotMeta(rec.RunDir)
+	meta, metaErr := hypervisor.LoadSnapshotMeta(rec.RunDir)
 	if metaErr != nil {
 		return nil, fmt.Errorf("load snapshot meta: %w", metaErr)
 	}

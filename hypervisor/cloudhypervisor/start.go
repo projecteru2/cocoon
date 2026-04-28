@@ -18,15 +18,7 @@ import (
 // Start launches the Cloud Hypervisor process for each VM ref.
 // Returns the IDs that were successfully started.
 func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := ch.ResolveRefs(ctx, refs)
-	if err != nil {
-		return nil, err
-	}
-	succeeded, forEachErr := ch.ForEachVM(ctx, ids, "Start", ch.startOne)
-	if batchErr := ch.BatchMarkStarted(ctx, succeeded); batchErr != nil {
-		log.WithFunc("cloudhypervisor.Start").Warnf(ctx, "batch state update: %v", batchErr)
-	}
-	return succeeded, forEachErr
+	return ch.StartAll(ctx, refs, ch.startOne)
 }
 
 func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {

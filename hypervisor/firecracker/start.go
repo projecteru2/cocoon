@@ -21,15 +21,7 @@ import (
 // Start launches the Firecracker process for each VM ref, configures it
 // via the REST API, and issues InstanceStart.
 func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := fc.ResolveRefs(ctx, refs)
-	if err != nil {
-		return nil, err
-	}
-	succeeded, forEachErr := fc.ForEachVM(ctx, ids, "Start", fc.startOne)
-	if batchErr := fc.BatchMarkStarted(ctx, succeeded); batchErr != nil {
-		log.WithFunc("firecracker.Start").Warnf(ctx, "batch state update: %v", batchErr)
-	}
-	return succeeded, forEachErr
+	return fc.StartAll(ctx, refs, fc.startOne)
 }
 
 func (fc *Firecracker) startOne(ctx context.Context, id string) error {
