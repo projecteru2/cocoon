@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
@@ -104,12 +102,8 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	basePath := storageConfigs[0].Path
 	overlayPath := ch.conf.OverlayPath(vmID)
 
-	// shell out because no Go qcow2 writer; qemu-img is authoritative for creating backed overlays.
-	if out, err := exec.CommandContext(ctx, //nolint:gosec
-		"qemu-img", "create", "-f", "qcow2", "-F", "qcow2",
-		"-b", basePath, overlayPath,
-	).CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("qemu-img create overlay: %s: %w", strings.TrimSpace(string(out)), err)
+	if err := utils.RunQemuImg(ctx, "create", "-f", "qcow2", "-F", "qcow2", "-b", basePath, overlayPath); err != nil {
+		return nil, err
 	}
 
 	if vmCfg.Storage > 0 {
@@ -138,27 +132,6 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	cidataPath := ch.conf.CidataPath(vmID)
 	configs = append(configs, &types.StorageConfig{Path: cidataPath, RO: true, Role: types.StorageRoleCidata})
 	return configs, nil
-}
-
-// buildMountSpecs derives cloud-init mounts from StorageConfigs. A data disk
-// is auto-mounted iff Role==Data, MountPoint is non-empty, and FSType is a
-// known formatter (none → guest is responsible for mkfs+mount, skip).
-// Defaults Options to "defaults,nofail" so a missing or corrupt disk
-// doesn't keep the guest from booting.
-func buildMountSpecs(configs []*types.StorageConfig) []metadata.MountSpec {
-	var out []metadata.MountSpec
-	for _, sc := range configs {
-		if sc.Role != types.StorageRoleData || sc.MountPoint == "" || sc.FSType == "" || sc.FSType == types.FSTypeNone {
-			continue
-		}
-		out = append(out, metadata.MountSpec{
-			Device:     "/dev/disk/by-id/virtio-" + sc.Serial,
-			MountPoint: sc.MountPoint,
-			FSType:     sc.FSType,
-			Options:    "defaults,nofail",
-		})
-	}
-	return out
 }
 
 // generateCidata writes the NoCloud cidata image used by Create and Clone.
@@ -200,4 +173,25 @@ func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, ne
 		return fmt.Errorf("generate cidata: %w", err)
 	}
 	return f.Close()
+}
+
+// buildMountSpecs derives cloud-init mounts from StorageConfigs. A data disk
+// is auto-mounted iff Role==Data, MountPoint is non-empty, and FSType is a
+// known formatter (none → guest is responsible for mkfs+mount, skip).
+// Defaults Options to "defaults,nofail" so a missing or corrupt disk
+// doesn't keep the guest from booting.
+func buildMountSpecs(configs []*types.StorageConfig) []metadata.MountSpec {
+	var out []metadata.MountSpec
+	for _, sc := range configs {
+		if sc.Role != types.StorageRoleData || sc.MountPoint == "" || sc.FSType == "" || sc.FSType == types.FSTypeNone {
+			continue
+		}
+		out = append(out, metadata.MountSpec{
+			Device:     "/dev/disk/by-id/virtio-" + sc.Serial,
+			MountPoint: sc.MountPoint,
+			FSType:     sc.FSType,
+			Options:    "defaults,nofail",
+		})
+	}
+	return out
 }

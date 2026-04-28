@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -354,18 +355,12 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 // CloneVMConfigFromFlags builds VMConfig for clone (inherits from snapshot).
 func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
-	network, _ := cmd.Flags().GetString("network")
-	if network == "" {
-		network = snapCfg.Network
-	}
-	queueSize, _ := cmd.Flags().GetInt("queue-size")
-	if queueSize == 0 {
-		queueSize = snapCfg.QueueSize
-	}
-	diskQueueSize, _ := cmd.Flags().GetInt("disk-queue-size")
-	if diskQueueSize == 0 {
-		diskQueueSize = snapCfg.DiskQueueSize
-	}
+	flagNetwork, _ := cmd.Flags().GetString("network")
+	network := cmp.Or(flagNetwork, snapCfg.Network)
+	flagQueueSize, _ := cmd.Flags().GetInt("queue-size")
+	queueSize := cmp.Or(flagQueueSize, snapCfg.QueueSize)
+	flagDiskQueueSize, _ := cmd.Flags().GetInt("disk-queue-size")
+	diskQueueSize := cmp.Or(flagDiskQueueSize, snapCfg.DiskQueueSize)
 	noDirectIO := snapCfg.NoDirectIO
 	if cmd.Flags().Changed("no-direct-io") {
 		noDirectIO, _ = cmd.Flags().GetBool("no-direct-io")
@@ -627,12 +622,12 @@ func parseDataDiskSpec(s string) (types.DataDiskSpec, error) {
 		return spec, fmt.Errorf("--data-disk: empty spec")
 	}
 	for part := range strings.SplitSeq(s, ",") {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
+		rawKey, rawVal, ok := strings.Cut(part, "=")
+		if !ok {
 			return spec, fmt.Errorf("--data-disk: %q is not key=value", part)
 		}
-		key := strings.TrimSpace(kv[0])
-		val := strings.TrimSpace(kv[1])
+		key := strings.TrimSpace(rawKey)
+		val := strings.TrimSpace(rawVal)
 		switch key {
 		case "size":
 			n, err := units.RAMInBytes(val)

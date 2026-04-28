@@ -22,15 +22,6 @@ const (
 // kvBuilder accumulates key=value CLI fragments.
 type kvBuilder []string
 
-// DebugDiskCLIArgs uses the same storage-to-disk mapping as launch.
-func DebugDiskCLIArgs(storageConfigs []*types.StorageConfig, cpuCount, diskQueueSize int, noDirectIO bool) []string {
-	args := make([]string, 0, len(storageConfigs))
-	for _, storageConfig := range storageConfigs {
-		args = append(args, diskToCLIArg(storageConfigToDisk(storageConfig, cpuCount, diskQueueSize, noDirectIO)))
-	}
-	return args
-}
-
 // String joins all key=value pairs with commas.
 func (b kvBuilder) String() string { return strings.Join(b, ",") }
 
@@ -39,6 +30,15 @@ func (b *kvBuilder) addIf(cond bool, kv string) {
 	if cond {
 		*b = append(*b, kv)
 	}
+}
+
+// DebugDiskCLIArgs uses the same storage-to-disk mapping as launch.
+func DebugDiskCLIArgs(storageConfigs []*types.StorageConfig, cpuCount, diskQueueSize int, noDirectIO bool) []string {
+	args := make([]string, 0, len(storageConfigs))
+	for _, storageConfig := range storageConfigs {
+		args = append(args, diskToCLIArg(storageConfigToDisk(storageConfig, cpuCount, diskQueueSize, noDirectIO)))
+	}
+	return args
 }
 
 func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath string) *chVMConfig {

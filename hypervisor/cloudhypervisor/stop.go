@@ -19,15 +19,7 @@ import (
 //
 // Returns the IDs that were successfully stopped.
 func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, error) {
-	ids, err := ch.ResolveRefs(ctx, refs)
-	if err != nil {
-		return nil, err
-	}
-	succeeded, forEachErr := ch.ForEachVM(ctx, ids, "Stop", ch.stopOne)
-	if batchErr := ch.UpdateStates(ctx, succeeded, types.VMStateStopped); batchErr != nil {
-		log.WithFunc("cloudhypervisor.Stop").Warnf(ctx, "batch state update: %v", batchErr)
-	}
-	return succeeded, forEachErr
+	return ch.StopAll(ctx, refs, ch.stopOne)
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {

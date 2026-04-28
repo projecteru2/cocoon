@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -136,13 +134,9 @@ func prepareTmpBlob(
 }
 
 func convertToQcow2(ctx context.Context, srcFormat, src, dst string) error {
-	// shell out because no Go qcow2 writer; qemu-img is authoritative for format conversion.
-	cmd := exec.CommandContext(ctx, "qemu-img", "convert", //nolint:gosec // args are controlled
-		"-f", srcFormat, "-O", "qcow2", "-o", "compat=1.1",
-		src, dst)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if err := utils.RunQemuImg(ctx, "convert", "-f", srcFormat, "-O", "qcow2", "-o", "compat=1.1", src, dst); err != nil {
 		os.Remove(dst) //nolint:errcheck,gosec
-		return fmt.Errorf("qemu-img convert: %s: %w", strings.TrimSpace(string(out)), err)
+		return err
 	}
 	return nil
 }

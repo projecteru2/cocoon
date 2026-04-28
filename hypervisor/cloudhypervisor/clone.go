@@ -47,7 +47,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("parse CH config: %w", err)
 	}
 
-	meta, err := loadSnapshotMeta(runDir)
+	meta, err := hypervisor.LoadSnapshotMeta(runDir)
 	if err != nil {
 		return nil, fmt.Errorf("load snapshot meta: %w", err)
 	}

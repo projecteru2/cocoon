@@ -2,7 +2,6 @@ package firecracker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,18 +18,7 @@ import (
 const (
 	snapshotVMStateFile = "vmstate"
 	snapshotMemFile     = "mem"
-	snapshotMetaFile    = "cocoon.json"
 )
-
-// snapshotMeta is persisted as cocoon.json inside the snapshot tar.
-// All paths are stored as absolute — FC snapshots require the same
-// directory layout on the target host.
-type snapshotMeta struct {
-	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
-	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
-	CPU            int                    `json:"cpu,omitempty"`
-	Memory         int64                  `json:"memory,omitempty"`
-}
 
 // Snapshot pauses the VM, captures its full state (CPU/device state via FC
 // snapshot API + memory file + COW disk via reflink copy), resumes the VM,
@@ -108,7 +96,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	// Save snapshot metadata (absolute paths) so clones can reconstruct
 	// storage/boot config without depending on live VM records.
 	// FC snapshots require the same directory layout — paths are stored as-is.
-	if metaErr := saveSnapshotMeta(tmpDir, rec.StorageConfigs, rec.BootConfig, rec.Config.CPU, rec.Config.Memory); metaErr != nil {
+	if metaErr := hypervisor.SaveSnapshotMeta(tmpDir, buildSnapshotMeta(&rec)); metaErr != nil {
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("save snapshot metadata: %w", metaErr)
 	}
@@ -121,37 +109,34 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	return fc.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
 }
 
-func saveSnapshotMeta(dir string, storageConfigs []*types.StorageConfig, boot *types.BootConfig, cpu int, memory int64) error {
-	meta := snapshotMeta{CPU: cpu, Memory: memory}
-	for _, sc := range storageConfigs {
+// buildSnapshotMeta builds the FC sidecar from a live VM record. Storage
+// configs are deep-copied (subsequent VM-record mutations would otherwise
+// taint the on-disk JSON) and the kernel path is rewritten to vmlinuz so
+// clones receive the portable artifact, not the FC-specific vmlinux cache.
+func buildSnapshotMeta(rec *hypervisor.VMRecord) *hypervisor.SnapshotMeta {
+	meta := &hypervisor.SnapshotMeta{CPU: rec.Config.CPU, Memory: rec.Config.Memory}
+	for _, sc := range rec.StorageConfigs {
 		cp := *sc
 		meta.StorageConfigs = append(meta.StorageConfigs, &cp)
 	}
-	if boot != nil {
-		b := *boot
-		// Store vmlinuz (portable), not vmlinux (FC-specific cache).
+	if rec.BootConfig != nil {
+		b := *rec.BootConfig
 		if filepath.Base(b.KernelPath) == "vmlinux" {
 			b.KernelPath = filepath.Join(filepath.Dir(b.KernelPath), "vmlinuz")
 		}
 		b.Cmdline = "" // cmdline is rebuilt on clone with new VM name/IP
 		meta.BootConfig = &b
 	}
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	return os.WriteFile(filepath.Join(dir, snapshotMetaFile), data, 0o600)
+	return meta
 }
 
-// loadSnapshotMeta reads metadata and validates paths are in Cocoon-managed dirs.
-func loadSnapshotMeta(dir, rootDir, runDir string) (*snapshotMeta, error) {
-	data, err := os.ReadFile(filepath.Join(dir, snapshotMetaFile)) //nolint:gosec
+// loadSnapshotMeta reads metadata and validates paths are in cocoon-managed
+// dirs — FC accepts paths from snapshot files imported from other hosts, so
+// the validator rejects symlink/escape attempts before opening the files.
+func loadSnapshotMeta(dir, rootDir, runDir string) (*hypervisor.SnapshotMeta, error) {
+	meta, err := hypervisor.LoadSnapshotMeta(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", snapshotMetaFile, err)
-	}
-	var meta snapshotMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", snapshotMetaFile, err)
+		return nil, err
 	}
 	for _, sc := range meta.StorageConfigs {
 		if !isUnderDir(sc.Path, rootDir) && !isUnderDir(sc.Path, runDir) {
@@ -166,7 +151,7 @@ func loadSnapshotMeta(dir, rootDir, runDir string) (*snapshotMeta, error) {
 			return nil, fmt.Errorf("untrusted initrd path in snapshot metadata: %s", b.InitrdPath)
 		}
 	}
-	return &meta, nil
+	return meta, nil
 }
 
 func isUnderDir(path, dir string) bool {

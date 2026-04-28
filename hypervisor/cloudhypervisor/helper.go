@@ -3,7 +3,6 @@ package cloudhypervisor
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -102,24 +101,8 @@ func hasMemoryRangeFile(srcDir string) (bool, error) {
 	return false, nil
 }
 
-// Reuses the provided http.Client to avoid creating a new client per call.
 func vmAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) error {
-	if len(successCodes) == 0 {
-		successCodes = []int{http.StatusNoContent}
-	}
-	primaryCode := successCodes[0]
-
-	_, err := utils.DoWithRetry(ctx, func() ([]byte, error) {
-		resp, apiErr := utils.DoAPI(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, primaryCode)
-		if apiErr == nil {
-			return resp, nil
-		}
-		var ae *utils.APIError
-		if errors.As(apiErr, &ae) && slices.Contains(successCodes[1:], ae.Code) {
-			return nil, nil
-		}
-		return nil, apiErr
-	})
+	_, err := utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 	return err
 }
 

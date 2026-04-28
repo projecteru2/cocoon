@@ -34,6 +34,32 @@ type broadcaster struct {
 	sink   io.Writer // current session's conn; nil when no session
 }
 
+// setSink sets (or clears) the active session writer.
+func (b *broadcaster) setSink(w io.Writer) {
+	b.mu.Lock()
+	b.sink = w
+	b.mu.Unlock()
+}
+
+// readLoop reads from the PTY master forever and writes to the current sink.
+// Runs as a single goroutine for the relay's lifetime.
+func (b *broadcaster) readLoop() {
+	buf := make([]byte, relayBufSize)
+	for {
+		n, err := b.master.Read(buf)
+		if n > 0 {
+			b.mu.Lock()
+			if b.sink != nil {
+				_, _ = b.sink.Write(buf[:n])
+			}
+			b.mu.Unlock()
+		}
+		if err != nil {
+			return // PTY closed (FC exited)
+		}
+	}
+}
+
 // IsRelayMode returns true when the process was started as a console relay.
 func IsRelayMode() bool {
 	return os.Getenv(relayEnvKey) == "1"
@@ -103,32 +129,6 @@ func RunRelay(ctx context.Context) {
 			continue
 		}
 		relaySession(ctx, master, conn, bc)
-	}
-}
-
-// setSink sets (or clears) the active session writer.
-func (b *broadcaster) setSink(w io.Writer) {
-	b.mu.Lock()
-	b.sink = w
-	b.mu.Unlock()
-}
-
-// readLoop reads from the PTY master forever and writes to the current sink.
-// Runs as a single goroutine for the relay's lifetime.
-func (b *broadcaster) readLoop() {
-	buf := make([]byte, relayBufSize)
-	for {
-		n, err := b.master.Read(buf)
-		if n > 0 {
-			b.mu.Lock()
-			if b.sink != nil {
-				_, _ = b.sink.Write(buf[:n])
-			}
-			b.mu.Unlock()
-		}
-		if err != nil {
-			return // PTY closed (FC exited)
-		}
 	}
 }
 

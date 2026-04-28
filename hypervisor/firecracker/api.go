@@ -3,11 +3,9 @@ package firecracker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
-	"slices"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/utils"
@@ -99,22 +97,7 @@ type fcSnapshotMemBE struct {
 
 // fcAPI sends a request to the Firecracker REST API via Unix socket.
 func fcAPI(ctx context.Context, hc *http.Client, method, endpoint string, body []byte, successCodes ...int) error {
-	if len(successCodes) == 0 {
-		successCodes = []int{http.StatusNoContent}
-	}
-	primaryCode := successCodes[0]
-
-	_, err := utils.DoWithRetry(ctx, func() ([]byte, error) {
-		resp, apiErr := utils.DoAPI(ctx, hc, method, "http://localhost"+endpoint, body, primaryCode)
-		if apiErr == nil {
-			return resp, nil
-		}
-		var ae *utils.APIError
-		if errors.As(apiErr, &ae) && slices.Contains(successCodes[1:], ae.Code) {
-			return nil, nil
-		}
-		return nil, apiErr
-	})
+	_, err := utils.DoAPIWithRetry(ctx, hc, method, "http://localhost"+endpoint, body, successCodes...)
 	return err
 }
 
