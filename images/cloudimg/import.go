@@ -1,7 +1,6 @@
 package cloudimg
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -86,16 +85,13 @@ func importQcow2Reader(ctx context.Context, conf *Config, store storage.Store[im
 
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDownload})
 
-	// Peek before buffering, then stitch the bytes back with MultiReader.
-	var head [8]byte
-	n, err := io.ReadFull(r, head[:])
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+	head, full, err := utils.PeekReader(r, 8)
+	if err != nil {
 		return fmt.Errorf("import %s: read stream: %w", name, err)
 	}
-	if sniffErr := sniffHead(head[:n]); sniffErr != nil {
+	if sniffErr := sniffHead(head); sniffErr != nil {
 		return fmt.Errorf("import %s: %w", name, sniffErr)
 	}
-	full := io.MultiReader(bytes.NewReader(head[:n]), r)
 
 	tmpFile, err := os.CreateTemp(conf.TempDir(), "import-*.img")
 	if err != nil {

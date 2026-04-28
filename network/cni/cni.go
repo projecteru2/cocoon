@@ -105,13 +105,10 @@ func (c *CNI) Inspect(ctx context.Context, id string) (*types.Network, error) {
 func (c *CNI) List(ctx context.Context) ([]*types.Network, error) {
 	var result []*types.Network
 	return result, c.store.With(ctx, func(idx *networkIndex) error {
-		for _, rec := range idx.Networks {
-			if rec == nil {
-				continue
-			}
-			net := rec.Network
-			result = append(result, &net)
-		}
+		result = utils.MapValues(idx.Networks, func(rec *networkRecord) *types.Network {
+			n := rec.Network
+			return &n
+		})
 		return nil
 	})
 }

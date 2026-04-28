@@ -1,7 +1,6 @@
 package localfile
 
 import (
-	"bufio"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -90,19 +89,21 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 // unwrapGzip peeks at the first 2 bytes to detect gzip magic (0x1f 0x8b).
 // Returns the underlying tar reader and an optional gzip closer.
 func unwrapGzip(r io.Reader) (io.Reader, io.Closer, error) {
-	br := bufio.NewReaderSize(r, 4096)
-	peek, err := br.Peek(2)
+	head, full, err := utils.PeekReader(r, 2)
 	if err != nil {
 		return nil, nil, fmt.Errorf("peek archive header: %w", err)
 	}
-	if peek[0] == 0x1f && peek[1] == 0x8b {
-		gr, gzErr := gzip.NewReader(br)
+	if len(head) < 2 {
+		return nil, nil, errors.New("peek archive header: stream shorter than gzip magic (2 bytes)")
+	}
+	if head[0] == 0x1f && head[1] == 0x8b {
+		gr, gzErr := gzip.NewReader(full)
 		if gzErr != nil {
 			return nil, nil, fmt.Errorf("decompress: %w", gzErr)
 		}
 		return gr, gr, nil
 	}
-	return br, nil, nil
+	return full, nil, nil
 }
 
 // readAndRemoveSnapshotJSON reads snapshot.json from the data directory,

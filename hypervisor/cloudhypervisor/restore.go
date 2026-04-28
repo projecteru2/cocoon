@@ -15,44 +15,23 @@ import (
 
 // Restore stages a snapshot tar before replacing the running VM state.
 func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
-	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
-		return nil, err
-	}
-
-	vmID, rec, directBoot, cowPath, err := ch.resolveForRestore(ctx, vmRef)
-	if err != nil {
-		return nil, err
-	}
-
-	// Use a clean sibling staging dir before touching the live runDir.
-	stagingDir, cleanupStaging, err := hypervisor.PrepareStagingDir(rec.RunDir, snapshot)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanupStaging()
-
-	// Preflight before kill — a malformed snapshot must not cost an outage.
-	if err := ch.preflightRestore(stagingDir, rec); err != nil {
-		return nil, fmt.Errorf("snapshot preflight: %w", err)
-	}
-
-	// Once staging succeeds, stop the current VM and swap files into place.
-	if killErr := ch.killForRestore(ctx, vmID, rec); killErr != nil {
-		return nil, killErr
-	}
-	if mergeErr := hypervisor.MergeDirInto(stagingDir, rec.RunDir); mergeErr != nil {
-		ch.MarkError(ctx, vmID)
-		return nil, fmt.Errorf("apply staged snapshot: %w", mergeErr)
-	}
-
-	return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot, cowPath)
+	return ch.RestoreSequence(ctx, vmRef, hypervisor.RestoreSpec{
+		VMCfg:     vmCfg,
+		Snapshot:  snapshot,
+		Preflight: ch.preflightRestore,
+		Kill:      ch.killForRestore,
+		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
+			directBoot := isDirectBoot(rec.BootConfig)
+			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot, ch.cowPath(vmID, directBoot))
+		},
+	})
 }
 
 // preflightRestore loads the sidecar from srcDir, runs structural validation,
 // then asserts the snapshot's role sequence is a valid prefix of the live
 // record (cidata-only suffix on rec is the one allowed extension).
 func (ch *CloudHypervisor) preflightRestore(srcDir string, rec *hypervisor.VMRecord) error {
-	meta, err := hypervisor.LoadSnapshotMeta(srcDir)
+	meta, err := hypervisor.LoadAndValidateMeta(srcDir, ch.conf.RootDir, ch.conf.Config.RunDir)
 	if err != nil {
 		return err
 	}
@@ -60,17 +39,6 @@ func (ch *CloudHypervisor) preflightRestore(srcDir string, rec *hypervisor.VMRec
 		return err
 	}
 	return hypervisor.ValidateRoleSequence(meta.StorageConfigs, rec.StorageConfigs)
-}
-
-// resolveForRestore loads the record and validates running state.
-func (ch *CloudHypervisor) resolveForRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, bool, string, error) {
-	vmID, rec, err := ch.ResolveForRestore(ctx, vmRef)
-	if err != nil {
-		return "", nil, false, "", err
-	}
-	directBoot := isDirectBoot(rec.BootConfig)
-	cowPath := ch.cowPath(vmID, directBoot)
-	return vmID, rec, directBoot, cowPath, nil
 }
 
 // killForRestore stops the running CH process and cleans up runtime files.
@@ -94,7 +62,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	chConfigPath := filepath.Join(rec.RunDir, "config.json")
 	// Use sidecar length; rec may have trailing cidata that the snapshot
 	// lacks (cloudimg post-first-boot), prefix-slice trims it.
-	meta, metaErr := hypervisor.LoadSnapshotMeta(rec.RunDir)
+	meta, metaErr := hypervisor.LoadAndValidateMeta(rec.RunDir, ch.conf.RootDir, ch.conf.Config.RunDir)
 	if metaErr != nil {
 		return nil, fmt.Errorf("load snapshot meta: %w", metaErr)
 	}

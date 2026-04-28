@@ -12,7 +12,6 @@ import (
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
-	"github.com/cocoonstack/cocoon/utils"
 )
 
 // Start launches the Cloud Hypervisor process for each VM ref.
@@ -59,11 +58,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 	if err != nil {
 		log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "create process log: %v", err)
 	} else {
-		defer func() {
-			if closeErr := logFile.Close(); closeErr != nil {
-				log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "close log file: %v", closeErr)
-			}
-		}()
+		defer logFile.Close() //nolint:errcheck
 	}
 
 	// shell out because launching the Cloud Hypervisor process (external binary is the authoritative implementation).
@@ -77,30 +72,18 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 
 	// CNI mode: TAP is inside a per-VM netns, switch before fork.
 	// Bridge mode: TAP is in host netns, no EnterNetns needed.
+	netnsPath := ""
 	if withNetwork && rec.NetworkConfigs[0].NetnsPath != "" {
-		restore, enterErr := hypervisor.EnterNetns(rec.NetworkConfigs[0].NetnsPath)
-		if enterErr != nil {
-			return 0, fmt.Errorf("enter netns: %w", enterErr)
-		}
-		defer restore()
+		netnsPath = rec.NetworkConfigs[0].NetnsPath
 	}
 
-	if startErr := cmd.Start(); startErr != nil {
-		return 0, fmt.Errorf("exec cloud-hypervisor: %w", startErr)
-	}
-	pid := cmd.Process.Pid
-
-	pidPath := ch.PIDFilePath(rec.RunDir)
-	if err := utils.WritePIDFile(pidPath, pid); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return 0, fmt.Errorf("write PID file: %w", err)
-	}
-
-	if err := hypervisor.WaitForSocket(ctx, socketPath, pid, ch.conf.SocketWaitTimeout(), ch.conf.BinaryName()); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		_ = os.Remove(pidPath)
+	pid, err := ch.LaunchVMProcess(ctx, hypervisor.LaunchSpec{
+		Cmd:       cmd,
+		PIDPath:   ch.PIDFilePath(rec.RunDir),
+		SockPath:  socketPath,
+		NetnsPath: netnsPath,
+	})
+	if err != nil {
 		return 0, err
 	}
 

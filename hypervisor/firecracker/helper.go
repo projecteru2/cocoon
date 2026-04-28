@@ -16,7 +16,7 @@ var runtimeFiles = []string{hypervisor.APISocketName, pidFileName, hypervisor.Co
 // vmstate + mem files. FC vmstate is binary so the sidecar is the only
 // cocoon-side disk-shape source — there's no chCfg counterpart.
 func (fc *Firecracker) preflightRestore(srcDir string, rec *hypervisor.VMRecord) error {
-	meta, err := loadSnapshotMeta(srcDir, fc.conf.RootDir, fc.conf.Config.RunDir)
+	meta, err := hypervisor.LoadAndValidateMeta(srcDir, fc.conf.RootDir, fc.conf.Config.RunDir)
 	if err != nil {
 		return err
 	}

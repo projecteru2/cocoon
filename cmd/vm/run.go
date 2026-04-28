@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -265,10 +266,8 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		}
 	}
 
-	nics, _ := cmd.Flags().GetInt("nics")
-	if nics == 0 {
-		nics = cfg.NICs
-	}
+	nicsFlag, _ := cmd.Flags().GetInt("nics")
+	nics := cmp.Or(nicsFlag, cfg.NICs)
 	if nics < cfg.NICs {
 		return nil, "", nil, nil, fmt.Errorf("--nics %d below snapshot minimum %d", nics, cfg.NICs)
 	}

@@ -31,3 +31,19 @@ func MergeSets[K comparable](sets ...map[K]struct{}) map[K]struct{} {
 	}
 	return out
 }
+
+// MapValues projects every non-nil value in m through fn into a slice.
+// Used by List endpoints to materialize record maps without hand-rolled loops.
+func MapValues[K comparable, V, R any](m map[K]*V, fn func(*V) R) []R {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]R, 0, len(m))
+	for _, v := range m {
+		if v == nil {
+			continue
+		}
+		out = append(out, fn(v))
+	}
+	return out
+}

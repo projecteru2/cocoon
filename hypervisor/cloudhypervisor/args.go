@@ -151,10 +151,10 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 	}
 
 	if cfg.Serial != nil {
-		args = append(args, "--serial", runtimeFiletoCLIArg(cfg.Serial))
+		args = append(args, "--serial", runtimeFileToCLIArg(cfg.Serial))
 	}
 	if cfg.Console != nil {
-		args = append(args, "--console", runtimeFiletoCLIArg(cfg.Console))
+		args = append(args, "--console", runtimeFileToCLIArg(cfg.Console))
 	}
 
 	return args
@@ -248,7 +248,7 @@ func balloonToCLIArg(b *chBalloon) string {
 	return args.String()
 }
 
-func runtimeFiletoCLIArg(c *chRuntimeFile) string {
+func runtimeFileToCLIArg(c *chRuntimeFile) string {
 	switch strings.ToLower(c.Mode) {
 	case "file":
 		return "file=" + c.File

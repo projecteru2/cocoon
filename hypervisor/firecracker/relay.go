@@ -88,8 +88,8 @@ func RunRelay(ctx context.Context) {
 	defer listener.Close() //nolint:errcheck
 
 	pidStr := os.Getenv(relayPIDEnvKey)
-	fcPid, pidErr := strconv.Atoi(pidStr)
-	if pidErr != nil || fcPid <= 0 {
+	fcPID, pidErr := strconv.Atoi(pidStr)
+	if pidErr != nil || fcPID <= 0 {
 		log.WithFunc("firecracker.runRelay").Warnf(ctx, "invalid FC PID %q, skipping relay", pidStr)
 		return
 	}
@@ -100,7 +100,7 @@ func RunRelay(ctx context.Context) {
 	// Monitor FC process — close listener when FC exits.
 	go func() {
 		for {
-			if !utils.IsProcessAlive(fcPid) {
+			if !utils.IsProcessAlive(fcPID) {
 				cancel()
 				_ = listener.Close()
 				return

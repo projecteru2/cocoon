@@ -34,7 +34,7 @@ func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMCo
 func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
 	logger := log.WithFunc("firecracker.Clone")
 
-	meta, err := loadSnapshotMeta(runDir, fc.conf.RootDir, fc.conf.Config.RunDir)
+	meta, err := hypervisor.LoadAndValidateMeta(runDir, fc.conf.RootDir, fc.conf.Config.RunDir)
 	if err != nil {
 		return nil, fmt.Errorf("load snapshot metadata: %w", err)
 	}
@@ -171,22 +171,20 @@ func (fc *Firecracker) restoreAndResumeClone(
 // as an error rather than silently dropping or copying it.
 func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*types.StorageConfig, error) {
 	runDir := filepath.Dir(cowPath)
-	configs := make([]*types.StorageConfig, 0, len(meta.StorageConfigs))
-	for i, sc := range meta.StorageConfigs {
-		cp := *sc
+	configs := hypervisor.CloneStorageConfigs(meta.StorageConfigs)
+	for i, sc := range configs {
 		switch sc.Role {
 		case types.StorageRoleLayer:
 			// keep Path as-is
 		case types.StorageRoleCOW:
-			cp.Path = cowPath
+			sc.Path = cowPath
 		case types.StorageRoleData:
-			cp.Path = filepath.Join(runDir, hypervisor.DataDiskBaseName(sc.Serial))
+			sc.Path = filepath.Join(runDir, hypervisor.DataDiskBaseName(sc.Serial))
 		case types.StorageRoleCidata:
 			return nil, fmt.Errorf("snapshot disk[%d] has cidata role; FC does not support cloudimg", i)
 		default:
 			return nil, fmt.Errorf("snapshot disk[%d] has unknown role %q", i, sc.Role)
 		}
-		configs = append(configs, &cp)
 	}
 	return configs, nil
 }

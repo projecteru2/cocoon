@@ -132,24 +132,8 @@ func EnsureVmlinux(kernelPath string) (string, error) {
 		return "", fmt.Errorf("decompress kernel from %s: %w (FC requires uncompressed ELF kernel)", kernelPath, decompErr)
 	}
 
-	// Write atomically so readers never see a partial kernel.
-	tmpFile, tmpErr := os.CreateTemp(filepath.Dir(vmlinuxPath), ".vmlinux-*")
-	if tmpErr != nil {
-		return "", fmt.Errorf("create temp vmlinux: %w", tmpErr)
-	}
-	tmpPath := tmpFile.Name()
-	if _, writeErr := tmpFile.Write(decompressed); writeErr != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("write vmlinux: %w", writeErr)
-	}
-	if closeErr := tmpFile.Close(); closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("close vmlinux: %w", closeErr)
-	}
-	if renameErr := os.Rename(tmpPath, vmlinuxPath); renameErr != nil {
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("rename vmlinux: %w", renameErr)
+	if err := utils.AtomicWriteFile(vmlinuxPath, decompressed, 0o600); err != nil {
+		return "", fmt.Errorf("write vmlinux: %w", err)
 	}
 	return vmlinuxPath, nil
 }
@@ -213,19 +197,9 @@ func decompressGzip(data []byte) ([]byte, error) {
 }
 
 func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
-	nLayers := 0
-	for _, s := range storageConfigs {
-		if s.Role == types.StorageRoleLayer {
-			nLayers++
-		}
-	}
-
-	// Build layer device paths reversed (top layer first for overlayfs lowerdir)
-	layerDevs := make([]string, nLayers)
-	for i := range nLayers {
-		layerDevs[nLayers-1-i] = devPath(i)
-	}
-	cowDev := devPath(nLayers)
+	// Layer device paths reversed (top layer first for overlayfs lowerdir).
+	layerDevs := hypervisor.ReverseLayers(storageConfigs, func(idx int, _ *types.StorageConfig) string { return devPath(idx) })
+	cowDev := devPath(len(layerDevs))
 
 	var cmdline strings.Builder
 	// FC serial console is ttyS0 (not hvc0 like CH's virtio-console).
