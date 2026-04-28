@@ -17,7 +17,10 @@ func TestNormalizePath(t *testing.T) {
 		{name: "uppercase BDF", in: "00:1F.7", want: SysfsPCIPrefix + "0000:00:1f.7"},
 		{name: "sysfs path", in: SysfsPCIPrefix + "0000:01:00.0", want: SysfsPCIPrefix + "0000:01:00.0"},
 		{name: "sysfs path with trailing slash", in: SysfsPCIPrefix + "0000:01:00.0/", want: SysfsPCIPrefix + "0000:01:00.0"},
-		{name: "absolute non-sysfs path", in: "/dev/null", want: "/dev/null"},
+		{name: "sysfs path uppercase BDF", in: SysfsPCIPrefix + "0000:0A:00.0", want: SysfsPCIPrefix + "0000:0a:00.0"},
+		{name: "absolute non-sysfs path rejected", in: "/dev/null", wantErr: "must be under"},
+		{name: "sysfs prefix with garbage suffix", in: SysfsPCIPrefix + "garbage", wantErr: "BDF suffix"},
+		{name: "sysfs prefix with short BDF", in: SysfsPCIPrefix + "01:00.0", wantErr: "BDF suffix"},
 		{name: "empty", in: "", wantErr: "empty"},
 		{name: "garbage", in: "not-a-bdf", wantErr: "invalid"},
 		{name: "bad function digit", in: "01:00.8", wantErr: "invalid"},
@@ -53,9 +56,9 @@ func TestSpecNormalizedPath(t *testing.T) {
 	}{
 		{name: "valid short BDF", spec: Spec{PCI: "01:00.0"}, want: SysfsPCIPrefix + "0000:01:00.0"},
 		{name: "valid full BDF with id", spec: Spec{PCI: "0000:01:00.0", ID: "mygpu"}, want: SysfsPCIPrefix + "0000:01:00.0"},
-		{name: "missing pci", spec: Spec{}, wantErr: "--pci is required"},
-		{name: "id with cocoon prefix", spec: Spec{PCI: "01:00.0", ID: "cocoon-x"}, wantErr: "--id"},
-		{name: "id with bad chars", spec: Spec{PCI: "01:00.0", ID: "bad id"}, wantErr: "--id"},
+		{name: "missing pci", spec: Spec{}, wantErr: "pci is required"},
+		{name: "id with cocoon prefix", spec: Spec{PCI: "01:00.0", ID: "cocoon-x"}, wantErr: "id"},
+		{name: "id with bad chars", spec: Spec{PCI: "01:00.0", ID: "bad id"}, wantErr: "id"},
 		{name: "bad pci", spec: Spec{PCI: "junk"}, wantErr: "invalid"},
 	}
 	for _, tt := range tests {

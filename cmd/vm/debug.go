@@ -35,6 +35,9 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if conf.UseFirecracker && vmCfg.SharedMemory {
+		return fmt.Errorf("--fc and --shared-memory are mutually exclusive: Firecracker does not support vhost-user-fs hot-plug")
+	}
 	if len(vmCfg.DataDisks) > 0 {
 		fmt.Fprintln(os.Stderr, "warning: --data-disk is ignored in debug mode (debug only prints the hypervisor launch command; data disks need PrepareDataDisks to materialize)")
 	}
@@ -191,16 +194,20 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize, noDirectIO)
 		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
-	printCommonCHArgs(cpu, maxCPU, memory, balloon, vmCfg.Windows)
+	printCommonCHArgs(cpu, maxCPU, memory, balloon, vmCfg.Windows, vmCfg.SharedMemory)
 }
 
-func printCommonCHArgs(cpu, maxCPU, memory, balloon int, windows bool) {
+func printCommonCHArgs(cpu, maxCPU, memory, balloon int, windows, sharedMemory bool) {
 	cpuExtra := ""
 	if windows {
 		cpuExtra = ",kvm_hyperv=on"
 	}
+	memExtra := ""
+	if sharedMemory {
+		memExtra = ",shared=on"
+	}
 	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", cpu, maxCPU, cpuExtra)
-	fmt.Printf("  --memory size=%dM \\\n", memory)
+	fmt.Printf("  --memory size=%dM%s \\\n", memory, memExtra)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
 	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", balloon)
 	fmt.Printf("  --watchdog \\\n")

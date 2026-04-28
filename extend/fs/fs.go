@@ -59,22 +59,22 @@ type Lister interface {
 // Validate enforces required fields and applies queue-size defaults.
 func (s *Spec) Validate() error {
 	if s.Socket == "" {
-		return fmt.Errorf("--socket is required")
+		return fmt.Errorf("socket is required")
 	}
 	if !filepath.IsAbs(s.Socket) {
-		return fmt.Errorf("--socket must be absolute, got %q", s.Socket)
+		return fmt.Errorf("socket must be absolute, got %q", s.Socket)
 	}
 	if s.Tag == "" {
-		return fmt.Errorf("--tag is required")
+		return fmt.Errorf("tag is required")
 	}
 	if !validTagRe.MatchString(s.Tag) {
-		return fmt.Errorf("--tag %q invalid: must match [A-Za-z0-9][A-Za-z0-9_-]{0,35}", s.Tag)
+		return fmt.Errorf("tag %q invalid: must match [A-Za-z0-9][A-Za-z0-9_-]{0,35}", s.Tag)
 	}
 	if s.NumQueues < 0 {
-		return fmt.Errorf("--num-queues must be non-negative, got %d", s.NumQueues)
+		return fmt.Errorf("num-queues must be non-negative, got %d", s.NumQueues)
 	}
 	if s.QueueSize < 0 {
-		return fmt.Errorf("--queue-size must be non-negative, got %d", s.QueueSize)
+		return fmt.Errorf("queue-size must be non-negative, got %d", s.QueueSize)
 	}
 	if s.NumQueues == 0 {
 		s.NumQueues = DefaultNumQueues

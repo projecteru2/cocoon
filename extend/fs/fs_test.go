@@ -15,11 +15,11 @@ func TestSpecValidate(t *testing.T) {
 	}{
 		{name: "minimal valid", spec: Spec{Socket: "/tmp/x.sock", Tag: "share"}, wantNumQ: DefaultNumQueues, wantQSize: DefaultQueueSize},
 		{name: "explicit queues", spec: Spec{Socket: "/tmp/x.sock", Tag: "share", NumQueues: 4, QueueSize: 256}, wantNumQ: 4, wantQSize: 256},
-		{name: "missing socket", spec: Spec{Tag: "share"}, wantErr: "--socket is required"},
-		{name: "relative socket", spec: Spec{Socket: "rel.sock", Tag: "share"}, wantErr: "--socket must be absolute"},
-		{name: "missing tag", spec: Spec{Socket: "/tmp/x.sock"}, wantErr: "--tag is required"},
-		{name: "tag with slash", spec: Spec{Socket: "/tmp/x.sock", Tag: "a/b"}, wantErr: "--tag"},
-		{name: "tag too long", spec: Spec{Socket: "/tmp/x.sock", Tag: strings.Repeat("a", 37)}, wantErr: "--tag"},
+		{name: "missing socket", spec: Spec{Tag: "share"}, wantErr: "socket is required"},
+		{name: "relative socket", spec: Spec{Socket: "rel.sock", Tag: "share"}, wantErr: "socket must be absolute"},
+		{name: "missing tag", spec: Spec{Socket: "/tmp/x.sock"}, wantErr: "tag is required"},
+		{name: "tag with slash", spec: Spec{Socket: "/tmp/x.sock", Tag: "a/b"}, wantErr: "tag"},
+		{name: "tag too long", spec: Spec{Socket: "/tmp/x.sock", Tag: strings.Repeat("a", 37)}, wantErr: "tag"},
 		{name: "negative queues", spec: Spec{Socket: "/tmp/x.sock", Tag: "share", NumQueues: -1}, wantErr: "non-negative"},
 	}
 	for _, tt := range tests {
