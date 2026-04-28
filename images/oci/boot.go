@@ -2,6 +2,7 @@ package oci
 
 import (
 	"archive/tar"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -57,12 +58,8 @@ func selfHealBootFiles(ctx context.Context, conf *Config, layer v1.Layer, workDi
 
 	log.WithFunc("oci.processLayer").Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
 	kp, ip := recoverBootFiles(ctx, layer, workDir, idx, digestHex)
-	if result.kernelPath == "" {
-		result.kernelPath = kp
-	}
-	if result.initrdPath == "" {
-		result.initrdPath = ip
-	}
+	result.kernelPath = cmp.Or(result.kernelPath, kp)
+	result.initrdPath = cmp.Or(result.initrdPath, ip)
 }
 
 func recoverBootFiles(ctx context.Context, layer v1.Layer, workDir string, idx int, digestHex string) (kernelPath, initrdPath string) {

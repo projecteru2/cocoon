@@ -165,34 +165,19 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 	fcCmd.Stdin = slave
 	fcCmd.Stdout = slave
 
+	netnsPath := ""
 	if withNetwork && rec.NetworkConfigs[0].NetnsPath != "" {
-		restore, enterErr := hypervisor.EnterNetns(rec.NetworkConfigs[0].NetnsPath)
-		if enterErr != nil {
-			_ = master.Close()
-			return 0, fmt.Errorf("enter netns: %w", enterErr)
-		}
-		defer restore()
+		netnsPath = rec.NetworkConfigs[0].NetnsPath
 	}
 
-	if startErr := fcCmd.Start(); startErr != nil {
-		_ = master.Close()
-		return 0, fmt.Errorf("exec firecracker: %w", startErr)
-	}
-	pid := fcCmd.Process.Pid
-
-	pidPath := fc.PIDFilePath(rec.RunDir)
-	if err := utils.WritePIDFile(pidPath, pid); err != nil {
-		_ = master.Close()
-		_ = fcCmd.Process.Kill()
-		_ = fcCmd.Wait()
-		return 0, fmt.Errorf("write PID file: %w", err)
-	}
-
-	if err := hypervisor.WaitForSocket(ctx, sockPath, pid, fc.conf.SocketWaitTimeout(), fc.conf.BinaryName()); err != nil {
-		_ = master.Close()
-		_ = fcCmd.Process.Kill()
-		_ = fcCmd.Wait()
-		_ = os.Remove(pidPath)
+	pid, err := fc.LaunchVMProcess(ctx, hypervisor.LaunchSpec{
+		Cmd:       fcCmd,
+		PIDPath:   fc.PIDFilePath(rec.RunDir),
+		SockPath:  sockPath,
+		NetnsPath: netnsPath,
+		OnFail:    func() { _ = master.Close() },
+	})
+	if err != nil {
 		return 0, err
 	}
 

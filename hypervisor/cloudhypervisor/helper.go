@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/projecteru2/core/log"
@@ -37,14 +36,7 @@ type chRestoreConfig struct {
 
 // ReverseLayerSerials extracts layer serials, reversed for overlayfs lowerdir.
 func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
-	var serials []string
-	for _, s := range storageConfigs {
-		if s.Role == types.StorageRoleLayer {
-			serials = append(serials, s.Serial)
-		}
-	}
-	slices.Reverse(serials)
-	return serials
+	return hypervisor.ReverseLayers(storageConfigs, func(_ int, sc *types.StorageConfig) string { return sc.Serial })
 }
 
 // validateSnapshotIntegrity is the CH preflight: common checks, sidecar/

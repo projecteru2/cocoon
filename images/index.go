@@ -87,11 +87,49 @@ func LookupRefs[E Entry](images map[string]*E, id string, normalizers ...func(st
 			refs = append(refs, ref)
 			continue
 		}
-		if len(idHex) >= minHexLen && (strings.HasPrefix(dHex, idHex)) {
+		if len(idHex) >= minHexLen && strings.HasPrefix(dHex, idHex) {
 			refs = append(refs, ref)
 		}
 	}
 	return refs
+}
+
+// GCStaleTemp removes temp entries older than StaleTempAge.
+// Set dirOnly=true to only remove directories (OCI uses dirs, cloudimg uses files).
+//
+// Regular files whose name ends in ".lock" are preserved regardless of
+// age — they are flock rendezvous files, and removing one while another
+// process is holding the lock would break cross-process mutual
+// exclusion (flock synchronizes on inode, not pathname: a subsequent
+// flock.New on the same path would create a new inode and race with
+// the lock holder). They are 0-byte files so the leak is negligible.
+func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
+	cutoff := time.Now().Add(-utils.StaleTempAge)
+	return utils.RemoveMatching(ctx, dir, func(e os.DirEntry) bool {
+		if dirOnly && !e.IsDir() {
+			return false
+		}
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".lock") {
+			return false
+		}
+		info, err := e.Info()
+		return err == nil && info.ModTime().Before(cutoff)
+	})
+}
+
+// GCCollectBlobs removes temp files and blob artifacts by hex ID.
+// removers are called for each hex; fs.ErrNotExist errors are ignored.
+func GCCollectBlobs(ctx context.Context, tempDir string, dirOnly bool, ids []string, removers ...func(string) error) error {
+	var errs []error
+	errs = append(errs, GCStaleTemp(ctx, tempDir, dirOnly)...)
+	for _, hex := range ids {
+		for _, rm := range removers {
+			if err := rm(hex); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // deleteByID removes entries from the map by looking up each ID.
@@ -132,49 +170,7 @@ func entryToImage[E Entry](entry *E, typ string, sizer func(*E) int64) *types.Im
 
 // listImages iterates the index and builds a list of types.Image.
 func listImages[E Entry](images map[string]*E, typ string, sizer func(*E) int64) []*types.Image {
-	var result []*types.Image
-	for _, ep := range images {
-		if img := entryToImage(ep, typ, sizer); img != nil {
-			result = append(result, img)
-		}
-	}
-	return result
-}
-
-// GCStaleTemp removes temp entries older than StaleTempAge.
-// Set dirOnly=true to only remove directories (OCI uses dirs, cloudimg uses files).
-//
-// Regular files whose name ends in ".lock" are preserved regardless of
-// age — they are flock rendezvous files, and removing one while another
-// process is holding the lock would break cross-process mutual
-// exclusion (flock synchronizes on inode, not pathname: a subsequent
-// flock.New on the same path would create a new inode and race with
-// the lock holder). They are 0-byte files so the leak is negligible.
-func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
-	cutoff := time.Now().Add(-utils.StaleTempAge)
-	return utils.RemoveMatching(ctx, dir, func(e os.DirEntry) bool {
-		if dirOnly && !e.IsDir() {
-			return false
-		}
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".lock") {
-			return false
-		}
-		info, err := e.Info()
-		return err == nil && info.ModTime().Before(cutoff)
+	return utils.MapValues(images, func(ep *E) *types.Image {
+		return entryToImage(ep, typ, sizer)
 	})
-}
-
-// GCCollectBlobs removes temp files and blob artifacts by hex ID.
-// removers are called for each hex; fs.ErrNotExist errors are ignored.
-func GCCollectBlobs(ctx context.Context, tempDir string, dirOnly bool, ids []string, removers ...func(string) error) error {
-	var errs []error
-	errs = append(errs, GCStaleTemp(ctx, tempDir, dirOnly)...)
-	for _, hex := range ids {
-		for _, rm := range removers {
-			if err := rm(hex); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				errs = append(errs, err)
-			}
-		}
-	}
-	return errors.Join(errs...)
 }

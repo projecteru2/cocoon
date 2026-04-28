@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/projecteru2/core/log"
-
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
@@ -18,8 +16,6 @@ import (
 // snapshot API, plus the COW disk via sparse copy), resumes the VM, and returns
 // a streaming tar.gz reader of the snapshot directory.
 func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
-	logger := log.WithFunc("cloudhypervisor.Snapshot")
-
 	vmID, err := ch.ResolveRef(ctx, ref)
 	if err != nil {
 		return nil, nil, err
@@ -50,46 +46,16 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	// WithRunningVM verifies the process is alive, then runs the callback.
-	// Inside the callback: pause → CH snapshot → SparseCopy COW → resume.
-	if err := ch.WithRunningVM(ctx, &rec, func(_ int) error {
-		if err := pauseVM(ctx, hc); err != nil {
-			return fmt.Errorf("pause: %w", err)
-		}
-
-		resumed := false
-		var resumeErr error
-		doResume := func() {
-			if resumed {
-				return
-			}
-			resumed = true
-			resumeErr = resumeVM(context.WithoutCancel(ctx), hc)
-			if resumeErr != nil {
-				logger.Warnf(ctx, "resume VM %s: %v", vmID, resumeErr)
-			}
-		}
-		defer doResume()
-
+	pause := func() error { return pauseVM(ctx, hc) }
+	resume := func() error { return resumeVM(context.WithoutCancel(ctx), hc) }
+	if err := ch.WithPausedVM(ctx, &rec, pause, resume, func() error {
 		if err := snapshotVM(ctx, hc, tmpDir); err != nil {
 			return fmt.Errorf("snapshot: %w", err)
 		}
-
 		if err := utils.ReflinkCopy(filepath.Join(tmpDir, cowName), cowPath); err != nil {
 			return fmt.Errorf("copy COW: %w", err)
 		}
-
-		if err := hypervisor.ReflinkDataDisks(tmpDir, rec.StorageConfigs); err != nil {
-			return err
-		}
-
-		// Resume eagerly so we can propagate the error.
-		// The deferred doResume is a no-op when resumed=true.
-		doResume()
-		if resumeErr != nil {
-			return fmt.Errorf("snapshot data captured but resume failed: %w", resumeErr)
-		}
-		return nil
+		return hypervisor.ReflinkDataDisks(tmpDir, rec.StorageConfigs)
 	}); err != nil {
 		os.RemoveAll(tmpDir) //nolint:errcheck,gosec
 		return nil, nil, fmt.Errorf("snapshot VM %s: %w", vmID, err)
@@ -134,17 +100,16 @@ func writeSnapshotMeta(tmpDir string, rec *hypervisor.VMRecord) error {
 	for _, sc := range rec.StorageConfigs {
 		byPath[sc.Path] = sc
 	}
-	storage := make([]*types.StorageConfig, 0, len(chCfg.Disks))
+	ordered := make([]*types.StorageConfig, 0, len(chCfg.Disks))
 	for _, d := range chCfg.Disks {
 		sc, ok := byPath[d.Path]
 		if !ok {
 			return fmt.Errorf("snapshot config has disk %q not present in VM record", d.Path)
 		}
-		cp := *sc
-		storage = append(storage, &cp)
+		ordered = append(ordered, sc)
 	}
 	return hypervisor.SaveSnapshotMeta(tmpDir, &hypervisor.SnapshotMeta{
-		StorageConfigs: storage,
+		StorageConfigs: hypervisor.CloneStorageConfigs(ordered),
 		BootConfig:     rec.BootConfig,
 	})
 }

@@ -98,3 +98,47 @@ func TestMergeSets_DoesNotModifyInput(t *testing.T) {
 		t.Error("s2 was modified")
 	}
 }
+
+// --- MapValues ---
+
+func TestMapValues_Basic(t *testing.T) {
+	type rec struct{ N int }
+	m := map[string]*rec{"a": {N: 1}, "b": {N: 2}, "c": {N: 3}}
+
+	got := MapValues(m, func(r *rec) int { return r.N })
+	if len(got) != 3 {
+		t.Fatalf("got %d items, want 3", len(got))
+	}
+	sum := 0
+	for _, v := range got {
+		sum += v
+	}
+	if sum != 6 {
+		t.Errorf("sum %d, want 6", sum)
+	}
+}
+
+func TestMapValues_SkipsNil(t *testing.T) {
+	type rec struct{ N int }
+	m := map[string]*rec{"a": {N: 1}, "b": nil, "c": {N: 3}}
+
+	got := MapValues(m, func(r *rec) int { return r.N })
+	if len(got) != 2 {
+		t.Errorf("got %d items, want 2 (nil should be skipped)", len(got))
+	}
+}
+
+func TestMapValues_Empty(t *testing.T) {
+	got := MapValues(map[string]*int{}, func(*int) int { return 0 })
+	if got != nil {
+		t.Errorf("expected nil for empty map, got %v", got)
+	}
+}
+
+func TestMapValues_Nil(t *testing.T) {
+	var m map[string]*int
+	got := MapValues(m, func(*int) int { return 0 })
+	if got != nil {
+		t.Errorf("expected nil for nil map, got %v", got)
+	}
+}

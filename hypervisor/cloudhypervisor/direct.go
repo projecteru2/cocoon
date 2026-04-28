@@ -21,36 +21,29 @@ func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *
 // Files are handled per-type: hardlink for memory-range-*, reflink/copy for
 // the COW disk, plain copy for small metadata.
 func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
-	// Preflight before kill — a malformed snapshot must not cost an outage.
-	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
-		return nil, err
-	}
+	return ch.DirectRestoreSequence(ctx, vmRef, hypervisor.DirectRestoreSpec{
+		VMCfg:     vmCfg,
+		SrcDir:    srcDir,
+		Preflight: ch.preflightRestore,
+		Kill:      ch.killForRestore,
+		Populate:  populateRunDirFromSrc,
+		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
+			directBoot := isDirectBoot(rec.BootConfig)
+			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot, ch.cowPath(vmID, directBoot))
+		},
+	})
+}
 
-	vmID, rec, directBoot, cowPath, err := ch.resolveForRestore(ctx, vmRef)
-	if err != nil {
-		return nil, err
+// populateRunDirFromSrc cleans rec.RunDir of old snapshot files then copies
+// new ones from srcDir using the per-backend cloneSnapshotFiles strategy.
+func populateRunDirFromSrc(rec *hypervisor.VMRecord, srcDir string) error {
+	if err := cleanSnapshotFiles(rec.RunDir); err != nil {
+		return fmt.Errorf("clean old snapshot files: %w", err)
 	}
-
-	if err := ch.preflightRestore(srcDir, rec); err != nil {
-		return nil, fmt.Errorf("snapshot preflight: %w", err)
+	if err := cloneSnapshotFiles(rec.RunDir, srcDir); err != nil {
+		return fmt.Errorf("clone snapshot files: %w", err)
 	}
-
-	if killErr := ch.killForRestore(ctx, vmID, rec); killErr != nil {
-		return nil, killErr
-	}
-
-	// Clean old snapshot files from runDir before linking/copying new ones.
-	if cleanErr := cleanSnapshotFiles(rec.RunDir); cleanErr != nil {
-		ch.MarkError(ctx, vmID)
-		return nil, fmt.Errorf("clean old snapshot files: %w", cleanErr)
-	}
-
-	if cloneErr := cloneSnapshotFiles(rec.RunDir, srcDir); cloneErr != nil {
-		ch.MarkError(ctx, vmID)
-		return nil, fmt.Errorf("clone snapshot files: %w", cloneErr)
-	}
-
-	return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot, cowPath)
+	return nil
 }
 
 // cloneSnapshotFiles copies snapshot files from srcDir to dstDir using

@@ -16,62 +16,26 @@ import (
 
 // Restore stages a snapshot tar before replacing the running VM state.
 func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
-	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
-		return nil, err
-	}
-	// FC cannot change machine config after snapshot/load.
-	if checkErr := fc.validateRestoreOverrides(ctx, vmRef, vmCfg); checkErr != nil {
-		return nil, checkErr
-	}
-
-	vmID, rec, cowPath, err := fc.resolveForRestore(ctx, vmRef)
-	if err != nil {
-		return nil, err
-	}
-
-	// Use a clean sibling staging dir before touching the live runDir.
-	stagingDir, cleanupStaging, err := hypervisor.PrepareStagingDir(rec.RunDir, snapshot)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanupStaging()
-
-	// Preflight before kill — a malformed snapshot must not cost an outage.
-	if err := fc.preflightRestore(stagingDir, rec); err != nil {
-		return nil, fmt.Errorf("snapshot preflight: %w", err)
-	}
-
-	// Once staging succeeds, stop the current VM and swap files into place.
-	if killErr := fc.killForRestore(ctx, vmID, rec); killErr != nil {
-		return nil, killErr
-	}
-
-	// Lock every writable disk so recoverStaleBackup heals stale
-	// data-*.raw.cocoon-clone-backup before restore overwrites them;
-	// otherwise a future clone would rename the backup over restored data.
-	var result *types.VM
-	if lockErr := withSourceWritableDisksLocked(rec.StorageConfigs, func() error {
-		_ = os.Remove(cowPath)
-		if mergeErr := hypervisor.MergeDirInto(stagingDir, rec.RunDir); mergeErr != nil {
-			fc.MarkError(ctx, vmID)
-			return fmt.Errorf("apply staged snapshot: %w", mergeErr)
-		}
-		var restoreErr error
-		result, restoreErr = fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, cowPath)
-		return restoreErr
-	}); lockErr != nil {
-		return nil, lockErr
-	}
-	return result, nil
-}
-
-// resolveForRestore loads the record and validates running state.
-func (fc *Firecracker) resolveForRestore(ctx context.Context, vmRef string) (string, *hypervisor.VMRecord, string, error) {
-	vmID, rec, err := fc.ResolveForRestore(ctx, vmRef)
-	if err != nil {
-		return "", nil, "", err
-	}
-	return vmID, rec, fc.conf.COWRawPath(vmID), nil
+	return fc.RestoreSequence(ctx, vmRef, hypervisor.RestoreSpec{
+		VMCfg:         vmCfg,
+		Snapshot:      snapshot,
+		OverrideCheck: validateRestoreOverrides,
+		Preflight:     fc.preflightRestore,
+		Kill:          fc.killForRestore,
+		// Lock every writable disk so recoverStaleBackup heals stale
+		// data-*.raw.cocoon-clone-backup before restore overwrites them;
+		// otherwise a future clone would rename the backup over restored data.
+		Wrap: func(rec *hypervisor.VMRecord, inner func() error) error {
+			return withSourceWritableDisksLocked(rec.StorageConfigs, inner)
+		},
+		BeforeMerge: func(rec *hypervisor.VMRecord) error {
+			_ = os.Remove(filepath.Join(rec.RunDir, cowFileName))
+			return nil
+		},
+		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
+			return fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, fc.conf.COWRawPath(vmID))
+		},
+	})
 }
 
 // killForRestore stops the running FC process and cleans up runtime files.
@@ -136,15 +100,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 }
 
 // validateRestoreOverrides rejects CPU or memory changes FC cannot apply after load.
-func (fc *Firecracker) validateRestoreOverrides(ctx context.Context, vmRef string, vmCfg *types.VMConfig) error {
-	vmID, err := fc.ResolveRef(ctx, vmRef)
-	if err != nil {
-		return nil // resolve will fail again in prepareRestore with a proper error
-	}
-	rec, err := fc.LoadRecord(ctx, vmID)
-	if err != nil {
-		return nil
-	}
+func validateRestoreOverrides(rec *hypervisor.VMRecord, vmCfg *types.VMConfig) error {
 	if vmCfg.CPU != rec.Config.CPU {
 		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (VM has %d)", vmCfg.CPU, rec.Config.CPU)
 	}

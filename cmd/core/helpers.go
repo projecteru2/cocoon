@@ -233,10 +233,7 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 	logger := log.WithFunc("core.EnsureImage")
 
 	// Use digest for lookup when available; fall back to tag/URL.
-	lookupRef := vmCfg.ImageDigest
-	if lookupRef == "" {
-		lookupRef = vmCfg.Image
-	}
+	lookupRef := cmp.Or(vmCfg.ImageDigest, vmCfg.Image)
 
 	for _, b := range backends {
 		if b.Type() != vmCfg.ImageType {
@@ -693,9 +690,7 @@ func normalizeDataDiskSpecs(specs []types.DataDiskSpec) error {
 	}
 	autoIdx := 1
 	for i := range specs {
-		if specs[i].FSType == "" {
-			specs[i].FSType = types.FSTypeExt4
-		}
+		specs[i].FSType = cmp.Or(specs[i].FSType, types.FSTypeExt4)
 		if specs[i].FSType != types.FSTypeExt4 && specs[i].FSType != types.FSTypeNone {
 			return fmt.Errorf("--data-disk: invalid fstype %q", specs[i].FSType)
 		}

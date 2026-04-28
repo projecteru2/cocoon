@@ -20,47 +20,35 @@ func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *type
 // Files are handled per-type: hardlink for mem, reflink/copy for
 // the COW disk, plain copy for small metadata (vmstate).
 func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
-	if err := hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
-		return nil, err
-	}
-	// Validate CPU/memory overrides before killing the running VM.
-	if checkErr := fc.validateRestoreOverrides(ctx, vmRef, vmCfg); checkErr != nil {
-		return nil, checkErr
-	}
+	return fc.DirectRestoreSequence(ctx, vmRef, hypervisor.DirectRestoreSpec{
+		VMCfg:         vmCfg,
+		SrcDir:        srcDir,
+		OverrideCheck: validateRestoreOverrides,
+		Preflight:     fc.preflightRestore,
+		Kill:          fc.killForRestore,
+		// Lock every writable disk so recoverStaleBackup heals stale
+		// data-*.raw.cocoon-clone-backup before restore overwrites them;
+		// otherwise a future clone would rename the backup over restored data.
+		Wrap: func(rec *hypervisor.VMRecord, inner func() error) error {
+			return withSourceWritableDisksLocked(rec.StorageConfigs, inner)
+		},
+		Populate: populateRunDirFromSrc,
+		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
+			return fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, fc.conf.COWRawPath(vmID))
+		},
+	})
+}
 
-	vmID, rec, cowPath, err := fc.resolveForRestore(ctx, vmRef)
-	if err != nil {
-		return nil, err
+// populateRunDirFromSrc cleans rec.RunDir of old snapshot files then copies
+// new ones from srcDir using the per-backend cloneSnapshotFiles strategy.
+func populateRunDirFromSrc(rec *hypervisor.VMRecord, srcDir string) error {
+	if err := cleanSnapshotFiles(rec.RunDir); err != nil {
+		return fmt.Errorf("clean old snapshot files: %w", err)
 	}
-
-	if err := fc.preflightRestore(srcDir, rec); err != nil {
-		return nil, fmt.Errorf("snapshot preflight: %w", err)
+	if err := cloneSnapshotFiles(rec.RunDir, srcDir); err != nil {
+		return fmt.Errorf("clone snapshot files: %w", err)
 	}
-
-	if killErr := fc.killForRestore(ctx, vmID, rec); killErr != nil {
-		return nil, killErr
-	}
-
-	// Lock every writable disk so recoverStaleBackup heals stale
-	// data-*.raw.cocoon-clone-backup before restore overwrites them;
-	// otherwise a future clone would rename the backup over restored data.
-	var result *types.VM
-	if lockErr := withSourceWritableDisksLocked(rec.StorageConfigs, func() error {
-		if cleanErr := cleanSnapshotFiles(rec.RunDir); cleanErr != nil {
-			fc.MarkError(ctx, vmID)
-			return fmt.Errorf("clean old snapshot files: %w", cleanErr)
-		}
-		if cloneErr := cloneSnapshotFiles(rec.RunDir, srcDir); cloneErr != nil {
-			fc.MarkError(ctx, vmID)
-			return fmt.Errorf("clone snapshot files: %w", cloneErr)
-		}
-		var restoreErr error
-		result, restoreErr = fc.restoreAfterExtract(ctx, vmID, vmCfg, rec, cowPath)
-		return restoreErr
-	}); lockErr != nil {
-		return nil, lockErr
-	}
-	return result, nil
+	return nil
 }
 
 // cloneSnapshotFiles copies snapshot files from srcDir to dstDir using
