@@ -139,19 +139,28 @@ func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio
 	})
 }
 
-// attachWith is the shared skeleton for hot-add operations: gate on a
-// live VM, fetch vm.info, run preCheck (memory/conflict/host-path), call
-// the CH endpoint, return the device id (CH-assigned or fallback).
+// inspectRunning is the shared bootstrap for every extend op: gate on a
+// live VM and grab a fresh vm.info snapshot to feed conflict scans,
+// memory checks, or device-id lookups.
+func (ch *CloudHypervisor) inspectRunning(ctx context.Context, vmRef string) (*http.Client, *chVMInfoResponse, error) {
+	hc, err := ch.runningVMClient(ctx, vmRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := getVMInfo(ctx, hc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hc, info, nil
+}
+
+// attachWith is the shared skeleton for hot-add operations.
 func (ch *CloudHypervisor) attachWith(
 	ctx context.Context, vmRef, endpoint string,
 	body any, fallbackID string,
 	preCheck func(*chVMInfoResponse) error,
 ) (string, error) {
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		return "", err
-	}
-	info, err := getVMInfo(ctx, hc)
+	hc, info, err := ch.inspectRunning(ctx, vmRef)
 	if err != nil {
 		return "", err
 	}
@@ -176,18 +185,12 @@ func (ch *CloudHypervisor) attachWith(
 	return fallbackID, nil
 }
 
-// detachWith is the shared skeleton for hot-remove: gate on a live VM,
-// fetch vm.info, let the caller find the target device id, then call
-// vm.remove-device.
+// detachWith is the shared skeleton for hot-remove operations.
 func (ch *CloudHypervisor) detachWith(
 	ctx context.Context, vmRef string,
 	findID func(*chVMInfoResponse) (string, error),
 ) error {
-	hc, err := ch.runningVMClient(ctx, vmRef)
-	if err != nil {
-		return err
-	}
-	info, err := getVMInfo(ctx, hc)
+	hc, info, err := ch.inspectRunning(ctx, vmRef)
 	if err != nil {
 		return err
 	}
@@ -208,15 +211,11 @@ func listWith[A any](
 	ctx context.Context, ch *CloudHypervisor, vmRef string,
 	extract func(*chVMInfoResponse) []A,
 ) ([]A, error) {
-	hc, err := ch.runningVMClient(ctx, vmRef)
+	_, info, err := ch.inspectRunning(ctx, vmRef)
 	if err != nil {
 		if errors.Is(err, hypervisor.ErrNotRunning) {
 			return nil, nil
 		}
-		return nil, err
-	}
-	info, err := getVMInfo(ctx, hc)
-	if err != nil {
 		return nil, err
 	}
 	return extract(info), nil
