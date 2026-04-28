@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -14,17 +15,9 @@ import (
 )
 
 func (h Handler) FsAttach(cmd *cobra.Command, args []string) error {
-	ctx, conf, err := h.Init(cmd)
+	ctx, a, err := resolveAttacher[fs.Attacher](h, cmd, args, "fs attach", fs.ErrUnsupportedBackend)
 	if err != nil {
 		return err
-	}
-	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
-	if err != nil {
-		return fmt.Errorf("fs attach: %w", err)
-	}
-	a, ok := hyper.(fs.Attacher)
-	if !ok {
-		return fmt.Errorf("fs attach: backend %s: %w", hyper.Type(), fs.ErrUnsupportedBackend)
 	}
 	socket, _ := cmd.Flags().GetString("socket")
 	tag, _ := cmd.Flags().GetString("tag")
@@ -42,17 +35,9 @@ func (h Handler) FsAttach(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) FsDetach(cmd *cobra.Command, args []string) error {
-	ctx, conf, err := h.Init(cmd)
+	ctx, a, err := resolveAttacher[fs.Attacher](h, cmd, args, "fs detach", fs.ErrUnsupportedBackend)
 	if err != nil {
 		return err
-	}
-	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
-	if err != nil {
-		return fmt.Errorf("fs detach: %w", err)
-	}
-	a, ok := hyper.(fs.Attacher)
-	if !ok {
-		return fmt.Errorf("fs detach: backend %s: %w", hyper.Type(), fs.ErrUnsupportedBackend)
 	}
 	tag, _ := cmd.Flags().GetString("tag")
 	if err := a.FsDetach(ctx, args[0], tag); err != nil {
@@ -66,17 +51,9 @@ func (h Handler) FsDetach(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) DeviceAttach(cmd *cobra.Command, args []string) error {
-	ctx, conf, err := h.Init(cmd)
+	ctx, a, err := resolveAttacher[vfio.Attacher](h, cmd, args, "device attach", vfio.ErrUnsupportedBackend)
 	if err != nil {
 		return err
-	}
-	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
-	if err != nil {
-		return fmt.Errorf("device attach: %w", err)
-	}
-	a, ok := hyper.(vfio.Attacher)
-	if !ok {
-		return fmt.Errorf("device attach: backend %s: %w", hyper.Type(), vfio.ErrUnsupportedBackend)
 	}
 	pci, _ := cmd.Flags().GetString("pci")
 	id, _ := cmd.Flags().GetString("id")
@@ -92,17 +69,9 @@ func (h Handler) DeviceAttach(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) DeviceDetach(cmd *cobra.Command, args []string) error {
-	ctx, conf, err := h.Init(cmd)
+	ctx, a, err := resolveAttacher[vfio.Attacher](h, cmd, args, "device detach", vfio.ErrUnsupportedBackend)
 	if err != nil {
 		return err
-	}
-	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
-	if err != nil {
-		return fmt.Errorf("device detach: %w", err)
-	}
-	a, ok := hyper.(vfio.Attacher)
-	if !ok {
-		return fmt.Errorf("device detach: backend %s: %w", hyper.Type(), vfio.ErrUnsupportedBackend)
 	}
 	id, _ := cmd.Flags().GetString("id")
 	if err := a.DeviceDetach(ctx, args[0], id); err != nil {
@@ -113,6 +82,27 @@ func (h Handler) DeviceDetach(cmd *cobra.Command, args []string) error {
 	}
 	log.WithFunc("cmd.vm.device.detach").Infof(ctx, "detached device id=%s vm=%s", id, args[0])
 	return nil
+}
+
+// resolveAttacher resolves args[0] to a hypervisor and asserts it implements
+// A (fs.Attacher / vfio.Attacher). The op string ("fs attach", "device detach")
+// prefixes both error wraps so the four handlers no longer repeat the
+// Init→FindHypervisor→type-assert boilerplate.
+func resolveAttacher[A any](h Handler, cmd *cobra.Command, args []string, op string, errUnsupported error) (context.Context, A, error) {
+	var zero A
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return ctx, zero, err
+	}
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
+	if err != nil {
+		return ctx, zero, fmt.Errorf("%s: %w", op, err)
+	}
+	a, ok := hyper.(A)
+	if !ok {
+		return ctx, zero, fmt.Errorf("%s: backend %s: %w", op, hyper.Type(), errUnsupported)
+	}
+	return ctx, a, nil
 }
 
 // classifyAttachErr surfaces ErrNotRunning more clearly than the generic wrap.

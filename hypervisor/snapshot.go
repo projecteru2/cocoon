@@ -49,6 +49,20 @@ func LoadAndValidateMeta(dir, rootDir, runDir string) (*SnapshotMeta, error) {
 	return meta, nil
 }
 
+// PreflightRestore is the shared restore preflight: load+validate sidecar,
+// run backend-specific integrity, then assert the snapshot's role sequence
+// is a valid prefix of rec.
+func PreflightRestore(srcDir, rootDir, runDir string, rec *VMRecord, integrity func(srcDir string, sidecar []*types.StorageConfig) error) error {
+	meta, err := LoadAndValidateMeta(srcDir, rootDir, runDir)
+	if err != nil {
+		return err
+	}
+	if err := integrity(srcDir, meta.StorageConfigs); err != nil {
+		return err
+	}
+	return ValidateRoleSequence(meta.StorageConfigs, rec.StorageConfigs)
+}
+
 func CloneStorageConfigs(storageConfigs []*types.StorageConfig) []*types.StorageConfig {
 	out := make([]*types.StorageConfig, 0, len(storageConfigs))
 	for _, sc := range storageConfigs {

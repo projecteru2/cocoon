@@ -171,8 +171,9 @@ func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, 
 }
 
 // Delete removes snapshots by ref. Returns the list of actually deleted IDs.
+// Data dirs are removed first per-id; the DB delete is then batched under a
+// single store.Update so a failed dir-remove halts before any DB mutation.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
-	// Resolve all refs under one lock.
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
 		var resolveErr error
@@ -182,28 +183,31 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 		return nil, err
 	}
 
-	// Delete data dirs and DB records.
 	var deleted []string
 	for _, id := range ids {
-		dataDir := lf.conf.SnapshotDataDir(id)
-		if err := os.RemoveAll(dataDir); err != nil {
+		if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
 			return deleted, fmt.Errorf("remove data dir %s: %w", id, err)
 		}
+		deleted = append(deleted, id)
+	}
 
-		if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+	if len(deleted) == 0 {
+		return deleted, nil
+	}
+	if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		for _, id := range deleted {
 			rec := idx.Snapshots[id]
 			if rec == nil {
-				return nil
+				continue
 			}
 			if rec.Name != "" {
 				delete(idx.Names, rec.Name)
 			}
 			delete(idx.Snapshots, id)
-			return nil
-		}); err != nil {
-			return deleted, fmt.Errorf("delete DB record %s: %w", id, err)
 		}
-		deleted = append(deleted, id)
+		return nil
+	}); err != nil {
+		return deleted, fmt.Errorf("delete DB records: %w", err)
 	}
 	return deleted, nil
 }

@@ -114,44 +114,33 @@ func fcAPIOnce(ctx context.Context, hc *http.Client, method, endpoint string, bo
 	return err
 }
 
-func putMachineConfig(ctx context.Context, hc *http.Client, cfg fcMachineConfig) error {
-	body, err := json.Marshal(cfg)
+// putJSON marshals payload and PUTs it to endpoint via fcAPI.
+func putJSON[T any](ctx context.Context, hc *http.Client, endpoint string, payload T, kind string) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal machine-config: %w", err)
+		return fmt.Errorf("marshal %s: %w", kind, err)
 	}
-	return fcAPI(ctx, hc, "/machine-config", body)
+	return fcAPI(ctx, hc, endpoint, body)
+}
+
+func putMachineConfig(ctx context.Context, hc *http.Client, cfg fcMachineConfig) error {
+	return putJSON(ctx, hc, "/machine-config", cfg, "machine-config")
 }
 
 func putBootSource(ctx context.Context, hc *http.Client, boot fcBootSource) error {
-	body, err := json.Marshal(boot)
-	if err != nil {
-		return fmt.Errorf("marshal boot-source: %w", err)
-	}
-	return fcAPI(ctx, hc, "/boot-source", body)
+	return putJSON(ctx, hc, "/boot-source", boot, "boot-source")
 }
 
 func putDrive(ctx context.Context, hc *http.Client, drive fcDrive) error {
-	body, err := json.Marshal(drive)
-	if err != nil {
-		return fmt.Errorf("marshal drive: %w", err)
-	}
-	return fcAPI(ctx, hc, "/drives/"+drive.DriveID, body)
+	return putJSON(ctx, hc, "/drives/"+drive.DriveID, drive, "drive")
 }
 
 func putBalloon(ctx context.Context, hc *http.Client, balloon fcBalloon) error {
-	body, err := json.Marshal(balloon)
-	if err != nil {
-		return fmt.Errorf("marshal balloon: %w", err)
-	}
-	return fcAPI(ctx, hc, "/balloon", body)
+	return putJSON(ctx, hc, "/balloon", balloon, "balloon")
 }
 
 func putNetworkInterface(ctx context.Context, hc *http.Client, iface fcNetworkInterface) error {
-	body, err := json.Marshal(iface)
-	if err != nil {
-		return fmt.Errorf("marshal network-interface: %w", err)
-	}
-	return fcAPI(ctx, hc, "/network-interfaces/"+iface.IfaceID, body)
+	return putJSON(ctx, hc, "/network-interfaces/"+iface.IfaceID, iface, "network-interface")
 }
 
 func putEntropy(ctx context.Context, hc *http.Client) error {
@@ -171,7 +160,7 @@ func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
 	if err != nil {
 		return fmt.Errorf("marshal action: %w", err)
 	}
-	return fcAPI(ctx, hc, "/actions", body)
+	return fcAPIOnce(ctx, hc, http.MethodPut, "/actions", body)
 }
 
 // pauseVM pauses a running FC instance via PATCH /vm. Non-idempotent: a

@@ -26,17 +26,8 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 	})
 }
 
-// preflightRestore validates the sidecar and asserts the snapshot's role
-// sequence is a valid prefix of rec (cidata-only suffix is the one extension).
 func (ch *CloudHypervisor) preflightRestore(srcDir string, rec *hypervisor.VMRecord) error {
-	meta, err := hypervisor.LoadAndValidateMeta(srcDir, ch.conf.RootDir, ch.conf.Config.RunDir)
-	if err != nil {
-		return err
-	}
-	if err := validateSnapshotIntegrity(srcDir, meta.StorageConfigs); err != nil {
-		return err
-	}
-	return hypervisor.ValidateRoleSequence(meta.StorageConfigs, rec.StorageConfigs)
+	return hypervisor.PreflightRestore(srcDir, ch.conf.RootDir, ch.conf.Config.RunDir, rec, validateSnapshotIntegrity)
 }
 
 func (ch *CloudHypervisor) killForRestore(ctx context.Context, vmID string, rec *hypervisor.VMRecord) error {

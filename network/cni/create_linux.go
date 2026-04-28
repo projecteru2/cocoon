@@ -77,13 +77,10 @@ func tcRedirectInNS(ifName, tapName string, queues int, overrideMAC string) (str
 		}
 	}
 
-	if overrideMAC != "" {
-		link, err = netlink.LinkByName(ifName)
-		if err != nil {
-			return "", fmt.Errorf("re-read link %s: %w", ifName, err)
-		}
-	}
 	mac := link.Attrs().HardwareAddr.String()
+	if overrideMAC != "" {
+		mac = overrideMAC
+	}
 
 	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
 	if err != nil {

@@ -83,8 +83,8 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	}
 
 	// FC snapshot/load requires drives at source absolute paths; only COW path
-	// changed, so symlink-redirect the source path until drive_overrides
-	// (firecracker-microvm/firecracker#5774) lands.
+	// changed, so symlink-redirect the source path until upstream supports
+	// drive overrides at load time.
 	sockPath := hypervisor.SocketPath(runDir)
 	withNetwork := len(networkConfigs) > 0
 	var pid int

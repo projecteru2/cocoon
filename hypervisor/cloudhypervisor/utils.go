@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/projecteru2/core/log"
@@ -46,7 +47,7 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 	if targetSize <= virtualSize {
 		return nil
 	}
-	if err := utils.RunQemuImg(ctx, "resize", path, fmt.Sprintf("%d", targetSize)); err != nil {
+	if err := utils.RunQemuImg(ctx, "resize", path, strconv.FormatInt(targetSize, 10)); err != nil {
 		return fmt.Errorf("resize %s: %w", path, err)
 	}
 	return nil

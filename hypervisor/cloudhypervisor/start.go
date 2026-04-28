@@ -55,6 +55,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 		defer logFile.Close() //nolint:errcheck
 	}
 
+	// shell out: the cloud-hypervisor binary is the authoritative VMM.
 	cmd := exec.Command(ch.conf.CHBinary, args...) //nolint:gosec
 	// Setpgid so CH survives if this process exits.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

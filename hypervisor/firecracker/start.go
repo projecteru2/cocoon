@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -224,7 +225,7 @@ func (fc *Firecracker) startConsoleRelay(_ context.Context, runDir string, maste
 	relayCmd := exec.Command(self) //nolint:gosec
 	relayCmd.Env = []string{
 		relayEnvKey + "=1",
-		relayPIDEnvKey + "=" + fmt.Sprintf("%d", fcPID),
+		relayPIDEnvKey + "=" + strconv.Itoa(fcPID),
 	}
 	relayCmd.ExtraFiles = []*os.File{master, listenerFile}
 	relayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

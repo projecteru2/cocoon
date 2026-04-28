@@ -93,21 +93,10 @@ func hasMemoryRangeFile(srcDir string) (bool, error) {
 	return false, nil
 }
 
-func vmAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) error {
-	_, err := vmAPICall(ctx, hc, endpoint, body, successCodes...)
-	return err
-}
-
-// vmAPICall returns the raw response body so callers that need to decode
-// PciDeviceInfo (vm.add-fs, vm.add-device, ...) can use the same retry path.
-func vmAPICall(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) ([]byte, error) {
-	return utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
-}
-
-// vmAPIOnce sends a single PUT without DoWithRetry. Use for non-idempotent
-// endpoints — e.g. vm.add-fs / vm.add-device — where a retry after a
-// network drop or 5xx that landed on CH after the device was already added
-// would surface as a misleading "duplicate id" rejection.
+// vmAPIOnce sends a single PUT without DoWithRetry. Used for non-idempotent
+// endpoints where a retry after a lost response could mask the original
+// success as a misleading "duplicate id" / wrong-state rejection. Returns the
+// raw body so add-fs/add-device callers can decode PciDeviceInfo.
 func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) ([]byte, error) {
 	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
@@ -225,7 +214,8 @@ func decodePciDeviceInfo(resp []byte) (chPciDeviceInfo, error) {
 }
 
 func powerButton(ctx context.Context, hc *http.Client) error {
-	return vmAPI(ctx, hc, "vm.power-button", nil)
+	_, err := vmAPIOnce(ctx, hc, "vm.power-button", nil)
+	return err
 }
 
 // queryConsolePTY retrieves the virtio-console PTY path from a running CH

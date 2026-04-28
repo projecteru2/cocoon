@@ -12,12 +12,6 @@ import (
 	"os/exec"
 )
 
-type sourceImageInfo struct {
-	Format         string // "qcow2" or "raw"
-	Compat         string // qcow2 compat level (e.g. "0.10", "1.1"); empty for non-qcow2
-	HasBackingFile bool
-}
-
 var (
 	// qcow2Magic is the qcow2 file signature.
 	qcow2Magic = []byte{'Q', 'F', 'I', 0xfb}
@@ -33,12 +27,19 @@ var (
 		{[]byte("<H"), "content looks like HTML, not a disk image"},
 		{[]byte{0x1f, 0x8b}, "content is gzip-compressed (cloudimg does not auto-decompress)"},
 		{[]byte("\xfd7zXZ\x00"), "content is xz-compressed (cloudimg does not auto-decompress)"},
+
 		{[]byte("BZh"), "content is bzip2-compressed (cloudimg does not auto-decompress)"},
 		{[]byte{0x28, 0xb5, 0x2f, 0xfd}, "content is zstd-compressed (cloudimg does not auto-decompress)"},
 		{[]byte("PK"), "content is a zip archive, not a disk image"},
 		{[]byte{0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c}, "content is a 7z archive, not a disk image"},
 	}
 )
+
+type sourceImageInfo struct {
+	Format         string // "qcow2" or "raw"
+	Compat         string // qcow2 compat level (e.g. "0.10", "1.1"); empty for non-qcow2
+	HasBackingFile bool
+}
 
 // IsQcow2File checks whether path starts with qcow2 magic bytes.
 func IsQcow2File(path string) bool {

@@ -32,10 +32,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 
 	directBoot := isDirectBoot(rec.BootConfig)
 	cowPath := ch.cowPath(vmID, directBoot)
-	cowName := "overlay.qcow2"
-	if directBoot {
-		cowName = "cow.raw"
-	}
+	cowName := filepath.Base(cowPath)
 
 	tmpDir, err := os.MkdirTemp(ch.conf.VMRunDir(vmID), "snapshot-")
 	if err != nil {

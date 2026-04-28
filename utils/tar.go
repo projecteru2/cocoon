@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,7 +58,7 @@ func ExtractTar(dir string, r io.Reader) error {
 	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
@@ -161,7 +162,7 @@ func extractFile(path string, r io.Reader, perm os.FileMode) error {
 			}
 			total += int64(n)
 		}
-		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+		if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
 			break
 		}
 		if readErr != nil {
