@@ -25,7 +25,7 @@ var (
 
 // FsAttach hot-plugs a vhost-user-fs device onto a running CH VM.
 func (ch *CloudHypervisor) FsAttach(ctx context.Context, vmRef string, spec fs.Spec) (string, error) {
-	if err := spec.Validate(); err != nil {
+	if err := spec.Normalize(); err != nil {
 		return "", err
 	}
 	id := fs.DeriveID(spec.Tag)
@@ -242,7 +242,10 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 		return nil, fmt.Errorf("vm %s is %s: %w", vmID, rec.State, hypervisor.ErrNotRunning)
 	}
 	sockPath := hypervisor.SocketPath(rec.RunDir)
-	pid, _ := utils.ReadPIDFile(ch.PIDFilePath(rec.RunDir))
+	pid, pidErr := utils.ReadPIDFile(ch.PIDFilePath(rec.RunDir))
+	if pidErr != nil {
+		return nil, fmt.Errorf("vm %s read pidfile: %v: %w", vmID, pidErr, hypervisor.ErrNotRunning)
+	}
 	if !utils.VerifyProcessCmdline(pid, ch.conf.BinaryName(), sockPath) {
 		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, pid, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
 	}

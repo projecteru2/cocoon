@@ -56,8 +56,13 @@ type Lister interface {
 	FsList(ctx context.Context, vmRef string) ([]Attached, error)
 }
 
-// Validate enforces required fields and applies queue-size defaults.
-func (s *Spec) Validate() error {
+// Normalize enforces required fields and applies queue-size defaults.
+// Mutates the receiver — callers expect the post-call Spec to be ready
+// for serialization. Mirror vfio.Spec.NormalizedPath in spirit (compute
+// + validate in one call) so future Specs in extend/ converge on the
+// same idiom rather than fan out into pure-Validate vs. mutating-Validate
+// styles.
+func (s *Spec) Normalize() error {
 	if s.Socket == "" {
 		return fmt.Errorf("socket is required")
 	}

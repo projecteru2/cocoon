@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestSpecValidate(t *testing.T) {
+func TestSpecNormalize(t *testing.T) {
 	tests := []struct {
 		name      string
 		spec      Spec
@@ -24,7 +24,7 @@ func TestSpecValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.spec.Validate()
+			err := tt.spec.Normalize()
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("want error containing %q, got nil", tt.wantErr)
