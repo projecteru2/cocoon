@@ -1,7 +1,6 @@
 package oci
 
 import (
-	"archive/tar"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,21 +18,18 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// IsTarFile checks if a file is a tar archive by reading its first header.
-func IsTarFile(path string) bool {
-	f, err := os.Open(path) //nolint:gosec
-	if err != nil {
-		return false
-	}
-	defer f.Close() //nolint:errcheck
-
-	tr := tar.NewReader(f)
-	_, err = tr.Next()
-	return err == nil
+// tarImportJob carries the per-tar context for raw-tar layer import.
+type tarImportJob struct {
+	conf       *Config
+	idx, total int
+	label      string // tarPath or "import-<name>"
+	workDir    string
+	tracker    progress.Tracker
+	result     *pullLayerResult
 }
 
 func importTarLayers(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, file ...string) error {
-	logger := log.WithFunc("oci.import")
+	logger := log.WithFunc("oci.importTarLayers")
 
 	if len(file) == 0 {
 		return fmt.Errorf("no tar files provided")
@@ -56,7 +52,10 @@ func importTarLayers(ctx context.Context, conf *Config, store storage.Store[imag
 		totalLayers := len(file)
 		results, mapErr := utils.Map(ctx, file, func(ctx context.Context, i int, filePath string) (pullLayerResult, error) {
 			var r pullLayerResult
-			err := processLocalTar(ctx, conf, i, totalLayers, filePath, workDir, tracker, &r)
+			err := processLocalTar(ctx, tarImportJob{
+				conf: conf, idx: i, total: totalLayers,
+				label: filePath, workDir: workDir, tracker: tracker, result: &r,
+			}, filePath)
 			return r, err
 		}, conf.Root.EffectivePoolSize())
 		if mapErr != nil {
@@ -77,7 +76,7 @@ func importTarLayers(ctx context.Context, conf *Config, store storage.Store[imag
 }
 
 func importTarFromReader(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, r io.Reader) error {
-	logger := log.WithFunc("oci.import")
+	logger := log.WithFunc("oci.importTarFromReader")
 
 	return store.Update(ctx, func(idx *imageIndex) error {
 		tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhasePull, Index: -1, Total: 1})
@@ -89,7 +88,10 @@ func importTarFromReader(ctx context.Context, conf *Config, store storage.Store[
 		defer os.RemoveAll(workDir) //nolint:errcheck
 
 		var result pullLayerResult
-		if err := processTarReader(ctx, conf, 0, 1, r, name, workDir, tracker, &result); err != nil {
+		if err := processTarReader(ctx, tarImportJob{
+			conf: conf, idx: 0, total: 1,
+			label: name, workDir: workDir, tracker: tracker, result: &result,
+		}, r); err != nil {
 			return fmt.Errorf("process layer: %w", err)
 		}
 
@@ -106,22 +108,22 @@ func importTarFromReader(ctx context.Context, conf *Config, store storage.Store[
 	})
 }
 
-func processLocalTar(ctx context.Context, conf *Config, idx, total int, tarPath, workDir string, tracker progress.Tracker, result *pullLayerResult) error {
+func processLocalTar(ctx context.Context, j tarImportJob, tarPath string) error {
 	f, err := os.Open(tarPath) //nolint:gosec // user-provided import file
 	if err != nil {
 		return fmt.Errorf("open %s: %w", tarPath, err)
 	}
 	defer f.Close() //nolint:errcheck
 
-	return processTarReader(ctx, conf, idx, total, f, tarPath, workDir, tracker, result)
+	return processTarReader(ctx, j, f)
 }
 
-func processTarReader(ctx context.Context, conf *Config, idx, total int, r io.Reader, label, workDir string, tracker progress.Tracker, result *pullLayerResult) error {
+func processTarReader(ctx context.Context, j tarImportJob, r io.Reader) error {
 	logger := log.WithFunc("oci.processTarReader")
 
-	result.index = idx
+	j.result.index = j.idx
 
-	layerDir := filepath.Join(workDir, fmt.Sprintf("layer-%d", idx))
+	layerDir := filepath.Join(j.workDir, fmt.Sprintf("layer-%d", j.idx))
 	if err := os.MkdirAll(layerDir, 0o750); err != nil {
 		return fmt.Errorf("create layer work dir: %w", err)
 	}
@@ -130,8 +132,8 @@ func processTarReader(ctx context.Context, conf *Config, idx, total int, r io.Re
 	teeForHash := io.TeeReader(r, hasher)
 
 	// Write EROFS to a temp path until the digest is known.
-	tmpErofsPath := filepath.Join(layerDir, fmt.Sprintf("layer-%d.erofs", idx))
-	tmpUUID := utils.UUIDv5(fmt.Sprintf("import-%s-%d", label, idx))
+	tmpErofsPath := filepath.Join(layerDir, fmt.Sprintf("layer-%d.erofs", j.idx))
+	tmpUUID := utils.UUIDv5(fmt.Sprintf("import-%s-%d", j.label, j.idx))
 
 	cmd, erofsStdin, output, err := startErofsConversion(ctx, tmpUUID, tmpErofsPath)
 	if err != nil {
@@ -140,7 +142,7 @@ func processTarReader(ctx context.Context, conf *Config, idx, total int, r io.Re
 
 	teeForErofs := io.TeeReader(teeForHash, erofsStdin)
 
-	kernelPath, initrdPath, scanErr := scanBootFiles(ctx, teeForErofs, layerDir, fmt.Sprintf("import-%d", idx))
+	kernelPath, initrdPath, scanErr := scanBootFiles(ctx, teeForErofs, layerDir, fmt.Sprintf("import-%d", j.idx))
 
 	// Drain the rest so the hasher and mkfs.erofs see the full stream.
 	if scanErr == nil {
@@ -158,26 +160,26 @@ func processTarReader(ctx context.Context, conf *Config, idx, total int, r io.Re
 	}
 
 	digestHex := hex.EncodeToString(hasher.Sum(nil))
-	result.digest = images.NewDigest(digestHex)
+	j.result.digest = images.NewDigest(digestHex)
 
-	if utils.ValidFile(conf.BlobPath(digestHex)) {
-		logger.Debugf(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
-		result.erofsPath = conf.BlobPath(digestHex)
-		if utils.ValidFile(conf.KernelPath(digestHex)) {
-			result.kernelPath = conf.KernelPath(digestHex)
+	if utils.ValidFile(j.conf.BlobPath(digestHex)) {
+		logger.Debugf(ctx, "Layer %d: sha256:%s already cached", j.idx, digestHex[:12])
+		j.result.erofsPath = j.conf.BlobPath(digestHex)
+		if utils.ValidFile(j.conf.KernelPath(digestHex)) {
+			j.result.kernelPath = j.conf.KernelPath(digestHex)
 		}
-		if utils.ValidFile(conf.InitrdPath(digestHex)) {
-			result.initrdPath = conf.InitrdPath(digestHex)
+		if utils.ValidFile(j.conf.InitrdPath(digestHex)) {
+			j.result.initrdPath = j.conf.InitrdPath(digestHex)
 		}
 	} else {
-		result.erofsPath = tmpErofsPath
+		j.result.erofsPath = tmpErofsPath
 	}
 
-	if err := renameBootFiles(layerDir, digestHex, kernelPath, initrdPath, result); err != nil {
+	if err := renameBootFiles(layerDir, digestHex, kernelPath, initrdPath, j.result); err != nil {
 		return err
 	}
 
-	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
+	j.tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: j.idx, Total: j.total, Digest: digestHex[:12]})
 	return nil
 }
 

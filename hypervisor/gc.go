@@ -2,6 +2,7 @@ package hypervisor
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"time"
 
@@ -41,9 +42,7 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 						continue
 					}
 					snap.vmIDs[id] = struct{}{}
-					for hex := range rec.ImageBlobIDs {
-						snap.blobIDs[hex] = struct{}{}
-					}
+					maps.Copy(snap.blobIDs, rec.ImageBlobIDs)
 					if rec.State == types.VMStateCreating && rec.UpdatedAt.Before(cutoff) {
 						snap.staleCreate = append(snap.staleCreate, id)
 					}

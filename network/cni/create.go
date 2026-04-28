@@ -83,7 +83,7 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 
 		var overrideMAC string
 		if i < len(existing) && existing[i] != nil {
-			overrideMAC = existing[i].Mac
+			overrideMAC = existing[i].MAC
 		}
 		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, network.NetNumQueues(vmCfg.CPU), overrideMAC)
 		if setupErr != nil {
@@ -91,8 +91,8 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 		}
 
 		configs = append(configs, &types.NetworkConfig{
-			Tap:       tapName,
-			Mac:       mac,
+			TAP:       tapName,
+			MAC:       mac,
 			NumQueues: network.NetNumQueues(vmCfg.CPU),
 			QueueSize: network.ResolveQueueSize(vmCfg.QueueSize),
 			Backend:   typ,

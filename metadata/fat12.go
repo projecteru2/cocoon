@@ -203,8 +203,6 @@ func CreateFAT12(w io.Writer, label string, files map[string][]byte) error {
 	return b.writeTo(w)
 }
 
-// --- FAT12 entry encoding ---
-
 // setFATEntry writes a 12-bit value into the FAT at the given cluster index.
 func setFATEntry(fat []byte, cluster int, val uint16) {
 	off := cluster + cluster/2 //nolint:mnd
@@ -220,8 +218,6 @@ func setFATEntry(fat []byte, cluster int, val uint16) {
 	fat[off] = byte(word)
 	fat[off+1] = byte(word >> 8) //nolint:mnd
 }
-
-// --- directory helpers ---
 
 // needsLFN reports whether name requires VFAT long-filename entries.
 func needsLFN(name string) bool {
@@ -281,8 +277,6 @@ func generateShortName(name string, seq int) [11]byte {
 	return result
 }
 
-// --- VFAT LFN ---
-
 // makeLFNEntries creates VFAT long-filename directory entries in disk order
 // (highest sequence number first, immediately before the SFN entry).
 func makeLFNEntries(name string, shortName [11]byte) [][]byte {
@@ -337,8 +331,6 @@ func lfnChecksum(shortName [11]byte) byte {
 	}
 	return sum
 }
-
-// --- timestamp helpers ---
 
 func padLabel(label string) [11]byte {
 	var result [11]byte

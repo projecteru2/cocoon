@@ -17,8 +17,7 @@ type Ops[I any, E Entry] struct {
 	Sizer      func(*E) int64
 }
 
-// Inspect reads one entry by id and converts it to types.Image.
-// Returns (nil, nil) when no entry matches.
+// Inspect returns (nil, nil) when no entry matches id.
 func (ops Ops[I, E]) Inspect(ctx context.Context, id string) (result *types.Image, err error) {
 	err = ops.Store.With(ctx, func(idx *I) error {
 		refs := ops.LookupRefs(idx, id)
@@ -31,7 +30,6 @@ func (ops Ops[I, E]) Inspect(ctx context.Context, id string) (result *types.Imag
 	return result, err
 }
 
-// List reads all entries and converts them to []types.Image.
 func (ops Ops[I, E]) List(ctx context.Context) (result []*types.Image, err error) {
 	err = ops.Store.With(ctx, func(idx *I) error {
 		result = listImages(ops.Entries(idx), ops.Type, ops.Sizer)

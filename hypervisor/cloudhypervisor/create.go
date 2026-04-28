@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/metadata"
@@ -12,67 +11,22 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// CowSerial is re-exported for backward compatibility with cmd/vm/debug.go.
+// CowSerial is re-exported for backward compatibility.
 const CowSerial = hypervisor.CowSerial
 
-// Create reserves a VM record, prepares disks, and leaves the VM in Created state.
-func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (_ *types.VM, err error) {
-	// Reject over-core requests before any on-disk work.
-	if err = hypervisor.ValidateHostCPU(vmCfg.CPU); err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	runDir := ch.conf.VMRunDir(id)
-	logDir := ch.conf.VMLogDir(id)
-
-	blobIDs := hypervisor.ExtractBlobIDs(storageConfigs, bootCfg)
-
-	// Cleanup is idempotent, so defer it once.
-	defer func() {
-		if err != nil {
-			_ = hypervisor.RemoveVMDirs(runDir, logDir)
-			ch.RollbackCreate(ctx, id, vmCfg.Name)
-		}
-	}()
-
-	if err = ch.ReserveVM(ctx, id, vmCfg, blobIDs, runDir, logDir); err != nil {
-		return nil, fmt.Errorf("reserve VM record: %w", err)
-	}
-
-	if err = utils.EnsureDirs(runDir, logDir); err != nil {
-		return nil, fmt.Errorf("ensure dirs: %w", err)
-	}
-
-	var bootCopy *types.BootConfig
-	if bootCfg != nil {
-		b := *bootCfg
-		bootCopy = &b
-	}
-
-	var preparedStorage []*types.StorageConfig
-	if bootCopy != nil && bootCopy.KernelPath != "" {
-		preparedStorage, err = ch.prepareOCI(ctx, id, vmCfg, storageConfigs, networkConfigs, bootCopy)
-	} else {
-		preparedStorage, err = ch.prepareCloudimg(ctx, id, vmCfg, storageConfigs, networkConfigs)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if err := types.ValidateStorageConfigs(preparedStorage); err != nil {
-		return nil, fmt.Errorf("storage invariants violated: %w", err)
-	}
-
-	info := &types.VM{
-		ID: id, Hypervisor: typ, State: types.VMStateCreated,
-		Config: *vmCfg, StorageConfigs: preparedStorage, NetworkConfigs: networkConfigs,
-		CreatedAt: now, UpdatedAt: now,
-	}
-	if err := ch.FinalizeCreate(ctx, id, info, bootCopy, blobIDs); err != nil {
-		return nil, fmt.Errorf("finalize VM record: %w", err)
-	}
-	return info, nil
+func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
+	return ch.CreateSequence(ctx, id, hypervisor.CreateSpec{
+		VMCfg:          vmCfg,
+		StorageConfigs: storageConfigs,
+		NetworkConfigs: networkConfigs,
+		BootConfig:     bootCfg,
+		Prepare: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, nc []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
+			if boot != nil && boot.KernelPath != "" {
+				return ch.prepareOCI(ctx, vmID, vmCfg, sc, nc, boot)
+			}
+			return ch.prepareCloudimg(ctx, vmID, vmCfg, sc, nc)
+		},
+	})
 }
 
 // prepareOCI creates the raw COW disk and final kernel cmdline.
@@ -134,9 +88,8 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	return configs, nil
 }
 
-// generateCidata writes the NoCloud cidata image used by Create and Clone.
-// storageConfigs lets the cidata pick up Role==Data disks that should be
-// auto-mounted (Device → /dev/disk/by-id/virtio-<serial>).
+// generateCidata writes the NoCloud cidata image. storageConfigs lets cidata
+// pick up Role==Data disks for auto-mount via /dev/disk/by-id/virtio-<serial>.
 func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, storageConfigs []*types.StorageConfig) error {
 	dns, err := ch.conf.DNSServers()
 	if err != nil {
@@ -151,10 +104,10 @@ func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, ne
 		Mounts:     buildMountSpecs(storageConfigs),
 	}
 	for _, n := range networkConfigs {
-		if n == nil || n.Mac == "" {
+		if n == nil || n.MAC == "" {
 			continue
 		}
-		ni := metadata.NetworkInfo{Mac: n.Mac}
+		ni := metadata.NetworkInfo{MAC: n.MAC}
 		if n.Network != nil {
 			ni.IP = n.Network.IP
 			ni.Prefix = n.Network.Prefix

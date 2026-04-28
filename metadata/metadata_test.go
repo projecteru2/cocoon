@@ -10,7 +10,7 @@ func TestUserData_NoBootcmd(t *testing.T) {
 	cfg := &Config{
 		Username: "root", Password: "test",
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 24, Mac: "aa:bb:cc:dd:ee:f0"},
+			{IP: "10.0.0.2", Prefix: 24, MAC: "aa:bb:cc:dd:ee:f0"},
 		},
 	}
 
@@ -43,8 +43,8 @@ func TestUserData_NoBootcmd(t *testing.T) {
 func TestUserData_MultiNICWriteFiles(t *testing.T) {
 	cfg := &Config{
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", Mac: "aa:bb:cc:dd:ee:f0"},
-			{IP: "10.0.1.2", Prefix: 24, Mac: "11:22:33:44:55:66"},
+			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", MAC: "aa:bb:cc:dd:ee:f0"},
+			{IP: "10.0.1.2", Prefix: 24, MAC: "11:22:33:44:55:66"},
 		},
 		DNS: []string{"8.8.8.8", "1.1.1.1"},
 	}
@@ -78,7 +78,7 @@ func TestUserData_MultiNICWriteFiles(t *testing.T) {
 func TestNetworkConfig_SingleNIC(t *testing.T) {
 	cfg := &Config{
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", Mac: "aa:bb:cc:dd:ee:f0"},
+			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", MAC: "aa:bb:cc:dd:ee:f0"},
 		},
 		DNS: []string{"8.8.8.8"},
 	}
@@ -109,8 +109,8 @@ func TestNetworkConfig_SingleNIC(t *testing.T) {
 func TestNetworkConfig_MultiNIC(t *testing.T) {
 	cfg := &Config{
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 16, Gateway: "10.0.0.1", Mac: "aa:bb:cc:dd:ee:f0"},
-			{IP: "10.0.1.2", Prefix: 24, Mac: "11:22:33:44:55:66"},
+			{IP: "10.0.0.2", Prefix: 16, Gateway: "10.0.0.1", MAC: "aa:bb:cc:dd:ee:f0"},
+			{IP: "10.0.1.2", Prefix: 24, MAC: "11:22:33:44:55:66"},
 		},
 		DNS: []string{"8.8.8.8"},
 	}
@@ -148,7 +148,7 @@ func TestNetworkConfig_MultiNIC(t *testing.T) {
 func TestNetworkConfig_GatewayOptional(t *testing.T) {
 	cfg := &Config{
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 24, Mac: "aa:bb:cc:dd:ee:f0"},
+			{IP: "10.0.0.2", Prefix: 24, MAC: "aa:bb:cc:dd:ee:f0"},
 		},
 	}
 
@@ -166,7 +166,7 @@ func TestNetworkConfig_GatewayOptional(t *testing.T) {
 func TestNetworkConfig_DNSOptional(t *testing.T) {
 	cfg := &Config{
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 24, Mac: "aa:bb:cc:dd:ee:f0"},
+			{IP: "10.0.0.2", Prefix: 24, MAC: "aa:bb:cc:dd:ee:f0"},
 		},
 	}
 
@@ -187,7 +187,7 @@ func TestGenerate_ProducesValidFAT12(t *testing.T) {
 		Hostname:   "test-vm",
 		Username:   "root", Password: "pass",
 		Networks: []NetworkInfo{
-			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", Mac: "aa:bb:cc:dd:ee:ff"},
+			{IP: "10.0.0.2", Prefix: 24, Gateway: "10.0.0.1", MAC: "aa:bb:cc:dd:ee:ff"},
 		},
 		DNS: []string{"8.8.8.8"},
 	}

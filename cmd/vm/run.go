@@ -246,7 +246,7 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	}
 	vmID := utils.GenerateID()
 	if vmCfg.Name == "" {
-		vmCfg.Name = "cocoon-clone-" + vmID[:8]
+		vmCfg.Name = "cocoon-clone-" + network.VMIDPrefix(vmID)
 	}
 
 	// Auto-pull base image if --pull is set (cross-node clone).
@@ -318,7 +318,6 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 		return nil, nil, nil, err
 	}
 
-	// Read --fc from the subcommand flag (create/run/debug only).
 	if fc, _ := cmd.Flags().GetBool("fc"); fc {
 		conf.UseFirecracker = true
 	}
@@ -457,11 +456,11 @@ func printFCMACHints(networkConfigs []*types.NetworkConfig) {
 	fmt.Println()
 	fmt.Println("  # Fix guest MAC addresses (FC clone retains source VM's MAC)")
 	for i, nc := range networkConfigs {
-		if nc == nil || nc.Mac == "" {
+		if nc == nil || nc.MAC == "" {
 			continue
 		}
 		fmt.Printf("  ip link set dev eth%d down\n", i)
-		fmt.Printf("  ip link set dev eth%d address %s\n", i, nc.Mac)
+		fmt.Printf("  ip link set dev eth%d address %s\n", i, nc.MAC)
 		fmt.Printf("  ip link set dev eth%d up\n", i)
 	}
 }
@@ -479,18 +478,18 @@ func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	var staticNICs []nicHint
 	var dhcpMACs []string
 	for _, nc := range networkConfigs {
-		if nc == nil || nc.Mac == "" {
+		if nc == nil || nc.MAC == "" {
 			continue
 		}
 		if nc.Network != nil && nc.Network.IP != "" {
 			staticNICs = append(staticNICs, nicHint{
-				mac:    nc.Mac,
+				mac:    nc.MAC,
 				ip:     nc.Network.IP,
 				prefix: nc.Network.Prefix,
 				gw:     nc.Network.Gateway,
 			})
 		} else {
-			dhcpMACs = append(dhcpMACs, nc.Mac)
+			dhcpMACs = append(dhcpMACs, nc.MAC)
 		}
 	}
 

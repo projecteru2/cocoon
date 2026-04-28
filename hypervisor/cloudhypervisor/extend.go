@@ -67,10 +67,6 @@ func (ch *CloudHypervisor) FsDetach(ctx context.Context, vmRef, tag string) erro
 }
 
 // FsList enumerates currently attached vhost-user-fs devices.
-//
-// TODO(inspect): cmd/vm Inspect calls FsList and DeviceList back-to-back,
-// each fetching its own vm.info. A combined Lister returning both arrays
-// from a single vm.info call would halve the round-trips on a running VM.
 func (ch *CloudHypervisor) FsList(ctx context.Context, vmRef string) ([]fs.Attached, error) {
 	return listWith(ctx, ch, vmRef, func(info *chVMInfoResponse) []fs.Attached {
 		out := make([]fs.Attached, 0, len(info.Config.Fs))
@@ -129,8 +125,6 @@ func (ch *CloudHypervisor) DeviceDetach(ctx context.Context, vmRef, id string) e
 }
 
 // DeviceList enumerates currently attached VFIO PCI passthrough devices.
-//
-// TODO(inspect): see FsList note — combined Lister would dedupe vm.info.
 func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio.Attached, error) {
 	return listWith(ctx, ch, vmRef, func(info *chVMInfoResponse) []vfio.Attached {
 		out := make([]vfio.Attached, 0, len(info.Config.Devices))
@@ -187,6 +181,13 @@ func (ch *CloudHypervisor) attachWith(
 	if pci.ID != "" {
 		return pci.ID, nil
 	}
+	// CH always returns 200 with PciDeviceInfo on add-fs/add-device, so this
+	// path means we accepted the alt 204 success code and lost the body. The
+	// fallback covers the user-supplied id; an empty fallback (e.g. VFIO with
+	// no --id) would otherwise leave the caller without a detach key.
+	if fallbackID == "" {
+		return "", fmt.Errorf("%s: empty response body and no fallback id (CH returned no PciDeviceInfo)", endpoint)
+	}
 	return fallbackID, nil
 }
 
@@ -227,7 +228,7 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 	pid, pidErr := utils.ReadPIDFile(ch.PIDFilePath(rec.RunDir))
 	if pidErr != nil {
-		return nil, fmt.Errorf("vm %s read pidfile: %v: %w", vmID, pidErr, hypervisor.ErrNotRunning)
+		return nil, fmt.Errorf("vm %s read pidfile: %w: %w", vmID, pidErr, hypervisor.ErrNotRunning)
 	}
 	if !utils.VerifyProcessCmdline(pid, ch.conf.BinaryName(), sockPath) {
 		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, pid, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
@@ -255,8 +256,9 @@ func listWith[A any](
 // bdfFromSysfsPath returns the BDF suffix when path is under the canonical
 // sysfs PCI prefix; empty otherwise (CH may report a non-PCI host path).
 func bdfFromSysfsPath(p string) string {
-	if !strings.HasPrefix(p, vfio.SysfsPCIPrefix) {
+	bdf, ok := strings.CutPrefix(p, vfio.SysfsPCIPrefix)
+	if !ok {
 		return ""
 	}
-	return strings.TrimPrefix(p, vfio.SysfsPCIPrefix)
+	return bdf
 }

@@ -348,14 +348,11 @@ func TestDelete_Multiple(t *testing.T) {
 	lf := newTestLF(t)
 	ctx := t.Context()
 
-	var ids []string
 	for _, name := range []string{"m1", "m2", "m3"} {
 		stream := makeTar(t, map[string][]byte{"f.txt": []byte(name)})
-		id, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: name}, stream)
-		if err != nil {
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: testID(t), Name: name}, stream); err != nil {
 			t.Fatal(err)
 		}
-		ids = append(ids, id)
 	}
 
 	deleted, err := lf.Delete(ctx, []string{"m1", "m3"})

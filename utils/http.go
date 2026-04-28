@@ -24,7 +24,6 @@ type APIError struct {
 	Message string
 }
 
-// Error returns the API error message.
 func (e *APIError) Error() string { return e.Message }
 
 // NewSocketHTTPClient creates an HTTP client that dials a Unix socket.

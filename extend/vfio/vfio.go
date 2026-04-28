@@ -84,11 +84,11 @@ func NormalizePath(input string) (string, error) {
 		return "", fmt.Errorf("empty pci path")
 	}
 	if strings.HasPrefix(in, "/") {
-		cleaned := filepath.Clean(in)
-		if !strings.HasPrefix(cleaned, SysfsPCIPrefix) {
+		bdf, ok := strings.CutPrefix(filepath.Clean(in), SysfsPCIPrefix)
+		if !ok {
 			return "", fmt.Errorf("pci %q invalid: absolute path must be under %s", input, SysfsPCIPrefix)
 		}
-		bdf := strings.ToLower(strings.TrimPrefix(cleaned, SysfsPCIPrefix))
+		bdf = strings.ToLower(bdf)
 		if !bdfFullRe.MatchString(bdf) {
 			return "", fmt.Errorf("pci %q invalid: sysfs BDF suffix must match 0000:xx:yy.z", input)
 		}

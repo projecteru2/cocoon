@@ -8,6 +8,7 @@ import (
 
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 type patchOptions struct {
@@ -77,11 +78,7 @@ func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData [
 		}
 	}
 
-	out, err := json.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("marshal patched config: %w", err)
-	}
-	return os.WriteFile(path, out, 0o600) //nolint:gosec
+	return utils.AtomicWriteJSON(path, raw)
 }
 
 func patchDisks(diskRaw json.RawMessage, opts *patchOptions) (json.RawMessage, error) {
@@ -118,7 +115,8 @@ func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, me
 		}
 		raw["memory"] = patched
 	}
-	if windows {
+	newSize, enabled := hypervisor.BalloonSize(memory, windows)
+	if !enabled {
 		delete(raw, "balloon")
 		return nil
 	}
@@ -127,18 +125,13 @@ func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, me
 		balloonRaw, ok := raw["balloon"]
 		hasBalloon = ok && rawObjectPresent(balloonRaw)
 	}
-	if err := patchBalloonRaw(raw, hasBalloon, memory); err != nil {
+	if err := patchBalloonRaw(raw, hasBalloon, newSize); err != nil {
 		return fmt.Errorf("patch balloon: %w", err)
 	}
 	return nil
 }
 
-func patchBalloonRaw(raw map[string]json.RawMessage, hasBalloon bool, memory int64) error {
-	if memory < hypervisor.MinBalloonMemory {
-		delete(raw, "balloon")
-		return nil
-	}
-	newSize := memory / hypervisor.DefaultBalloonDiv
+func patchBalloonRaw(raw map[string]json.RawMessage, hasBalloon bool, newSize int64) error {
 	if hasBalloon {
 		if balloonRaw, ok := raw["balloon"]; ok {
 			patched, err := patchRawObject(balloonRaw, func(obj map[string]json.RawMessage) error {
@@ -193,11 +186,7 @@ func patchStateJSON(path string, replacements map[string]string) error {
 		return fmt.Errorf("decode %s: %w", path, e)
 	}
 	root = walkAndReplace(root, "", replacements)
-	out, err := json.Marshal(root)
-	if err != nil {
-		return fmt.Errorf("marshal patched state: %w", err)
-	}
-	return os.WriteFile(path, out, 0o600) //nolint:gosec
+	return utils.AtomicWriteJSON(path, root)
 }
 
 func isDiskPathKey(key string) bool {
@@ -229,8 +218,6 @@ func walkAndReplace(v any, key string, replacements map[string]string) any {
 		return val
 	}
 }
-
-// --- Raw JSON helpers ---
 
 // setField marshals value and stores it in obj[key].
 func setField(obj map[string]json.RawMessage, key string, value any) error {

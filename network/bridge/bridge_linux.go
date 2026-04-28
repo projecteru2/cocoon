@@ -82,7 +82,7 @@ func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *ty
 
 		var mac string
 		if i < len(existing) && existing[i] != nil {
-			mac = existing[i].Mac
+			mac = existing[i].MAC
 		} else {
 			mac = generateMAC()
 		}
@@ -117,8 +117,8 @@ func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *ty
 		}
 
 		configs = append(configs, &types.NetworkConfig{
-			Tap:       name,
-			Mac:       mac,
+			TAP:       name,
+			MAC:       mac,
 			NumQueues: queues,
 			QueueSize: network.ResolveQueueSize(vmCfg.QueueSize),
 			Backend:   typ,

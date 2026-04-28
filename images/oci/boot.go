@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,27 +40,27 @@ func healCachedBootFiles(ctx context.Context, conf *Config, layers []v1.Layer, r
 	}
 }
 
-func selfHealBootFiles(ctx context.Context, conf *Config, layer v1.Layer, workDir string, idx int, digestHex string, knownBootHexes map[string]struct{}, result *pullLayerResult) {
-	if result.kernelPath != "" && result.initrdPath != "" {
+func selfHealBootFiles(ctx context.Context, j layerJob, digestHex string) {
+	if j.result.kernelPath != "" && j.result.initrdPath != "" {
 		return
 	}
 
-	hasEvidence := result.kernelPath != "" || result.initrdPath != ""
+	hasEvidence := j.result.kernelPath != "" || j.result.initrdPath != ""
 	if !hasEvidence {
-		_, statErr := os.Stat(conf.BootDir(digestHex))
+		_, statErr := os.Stat(j.conf.BootDir(digestHex))
 		hasEvidence = statErr == nil
 	}
 	if !hasEvidence {
-		_, hasEvidence = knownBootHexes[digestHex]
+		_, hasEvidence = j.knownBootHexes[digestHex]
 	}
 	if !hasEvidence {
 		return
 	}
 
-	log.WithFunc("oci.processLayer").Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", idx, digestHex[:12])
-	kp, ip := recoverBootFiles(ctx, layer, workDir, idx, digestHex)
-	result.kernelPath = cmp.Or(result.kernelPath, kp)
-	result.initrdPath = cmp.Or(result.initrdPath, ip)
+	log.WithFunc("oci.selfHealBootFiles").Warnf(ctx, "Layer %d: sha256:%s attempting boot file recovery", j.idx, digestHex[:12])
+	kp, ip := recoverBootFiles(ctx, j.layer, j.workDir, j.idx, digestHex)
+	j.result.kernelPath = cmp.Or(j.result.kernelPath, kp)
+	j.result.initrdPath = cmp.Or(j.result.initrdPath, ip)
 }
 
 func recoverBootFiles(ctx context.Context, layer v1.Layer, workDir string, idx int, digestHex string) (kernelPath, initrdPath string) {
@@ -89,7 +90,7 @@ func scanBootFiles(ctx context.Context, r io.Reader, workDir, digestHex string) 
 	tr := tar.NewReader(r)
 	for {
 		hdr, readErr := tr.Next()
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {

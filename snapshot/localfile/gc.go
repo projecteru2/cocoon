@@ -3,6 +3,7 @@ package localfile
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"slices"
 	"time"
@@ -46,9 +47,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 						continue
 					}
 					snap.snapshotIDs[id] = struct{}{}
-					for hex := range rec.ImageBlobIDs {
-						snap.blobIDs[hex] = struct{}{}
-					}
+					maps.Copy(snap.blobIDs, rec.ImageBlobIDs)
 					if rec.Pending && rec.CreatedAt.Before(cutoff) {
 						snap.stalePending = append(snap.stalePending, id)
 					}

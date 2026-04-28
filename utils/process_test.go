@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// --- PID File ---
-
 func TestWriteReadPIDFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.pid")
@@ -96,8 +94,6 @@ func TestReadPIDFile_WhitespaceHandling(t *testing.T) {
 	}
 }
 
-// --- IsProcessAlive ---
-
 func TestIsProcessAlive_Self(t *testing.T) {
 	if !IsProcessAlive(os.Getpid()) {
 		t.Error("expected current process to be alive")
@@ -140,8 +136,6 @@ func TestIsProcessAlive_DeadProcess(t *testing.T) {
 	}
 }
 
-// --- VerifyProcess ---
-
 func TestVerifyProcess_Self(t *testing.T) {
 	pid := os.Getpid()
 	// The test binary name varies, so just check that it doesn't panic
@@ -164,8 +158,6 @@ func TestVerifyProcess_InvalidPID(t *testing.T) {
 		t.Error("expected false for PID -1")
 	}
 }
-
-// --- VerifyProcessCmdline ---
 
 func TestVerifyProcessCmdline_EmptyArg(t *testing.T) {
 	pid := os.Getpid()
@@ -196,8 +188,6 @@ func TestVerifyProcessCmdline_WrongBinary(t *testing.T) {
 	// On other platforms, falls back to IsProcessAlive (true).
 	_ = result // Just verify no panic.
 }
-
-// --- TerminateProcess ---
 
 func TestTerminateProcess_SleepProcess(t *testing.T) {
 	// Start a sleep process we can terminate.

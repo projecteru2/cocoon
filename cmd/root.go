@@ -82,7 +82,6 @@ var (
 	}()
 )
 
-// Execute is the main entry point called from main.go.
 func Execute(ctx context.Context) error {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

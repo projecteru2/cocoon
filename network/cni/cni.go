@@ -150,14 +150,12 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	// devices anyway; CNI DEL is primarily for IPAM bookkeeping.
 	c.delNICs(ctx, vmID, nsPath, records)
 
-	// Remove the named netns (unmount bind-mount + remove file).
 	// deleteNetns retries briefly to handle async fd cleanup after process kill.
 	nsName := netnsName(vmID)
 	if err := deleteNetns(ctx, nsName); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove netns %s: %w", nsPath, err)
 	}
 
-	// Remove records from DB.
 	return c.store.Update(ctx, func(idx *networkIndex) error {
 		for id, rec := range idx.Networks {
 			if rec != nil && rec.VMID == vmID {

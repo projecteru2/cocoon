@@ -18,8 +18,8 @@ type chVMConfig struct {
 
 type chNet struct {
 	ID        string `json:"id,omitempty"`
-	Tap       string `json:"tap"`
-	Mac       string `json:"mac,omitempty"`
+	TAP       string `json:"tap"`
+	MAC       string `json:"mac,omitempty"`
 	NumQueues int    `json:"num_queues,omitempty"`
 	QueueSize int    `json:"queue_size,omitempty"`
 

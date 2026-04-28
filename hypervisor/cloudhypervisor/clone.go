@@ -32,12 +32,10 @@ type cloneResumeOpts struct {
 	onDemand            bool
 }
 
-// Clone creates a new VM from a snapshot tar stream.
 func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
 	return ch.CloneFromStream(ctx, vmID, vmCfg, networkConfigs, snapshotConfig, snapshot, ch.cloneAfterExtract)
 }
 
-// cloneAfterExtract resumes from snapshot data already placed in runDir.
 func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
@@ -65,7 +63,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	}
 	updateDataDiskPaths(storageConfigs, runDir)
 
-	// Snapshot may omit cidata if taken after restart.
+	// Snapshot may omit cidata if taken post-restart.
 	hadCidataInSnapshot := updateCloneCidataPath(storageConfigs, directBoot, ch.conf.CidataPath(vmID))
 
 	if err = hypervisor.VerifyBaseFiles(storageConfigs, bootCfg); err != nil {
@@ -79,7 +77,6 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 
 	stateReplacements := buildStateReplacements(chCfg, storageConfigs)
 
-	// Regenerate cidata for the clone's identity and network config.
 	storageConfigs, err = ch.ensureCloneCidata(vmID, vmCfg, networkConfigs, storageConfigs, directBoot)
 	if err != nil {
 		return nil, err
@@ -88,7 +85,6 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("validate post-cidata storage: %w", vErr)
 	}
 
-	// If the snapshot lacked cidata, patch only snapshot disks and hotplug cidata later.
 	patchStorageConfigs := restorePatchStorageConfigs(storageConfigs, directBoot, vmCfg.Windows, hadCidataInSnapshot)
 
 	consoleSock := hypervisor.ConsoleSockPath(runDir)
@@ -105,13 +101,11 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("patch CH config: %w", err)
 	}
 
-	// Keep state.json disk paths readable after cloning.
 	stateJSONPath := filepath.Join(runDir, "state.json")
 	if err = patchStateJSON(stateJSONPath, stateReplacements); err != nil {
 		return nil, fmt.Errorf("patch state.json: %w", err)
 	}
 
-	// Refresh direct-boot cmdline for later restarts.
 	if directBoot && bootCfg != nil {
 		dns, dnsErr := ch.conf.DNSServers()
 		if dnsErr != nil {
@@ -209,7 +203,7 @@ func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig,
 		return nil, fmt.Errorf("generate cidata: %w", err)
 	}
 	cidataPath := ch.conf.CidataPath(vmID)
-	// Keep cidata in the record for later cold boots even if the snapshot omitted it.
+	// Keep cidata in record for later cold boots even if snapshot omitted it.
 	if !slices.ContainsFunc(storageConfigs, hasCidataRole) {
 		storageConfigs = append(storageConfigs, &types.StorageConfig{
 			Path: cidataPath,
@@ -262,14 +256,12 @@ func updateCloneCidataPath(storageConfigs []*types.StorageConfig, directBoot boo
 	return hadCidataInSnapshot
 }
 
-// hasCidataRole is a slices.ContainsFunc predicate.
 func hasCidataRole(sc *types.StorageConfig) bool {
 	return sc.Role == types.StorageRoleCidata
 }
 
-// restorePatchStorageConfigs strips the cidata entry ensureCloneCidata
-// appended to a no-cidata snapshot, so patchCHConfig matches chCfg.Disks
-// count. Cidata is hot-plugged later.
+// restorePatchStorageConfigs strips ensureCloneCidata's appended cidata when
+// the snapshot lacked one, so patchCHConfig matches chCfg.Disks; cidata gets hot-plugged.
 func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoot, windows, hadCidataInSnapshot bool) []*types.StorageConfig {
 	if directBoot || windows || hadCidataInSnapshot {
 		return storageConfigs
@@ -283,10 +275,7 @@ func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoo
 	return out
 }
 
-// updateDataDiskPaths rewrites every Role==Data entry's Path to live under
-// newRunDir, derived from the disk's serial. Used by clone after sidecar
-// load: the sidecar carries the source VM's runDir, but the clone's data
-// disk files have been reflinked into the clone's runDir.
+// updateDataDiskPaths rewrites Role==Data paths to clone runDir; sidecar carries source paths.
 func updateDataDiskPaths(configs []*types.StorageConfig, newRunDir string) {
 	for _, sc := range configs {
 		if sc.Role == types.StorageRoleData {
@@ -324,10 +313,9 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	return cmdline.String()
 }
 
-// buildStateReplacements maps source disk paths to clone paths for
-// state.json patching. Iterates min(chCfg.Disks, storageConfigs) so an
-// appended cidata in storageConfigs doesn't desync the prefix.
-// MACs are not patched here; NIC hot-swap rewrites the virtio-net device.
+// buildStateReplacements maps source disk paths to clone paths for state.json
+// patching. Slices to min length so an appended cidata in storageConfigs
+// doesn't desync the prefix; MACs are handled separately by NIC hot-swap.
 func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig) map[string]string {
 	n := min(len(chCfg.Disks), len(storageConfigs))
 	m := make(map[string]string, n)
@@ -339,9 +327,8 @@ func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageCo
 	return m
 }
 
-// hotSwapNets removes old NICs (carrying stale MAC from snapshot binary state)
-// and adds new ones with the correct MAC/TAP configuration.
-// Must be called while VM is paused (between vm.restore and vm.resume).
+// hotSwapNets removes NICs with stale MAC (from snapshot binary state) and
+// adds fresh ones. Must run between vm.restore and vm.resume (VM paused).
 func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkConfigs []*types.NetworkConfig) error {
 	logger := log.WithFunc("cloudhypervisor.hotSwapNets")
 	for _, oldNet := range oldNets {
@@ -351,15 +338,15 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 		if err := removeDeviceVM(ctx, hc, oldNet.ID); err != nil {
 			return fmt.Errorf("remove net device %s: %w", oldNet.ID, err)
 		}
-		logger.Infof(ctx, "removed snapshot NIC %s (old MAC %s)", oldNet.ID, oldNet.Mac)
+		logger.Infof(ctx, "removed snapshot NIC %s (old MAC %s)", oldNet.ID, oldNet.MAC)
 	}
 	for i, nc := range networkConfigs {
 		newNet := networkConfigToNet(nc)
 		if err := addNetVM(ctx, hc, newNet); err != nil {
 			return fmt.Errorf("add net device %d/%d (MAC %s, TAP %s): %w",
-				i+1, len(networkConfigs), nc.Mac, nc.Tap, err)
+				i+1, len(networkConfigs), nc.MAC, nc.TAP, err)
 		}
-		logger.Infof(ctx, "added NIC with MAC %s on TAP %s", nc.Mac, nc.Tap)
+		logger.Infof(ctx, "added NIC with MAC %s on TAP %s", nc.MAC, nc.TAP)
 	}
 	return nil
 }

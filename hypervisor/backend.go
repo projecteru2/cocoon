@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +21,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Shared constants for all hypervisor backends.
 const (
 	APISocketName   = "api.sock"
 	ConsoleSockName = "console.sock"
@@ -34,15 +34,13 @@ const (
 	// VMMemTransferTimeout is the single-shot timeout for snapshot/restore API calls.
 	VMMemTransferTimeout = 10 * time.Minute
 
-	// MinBalloonMemory is the minimum guest memory (256 MiB) below which
-	// balloon is not enabled — the overhead is not worthwhile for tiny VMs.
+	// MinBalloonMemory: balloon overhead is not worthwhile below 256 MiB guest memory.
 	MinBalloonMemory = 256 << 20
 
 	// DefaultBalloonDiv sizes the initial balloon as memory/DefaultBalloonDiv (25%).
 	DefaultBalloonDiv = 4
 
-	// GracefulStopPollInterval is how often we check if the guest has powered off
-	// after sending a graceful shutdown signal (ACPI power-button or SendCtrlAltDel).
+	// GracefulStopPollInterval polls between graceful shutdown signal and timeout escalation.
 	GracefulStopPollInterval = 500 * time.Millisecond
 )
 
@@ -66,6 +64,63 @@ type Backend struct {
 	Conf   BackendConfig
 	DB     storage.Store[VMIndex]
 	Locker lock.Locker
+}
+
+// LaunchSpec is the per-call input to Backend.LaunchVMProcess. Shared
+// BinaryName / SocketWaitTimeout come from BackendConfig.
+type LaunchSpec struct {
+	Cmd       *exec.Cmd
+	PIDPath   string
+	SockPath  string
+	NetnsPath string // empty = host netns
+	OnFail    func() // optional cleanup on any error path
+}
+
+// RestoreSpec carries the backend-specific hooks for Backend.RestoreSequence.
+type RestoreSpec struct {
+	VMCfg         *types.VMConfig
+	Snapshot      io.Reader
+	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error
+	Preflight     func(stagingDir string, rec *VMRecord) error
+	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap          func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
+	BeforeMerge   func(rec *VMRecord) error                  // e.g. FC removes stale COW
+	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+}
+
+// DirectRestoreSpec is RestoreSpec for a local srcDir rather than a tar; Populate replaces staging+merge.
+type DirectRestoreSpec struct {
+	VMCfg         *types.VMConfig
+	SrcDir        string
+	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error
+	Preflight     func(srcDir string, rec *VMRecord) error
+	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap          func(rec *VMRecord, fn func() error) error
+	Populate      func(rec *VMRecord, srcDir string) error
+	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+}
+
+// CreateSpec carries the inputs to CreateSequence. Prepare returns the
+// final storage configs (e.g. with COW + data disks attached); the rest of
+// the sequence is uniform across backends.
+type CreateSpec struct {
+	VMCfg          *types.VMConfig
+	StorageConfigs []*types.StorageConfig
+	NetworkConfigs []*types.NetworkConfig
+	BootConfig     *types.BootConfig
+	Prepare        func(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error)
+}
+
+// SnapshotSpec carries the backend-specific hooks for SnapshotSequence.
+// hc is the shared http.Client built by SnapshotSequence so HTTP keep-alive
+// reuses one CH/FC API socket connection across pause/capture/resume.
+type SnapshotSpec struct {
+	Pause        func(rec *VMRecord, hc *http.Client) error
+	Resume       func(rec *VMRecord, hc *http.Client) error
+	Capture      func(rec *VMRecord, hc *http.Client, tmpDir string) error
+	Wrap         func(rec *VMRecord, fn func() error) error
+	AfterCapture func(rec *VMRecord, tmpDir string) error
+	BuildMeta    func(rec *VMRecord, tmpDir string) (*SnapshotMeta, error)
 }
 
 func (b *Backend) Type() string { return b.Typ }
@@ -144,11 +199,9 @@ func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid 
 	return fn(pid)
 }
 
-// WithPausedVM pauses a running VM, runs fn, then resumes it. Resume is
-// guaranteed via defer: if fn returns an error the resume failure is logged
-// and the inner error is propagated; if fn succeeds the resume error is
-// promoted to the return value (snapshot data is captured but the VM is
-// stuck). Both backends use this around snapshot capture.
+// WithPausedVM pauses, runs fn, resumes. Resume on the success path is eager
+// so its error promotes to the return; on fn-error the deferred resume only
+// logs (the inner error wins).
 func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume, fn func() error) error {
 	return b.WithRunningVM(ctx, rec, func(_ int) error {
 		if err := pause(); err != nil {
@@ -232,9 +285,8 @@ func (b *Backend) ReserveVM(ctx context.Context, id string, vmCfg *types.VMConfi
 	})
 }
 
-// CloneSetup handles the shared pre-clone sequence used by both
-// backends' Clone and DirectClone entry points: validate CPU,
-// reserve a placeholder record, create dirs, and return a cleanup function.
+// CloneSetup is the shared pre-clone sequence: validate CPU, reserve a
+// placeholder, ensure dirs, return a cleanup that rolls back both.
 func (b *Backend) CloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
 	if err = ValidateHostCPU(vmCfg.CPU); err != nil {
 		return "", "", time.Time{}, nil, err
@@ -280,9 +332,8 @@ func (b *Backend) ForEachVM(ctx context.Context, ids []string, op string, fn fun
 	return result.Succeeded, result.Err()
 }
 
-// KillForRestore stops a running VM and cleans up its runtime files in
-// preparation for a restore. The terminate callback performs the
-// backend-specific shutdown (e.g. CH graceful shutdown vs FC direct kill).
+// KillForRestore stops the running VM via the backend-specific terminate hook
+// and clears runtime files.
 func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord, terminate func(pid int) error, runtimeFiles []string) error {
 	killErr := b.WithRunningVM(ctx, rec, terminate)
 	if killErr != nil && !errors.Is(killErr, ErrNotRunning) {
@@ -293,9 +344,8 @@ func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord
 	return nil
 }
 
-// DirectCloneBase runs the shared DirectClone sequence: reserve a
-// placeholder via CloneSetup, copy snapshot files via cloneFiles, then
-// hand off to afterExtract for backend-specific startup.
+// DirectCloneBase clones from a local snapshot directory. Used when the
+// snapshot lives on the same host (no tar streaming needed).
 func (b *Backend) DirectCloneBase(
 	ctx context.Context, vmID string, vmCfg *types.VMConfig,
 	networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string,
@@ -319,9 +369,8 @@ func (b *Backend) DirectCloneBase(
 	return afterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
 }
 
-// CloneFromStream runs the shared streaming Clone sequence: reserve a
-// placeholder via CloneSetup, extract the snapshot tar into runDir, then
-// hand off to afterExtract for backend-specific startup.
+// CloneFromStream clones from a tar stream into a fresh runDir. Used when
+// the snapshot arrives over the network (cross-node clone).
 func (b *Backend) CloneFromStream(
 	ctx context.Context, vmID string, vmCfg *types.VMConfig,
 	networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader,
@@ -344,7 +393,7 @@ func (b *Backend) CloneFromStream(
 	return afterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
 }
 
-// ResolveForRestore resolves VM ref and validates it's running.
+// ResolveForRestore resolves vmRef and validates the VM is running.
 func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, *VMRecord, error) {
 	vmID, err := b.ResolveRef(ctx, vmRef)
 	if err != nil {
@@ -360,9 +409,7 @@ func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, 
 	return vmID, &rec, nil
 }
 
-// GracefulStop sends a shutdown signal, polls until the process exits,
-// and escalates via the escalate closure if the timeout fires.
-// Used by both CH (ACPI power-button) and FC (SendCtrlAltDel).
+// GracefulStop signals shutdown, polls until exit, escalates on timeout.
 func (b *Backend) GracefulStop(ctx context.Context, vmID string, pid int, timeout time.Duration, signal, escalate func() error) error {
 	logger := log.WithFunc(b.Typ + ".GracefulStop")
 	if err := signal(); err != nil {
@@ -382,14 +429,14 @@ func (b *Backend) GracefulStop(ctx context.Context, vmID string, pid int, timeou
 	return escalate()
 }
 
-// AbortLaunch terminates a failed launch and removes runtime files.
+// AbortLaunch terminates a failed launch and clears runtime files.
 func (b *Backend) AbortLaunch(ctx context.Context, pid int, sockPath, runDir string, runtimeFiles []string) {
 	_ = utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod())
 	CleanupRuntimeFiles(ctx, runDir, runtimeFiles)
 }
 
-// StartAll is the shared Start template: resolve refs, run startOne per ID,
-// flip succeeded records to Running. Both backends call it as a one-liner.
+// StartAll runs startOne for each ref and batch-flips the succeeded set
+// to Running so a partial batch doesn't leave half-Running state.
 func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
@@ -402,8 +449,7 @@ func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(con
 	return succeeded, forEachErr
 }
 
-// StopAll is the shared Stop template: resolve refs, run stopOne per ID,
-// flip succeeded records to Stopped.
+// StopAll mirrors StartAll: stopOne per ref, batch-flip succeeded to Stopped.
 func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
@@ -416,10 +462,9 @@ func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(conte
 	return succeeded, forEachErr
 }
 
-// DeleteAll is the shared Delete template: gracefully stop a running VM when
-// force=true via the supplied stopOne, remove the VM dirs, then delete the
-// index record. The dir-cleanup intentionally precedes the DB delete so a
-// failed cleanup leaves the record intact and the user can retry rm.
+// DeleteAll removes VMs by ref. Dir cleanup precedes DB delete so a failed
+// cleanup leaves the record intact for retry — otherwise an orphan rundir
+// would survive without an index entry to GC it.
 func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stopOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
@@ -490,8 +535,7 @@ func (b *Backend) CleanStalePlaceholders(_ context.Context, ids []string) error 
 	})
 }
 
-// GCCollect removes orphan VM directories and stale DB records.
-// Kills leftover hypervisor processes before removing directories.
+// GCCollect kills leftover hypervisor processes and removes orphan dirs/records.
 // Runs under the GC orchestrator's flock — uses lock-free DB access.
 func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
 	var errs []error
@@ -553,7 +597,7 @@ func (b *Backend) BuildSnapshotConfig(snapID string, rec *VMRecord) *types.Snaps
 	return cfg
 }
 
-// FinalizeRestore updates DB and assembles returned VM after restore.
+// FinalizeRestore updates DB and assembles the returned VM after restore.
 func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord, pid int) (*types.VM, error) {
 	now := time.Now()
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
@@ -580,7 +624,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	return &info, nil
 }
 
-// PrepareStart loads record, validates state, ensures dirs are ready.
+// PrepareStart loads the record, verifies not-running, ensures dirs exist.
 func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []string) (*VMRecord, error) {
 	rec, err := b.LoadRecord(ctx, id)
 	if err != nil {
@@ -604,7 +648,7 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	return &rec, nil
 }
 
-// FinalizeCreate writes populated VM record to DB, replacing placeholder.
+// FinalizeCreate writes a populated VM record to DB, replacing the placeholder.
 func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}) error {
 	return b.DB.Update(ctx, func(idx *VMIndex) error {
 		existing := idx.VMs[id]
@@ -647,39 +691,9 @@ func (b *Backend) HandleStopResult(ctx context.Context, id, runDir string, runti
 	return nil
 }
 
-// killOrphanProcess terminates a leftover hypervisor process if the PID
-// file exists and the process matches the expected binary name.
-func (b *Backend) killOrphanProcess(ctx context.Context, runDir string) {
-	pid, err := utils.ReadPIDFile(b.PIDFilePath(runDir))
-	if err != nil {
-		return
-	}
-	sockPath := SocketPath(runDir)
-	if !utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), sockPath) {
-		return
-	}
-	_ = utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod())
-}
-
-func SocketPath(runDir string) string { return filepath.Join(runDir, APISocketName) }
-
-func ConsoleSockPath(runDir string) string { return filepath.Join(runDir, ConsoleSockName) }
-
-// LaunchSpec carries the per-call inputs to LaunchVMProcess. The shared
-// BinaryName / SocketWaitTimeout come from the Backend's BackendConfig and
-// don't repeat here.
-type LaunchSpec struct {
-	Cmd       *exec.Cmd
-	PIDPath   string
-	SockPath  string
-	NetnsPath string // empty = host netns
-	OnFail    func() // optional cleanup hook on any error path
-}
-
-// LaunchVMProcess optionally enters a netns, starts spec.Cmd, writes the PID
-// file, and waits for the API socket. On any post-Start error the process is
-// killed and the PID file is removed before returning. The caller is
-// responsible for reaping cmd via cmd.Wait() in a goroutine on success.
+// LaunchVMProcess starts spec.Cmd and waits for the API socket. On any error
+// after Start, the process is killed and the PID file is removed. Caller
+// reaps cmd via cmd.Wait() in a goroutine on success.
 func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int, err error) {
 	started := false
 	pidWritten := false
@@ -725,56 +739,124 @@ func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int
 	return pid, nil
 }
 
-// PrepareStagingDir creates a sibling staging directory, extracts the snapshot
-// tar into it, and returns a cleanup function that removes the staging dir.
-func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cleanup func(), err error) {
-	stagingDir = runDir + ".restore-staging"
-	if err = os.RemoveAll(stagingDir); err != nil {
-		return "", nil, fmt.Errorf("clear staging dir: %w", err)
+// CreateSequence is the shared create skeleton. The placeholder-then-finalize
+// shape lets a crash mid-create leave a rolled-back DB and rundir, so GC
+// has nothing stale to reconcile.
+func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec) (_ *types.VM, err error) {
+	if err = ValidateHostCPU(spec.VMCfg.CPU); err != nil {
+		return nil, err
 	}
-	if err = os.MkdirAll(stagingDir, 0o700); err != nil {
-		return "", nil, fmt.Errorf("create staging dir: %w", err)
+
+	now := time.Now()
+	runDir := b.Conf.VMRunDir(id)
+	logDir := b.Conf.VMLogDir(id)
+	blobIDs := ExtractBlobIDs(spec.StorageConfigs, spec.BootConfig)
+
+	defer func() {
+		if err != nil {
+			_ = RemoveVMDirs(runDir, logDir)
+			b.RollbackCreate(ctx, id, spec.VMCfg.Name)
+		}
+	}()
+
+	if err = b.ReserveVM(ctx, id, spec.VMCfg, blobIDs, runDir, logDir); err != nil {
+		return nil, fmt.Errorf("reserve VM record: %w", err)
 	}
-	cleanup = func() { os.RemoveAll(stagingDir) } //nolint:errcheck,gosec
-	if err = utils.ExtractTar(stagingDir, snapshot); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("extract snapshot: %w", err)
+	if err = utils.EnsureDirs(runDir, logDir); err != nil {
+		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
-	return stagingDir, cleanup, nil
+
+	var bootCopy *types.BootConfig
+	if spec.BootConfig != nil {
+		bc := *spec.BootConfig
+		bootCopy = &bc
+	}
+
+	preparedStorage, err := spec.Prepare(ctx, id, spec.VMCfg, spec.StorageConfigs, spec.NetworkConfigs, bootCopy)
+	if err != nil {
+		return nil, err
+	}
+	if err = types.ValidateStorageConfigs(preparedStorage); err != nil {
+		return nil, fmt.Errorf("storage invariants violated: %w", err)
+	}
+
+	info := &types.VM{
+		ID: id, Hypervisor: b.Typ, State: types.VMStateCreated,
+		Config: *spec.VMCfg, StorageConfigs: preparedStorage, NetworkConfigs: spec.NetworkConfigs,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err = b.FinalizeCreate(ctx, id, info, bootCopy, blobIDs); err != nil {
+		return nil, fmt.Errorf("finalize VM record: %w", err)
+	}
+	return info, nil
 }
 
-// RestoreSpec carries the backend-specific hooks for RestoreSequence. The
-// shared template handles host-CPU validation, ResolveForRestore, staging,
-// preflight, kill, and merge — backends supply only the differing pieces.
-type RestoreSpec struct {
-	VMCfg         *types.VMConfig
-	Snapshot      io.Reader
-	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error // optional pre-kill resource validation
-	Preflight     func(stagingDir string, rec *VMRecord) error
-	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap          func(rec *VMRecord, fn func() error) error // optional disk lock wrapping merge+afterExtract
-	BeforeMerge   func(rec *VMRecord) error                  // optional pre-merge hook (e.g. FC removes stale COW)
-	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+// SnapshotSequence is the shared capture skeleton. The pause window is the
+// VM-availability hit, so all hot work (capture only) runs inside it and
+// AfterCapture (e.g. cidata copy) runs outside.
+func (b *Backend) SnapshotSequence(ctx context.Context, ref string, spec SnapshotSpec) (_ *types.SnapshotConfig, _ io.ReadCloser, err error) {
+	vmID, err := b.ResolveRef(ctx, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	rec, err := b.LoadRecord(ctx, vmID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
+		return nil, nil, fmt.Errorf("storage invariants violated: %w", vErr)
+	}
+
+	tmpDir, err := os.MkdirTemp(b.Conf.VMRunDir(vmID), "snapshot-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			os.RemoveAll(tmpDir) //nolint:errcheck,gosec
+		}
+	}()
+
+	hc := utils.NewSocketHTTPClient(SocketPath(rec.RunDir))
+	pause := func() error { return spec.Pause(&rec, hc) }
+	resume := func() error { return spec.Resume(&rec, hc) }
+	captureWindow := func() error {
+		return b.WithPausedVM(ctx, &rec, pause, resume, func() error {
+			return spec.Capture(&rec, hc, tmpDir)
+		})
+	}
+	if spec.Wrap != nil {
+		err = spec.Wrap(&rec, captureWindow)
+	} else {
+		err = captureWindow()
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("snapshot VM %s: %w", vmID, err)
+	}
+
+	if spec.AfterCapture != nil {
+		if err = spec.AfterCapture(&rec, tmpDir); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	meta, err := spec.BuildMeta(&rec, tmpDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build snapshot metadata: %w", err)
+	}
+	if err = SaveSnapshotMeta(tmpDir, meta); err != nil {
+		return nil, nil, fmt.Errorf("save snapshot metadata: %w", err)
+	}
+
+	snapID, err := b.RecordSnapshot(ctx, vmID, tmpDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return b.BuildSnapshotConfig(snapID, &rec), utils.TarDirStreamWithRemove(tmpDir), nil
 }
 
-// DirectRestoreSpec mirrors RestoreSpec but takes a local source directory
-// rather than a streaming tar. Populate replaces the staging+merge step:
-// backends decide how to copy the snapshot files into rec.RunDir (typically
-// clean old artifacts, then per-file hardlink/reflink/copy).
-type DirectRestoreSpec struct {
-	VMCfg         *types.VMConfig
-	SrcDir        string
-	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error
-	Preflight     func(srcDir string, rec *VMRecord) error
-	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap          func(rec *VMRecord, fn func() error) error
-	Populate      func(rec *VMRecord, srcDir string) error
-	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
-}
-
-// RestoreSequence runs the shared restore flow used by both backends:
-// validate host CPU, resolve VM, stage tar, preflight, kill, merge, then
-// hand off to AfterExtract for backend-specific resume.
+// RestoreSequence is the shared restore skeleton. Staging happens before
+// the kill so a preflight failure leaves the original VM running.
 func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec RestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -827,10 +909,8 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	return result, nil
 }
 
-// DirectRestoreSequence runs the local-snapshot-dir variant of restore: the
-// caller supplies a srcDir already on disk. Same outage-safe ordering as
-// RestoreSequence (preflight before kill, optional disk lock around populate
-// + afterExtract).
+// DirectRestoreSequence restores from a local snapshot directory; Populate
+// replaces the tar staging+merge step used by RestoreSequence.
 func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec DirectRestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -870,4 +950,48 @@ func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec 
 		return nil, innerErr
 	}
 	return result, nil
+}
+
+// killOrphanProcess terminates a leftover hypervisor process if PID matches the binary.
+func (b *Backend) killOrphanProcess(ctx context.Context, runDir string) {
+	pid, err := utils.ReadPIDFile(b.PIDFilePath(runDir))
+	if err != nil {
+		return
+	}
+	sockPath := SocketPath(runDir)
+	if !utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), sockPath) {
+		return
+	}
+	_ = utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod())
+}
+
+func SocketPath(runDir string) string { return filepath.Join(runDir, APISocketName) }
+
+func ConsoleSockPath(runDir string) string { return filepath.Join(runDir, ConsoleSockName) }
+
+// PrepareStagingDir extracts the snapshot tar into a sibling staging dir.
+func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cleanup func(), err error) {
+	stagingDir = runDir + ".restore-staging"
+	if err = os.RemoveAll(stagingDir); err != nil {
+		return "", nil, fmt.Errorf("clear staging dir: %w", err)
+	}
+	if err = os.MkdirAll(stagingDir, 0o700); err != nil {
+		return "", nil, fmt.Errorf("create staging dir: %w", err)
+	}
+	cleanup = func() { os.RemoveAll(stagingDir) } //nolint:errcheck,gosec
+	if err = utils.ExtractTar(stagingDir, snapshot); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("extract snapshot: %w", err)
+	}
+	return stagingDir, cleanup, nil
+}
+
+// BalloonSize returns the balloon size in bytes and whether the balloon
+// should be enabled. Disabled on Windows (virtio-win driver retries deflation
+// indefinitely, blocking shutdown) and below MinBalloonMemory.
+func BalloonSize(memoryBytes int64, windows bool) (int64, bool) {
+	if windows || memoryBytes < MinBalloonMemory {
+		return 0, false
+	}
+	return memoryBytes / DefaultBalloonDiv, true
 }

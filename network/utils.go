@@ -1,5 +1,7 @@
 package network
 
+import "cmp"
+
 const (
 	vmIDPrefixLen = 8
 
@@ -18,12 +20,10 @@ func NetNumQueues(cpu int) int {
 	return cpu * 2 //nolint:mnd
 }
 
-// ResolveQueueSize returns qs if positive, otherwise the default NetQueueSize.
+// ResolveQueueSize returns qs if non-zero, otherwise the default NetQueueSize.
+// Negative values aren't reachable from validated callers.
 func ResolveQueueSize(qs int) int {
-	if qs > 0 {
-		return qs
-	}
-	return NetQueueSize
+	return cmp.Or(qs, NetQueueSize)
 }
 
 // VMIDPrefix returns the first 8 characters of a VM ID, matching the

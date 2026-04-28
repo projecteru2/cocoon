@@ -32,15 +32,15 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+var hypervisorFactories = []hypervisorFactory{
+	{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
+	{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
+}
+
 // hypervisorFactory keeps backend lookup and iteration order together.
 type hypervisorFactory struct {
 	typ  config.HypervisorType
 	ctor func(*config.Config) (hypervisor.Hypervisor, error)
-}
-
-var hypervisorFactories = []hypervisorFactory{
-	{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
-	{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
 }
 
 // BaseHandler provides shared config access for all command handlers.
@@ -52,7 +52,6 @@ func NewBaseHandler(conf *config.Config) BaseHandler {
 	return BaseHandler{ConfProvider: func() *config.Config { return conf }}
 }
 
-// Init returns command context and validated config.
 func (h BaseHandler) Init(cmd *cobra.Command) (context.Context, *config.Config, error) {
 	conf, err := h.Conf()
 	if err != nil {
@@ -61,7 +60,6 @@ func (h BaseHandler) Init(cmd *cobra.Command) (context.Context, *config.Config, 
 	return CommandContext(cmd), conf, nil
 }
 
-// Conf validates and returns the config.
 func (h BaseHandler) Conf() (*config.Config, error) {
 	if h.ConfProvider == nil {
 		return nil, fmt.Errorf("config provider is nil")
@@ -73,7 +71,7 @@ func (h BaseHandler) Conf() (*config.Config, error) {
 	return conf, nil
 }
 
-// CommandContext returns command context, fallback to Background.
+// CommandContext returns ctx from cmd or Background as fallback.
 func CommandContext(cmd *cobra.Command) context.Context {
 	if cmd != nil && cmd.Context() != nil {
 		return cmd.Context()
@@ -142,7 +140,8 @@ func FindHypervisor(ctx context.Context, conf *config.Config, ref string) (hyper
 	if err != nil {
 		return nil, err
 	}
-	return resolveVMOwner(ctx, hypers, ref)
+	owner, _, err := resolveVMOwner(ctx, hypers, ref)
+	return owner, err
 }
 
 func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.VM, error) {
@@ -157,14 +156,18 @@ func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.V
 	return all, nil
 }
 
+// RouteRefs resolves each user ref (full ID, name, or ID prefix) to its
+// owning hypervisor and returns a map of owner → resolved full VM IDs.
+// Returning full IDs (not raw refs) ensures downstream code — including
+// network recovery and lifecycle batchers — never has to re-resolve prefixes.
 func RouteRefs(ctx context.Context, hypers []hypervisor.Hypervisor, refs []string) (map[hypervisor.Hypervisor][]string, error) {
 	result := map[hypervisor.Hypervisor][]string{}
 	for _, ref := range refs {
-		owner, err := resolveVMOwner(ctx, hypers, ref)
+		owner, vm, err := resolveVMOwner(ctx, hypers, ref)
 		if err != nil {
 			return nil, err
 		}
-		result[owner] = append(result[owner], ref)
+		result[owner] = append(result[owner], vm.ID)
 	}
 	return result, nil
 }
@@ -219,13 +222,9 @@ func ResolveImage(ctx context.Context, backends []imagebackend.Images, vmCfg *ty
 	return storageConfigs, bootCfg, nil
 }
 
-// EnsureImage checks whether the exact base image (by digest) required by
-// vmCfg exists locally and pulls it if missing. Inspect uses ImageDigest
-// to match the exact version recorded at snapshot time; Pull uses Image
-// (tag/URL) as the registry reference, then verifies the pulled digest.
-//
-// For imported images (not pullable from a registry), a warning is logged
-// and the caller proceeds — VerifyBaseFiles will catch the actual error.
+// EnsureImage pulls the digest-pinned base image if missing locally; warns
+// (rather than fails) for imported images so VerifyBaseFiles surfaces the
+// real error.
 func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *types.VMConfig) {
 	if vmCfg.Image == "" || vmCfg.ImageType == "" {
 		return
@@ -270,19 +269,33 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 }
 
 func ResolveImageOwner(ctx context.Context, backends []imagebackend.Images, ref string) (imagebackend.Images, error) {
-	var matches []imagebackend.Images
-	for _, b := range backends {
+	return resolveOwner(backends, ref, func(b imagebackend.Images) (bool, error) {
 		img, err := b.Inspect(ctx, ref)
+		return img != nil, err
+	},
+		fmt.Errorf("image %q: not found in any backend", ref),
+		fmt.Errorf("image %s: %w", ref, imagebackend.ErrAmbiguous),
+	)
+}
+
+// resolveOwner returns the unique backend among backends for which found
+// reports true. notFound is returned when zero match; ambiguous wraps the
+// caller-supplied error and lists the matched backend types.
+func resolveOwner[T interface{ Type() string }](backends []T, ref string, found func(T) (bool, error), notFound, ambiguous error) (T, error) {
+	var matches []T
+	var zero T
+	for _, b := range backends {
+		ok, err := found(b)
 		if err != nil {
-			return nil, fmt.Errorf("inspect %s in %s: %w", ref, b.Type(), err)
+			return zero, fmt.Errorf("inspect %s in %s: %w", ref, b.Type(), err)
 		}
-		if img != nil {
+		if ok {
 			matches = append(matches, b)
 		}
 	}
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("image %q: not found in any backend", ref)
+		return zero, notFound
 	case 1:
 		return matches[0], nil
 	default:
@@ -290,7 +303,7 @@ func ResolveImageOwner(ctx context.Context, backends []imagebackend.Images, ref 
 		for i, b := range matches {
 			names[i] = b.Type()
 		}
-		return nil, fmt.Errorf("image %s: %w (backends: %s)", ref, imagebackend.ErrAmbiguous, strings.Join(names, ", "))
+		return zero, fmt.Errorf("%w (backends: %s)", ambiguous, strings.Join(names, ", "))
 	}
 }
 
@@ -502,31 +515,27 @@ func findHypervisorFactory(typ config.HypervisorType) func(*config.Config) (hype
 	return nil
 }
 
-func resolveVMOwner(ctx context.Context, hypers []hypervisor.Hypervisor, ref string) (hypervisor.Hypervisor, error) {
-	var matches []hypervisor.Hypervisor
-	for _, h := range hypers {
-		_, resolveErr := h.Inspect(ctx, ref)
-		if resolveErr == nil {
-			matches = append(matches, h)
-			continue
+// resolveVMOwner returns the owning hypervisor and the resolved *types.VM.
+// Reusing the Inspect we already pay for fixes prefix-resolution downstream:
+// callers can use vm.ID instead of the user's raw ref (which may be a prefix
+// or name).
+func resolveVMOwner(ctx context.Context, hypers []hypervisor.Hypervisor, ref string) (hypervisor.Hypervisor, *types.VM, error) {
+	var resolved *types.VM
+	owner, err := resolveOwner(hypers, ref, func(h hypervisor.Hypervisor) (bool, error) {
+		vm, err := h.Inspect(ctx, ref)
+		if err == nil && vm != nil {
+			resolved = vm
+			return true, nil
 		}
-		if errors.Is(resolveErr, hypervisor.ErrNotFound) {
-			continue
+		if err != nil && !errors.Is(err, hypervisor.ErrNotFound) {
+			return false, err
 		}
-		return nil, fmt.Errorf("inspect %s in %s: %w", ref, h.Type(), resolveErr)
-	}
-	switch len(matches) {
-	case 0:
-		return nil, fmt.Errorf("vm %s: %w", ref, hypervisor.ErrNotFound)
-	case 1:
-		return matches[0], nil
-	default:
-		names := make([]string, len(matches))
-		for i, h := range matches {
-			names[i] = h.Type()
-		}
-		return nil, fmt.Errorf("vm %s: %w (backends: %s)", ref, hypervisor.ErrAmbiguous, strings.Join(names, ", "))
-	}
+		return false, nil
+	},
+		fmt.Errorf("vm %s: %w", ref, hypervisor.ErrNotFound),
+		fmt.Errorf("vm %s: %w", ref, hypervisor.ErrAmbiguous),
+	)
+	return owner, resolved, err
 }
 
 // sanitizeVMName derives a safe VM name from an image reference.

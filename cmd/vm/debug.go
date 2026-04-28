@@ -15,15 +15,17 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// chDebugArgs is the per-call CH command-line shape for the debug printer.
-// A struct keeps the printCommonCHArgs signature stable as more flags accrue.
-type chDebugArgs struct {
-	CPU          int
-	MaxCPU       int
-	MemoryMB     int
-	BalloonMB    int
-	Windows      bool
-	SharedMemory bool
+type chDebugSpec struct {
+	Configs    []*types.StorageConfig
+	Boot       *types.BootConfig
+	VMCfg      *types.VMConfig
+	CowPath    string
+	CHBin      string
+	MaxCPU     int
+	Memory     int
+	Balloon    int
+	CowSize    int
+	DirectBoot bool
 }
 
 func (h Handler) Debug(cmd *cobra.Command, args []string) error {
@@ -32,7 +34,6 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Read --fc from the subcommand flag.
 	if fc, _ := cmd.Flags().GetBool("fc"); fc {
 		conf.UseFirecracker = true
 	}
@@ -69,18 +70,10 @@ func (h Handler) Debug(cmd *cobra.Command, args []string) error {
 		}
 		boot.KernelPath = vmlinuxPath
 		printFCDebug(storageConfigs, boot, vmCfg, conf.FCBinary)
-	} else {
-		maxCPU, _ := cmd.Flags().GetInt("max-cpu")
-		balloon, _ := cmd.Flags().GetInt("balloon")
-		cowPath, _ := cmd.Flags().GetString("cow")
-		chBin, _ := cmd.Flags().GetString("ch")
-		memoryMB := int(vmCfg.Memory >> 20)   //nolint:mnd
-		cowSizeGB := int(vmCfg.Storage >> 30) //nolint:mnd
-		if balloon == 0 {
-			balloon = memoryMB / 2 //nolint:mnd
-		}
-		printCHDebug(storageConfigs, boot, vmCfg, cowPath, chBin, maxCPU, memoryMB, balloon, cowSizeGB, boot.KernelPath != "")
+		return nil
 	}
+
+	printCHDebug(buildCHDebugSpec(cmd, storageConfigs, boot, vmCfg))
 	return nil
 }
 
@@ -90,7 +83,6 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 	memMiB := int(vmCfg.Memory >> 20)     //nolint:mnd
 	cowSizeGB := int(vmCfg.Storage >> 30) //nolint:mnd
 
-	// Build layer device paths (reversed for overlayfs)
 	nLayers := 0
 	for _, s := range configs {
 		if s.Role == types.StorageRoleLayer {
@@ -99,9 +91,9 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 	}
 	layerDevs := make([]string, nLayers)
 	for i := range nLayers {
-		layerDevs[nLayers-1-i] = fmt.Sprintf("/dev/vd%c", 'a'+i)
+		layerDevs[nLayers-1-i] = firecracker.DevPath(i)
 	}
-	cowDev := fmt.Sprintf("/dev/vd%c", 'a'+nLayers)
+	cowDev := firecracker.DevPath(nLayers)
 
 	cmdline := fmt.Sprintf(
 		"console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
@@ -142,11 +134,10 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		len(configs), cowPath)
 	fmt.Println()
 
-	balloonMiB := memMiB / hypervisor.DefaultBalloonDiv
-	if vmCfg.Memory >= hypervisor.MinBalloonMemory {
+	if size, ok := hypervisor.BalloonSize(vmCfg.Memory, vmCfg.Windows); ok {
 		fmt.Printf("# 4. Balloon\n")
 		fmt.Printf("curl --unix-socket %s -X PUT http://localhost/balloon \\\n", sock)
-		fmt.Printf("  -d '{\"amount_mib\": %d, \"deflate_on_oom\": true, \"free_page_reporting\": true}'\n", balloonMiB)
+		fmt.Printf("  -d '{\"amount_mib\": %d, \"deflate_on_oom\": true, \"free_page_reporting\": true}'\n", size>>20) //nolint:mnd
 		fmt.Println()
 	}
 
@@ -155,32 +146,62 @@ func printFCDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 	fmt.Printf("  -d '{\"action_type\": \"InstanceStart\"}'\n")
 }
 
-func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg *types.VMConfig, cowPath, chBin string, maxCPU, memory, balloon, cowSize int, directBoot bool) {
-	cpu := vmCfg.CPU
-	diskQueueSize := vmCfg.DiskQueueSize
-	noDirectIO := vmCfg.NoDirectIO
+func buildCHDebugSpec(cmd *cobra.Command, storageConfigs []*types.StorageConfig, boot *types.BootConfig, vmCfg *types.VMConfig) chDebugSpec {
+	maxCPU, _ := cmd.Flags().GetInt("max-cpu")
+	balloon, _ := cmd.Flags().GetInt("balloon")
+	cowPath, _ := cmd.Flags().GetString("cow")
+	chBin, _ := cmd.Flags().GetString("ch")
+	memoryMB := int(vmCfg.Memory >> 20)   //nolint:mnd
+	cowSizeGB := int(vmCfg.Storage >> 30) //nolint:mnd
+	// Mirror runtime gating: Windows / sub-MinBalloon VMs never get balloon,
+	// even if the user passed --balloon, so debug output stays truthful.
+	size, ok := hypervisor.BalloonSize(vmCfg.Memory, vmCfg.Windows)
+	switch {
+	case !ok:
+		balloon = 0
+	case balloon == 0:
+		balloon = int(size >> 20) //nolint:mnd
+	}
+	return chDebugSpec{
+		Configs:    storageConfigs,
+		Boot:       boot,
+		VMCfg:      vmCfg,
+		CowPath:    cowPath,
+		CHBin:      chBin,
+		MaxCPU:     maxCPU,
+		Memory:     memoryMB,
+		Balloon:    balloon,
+		CowSize:    cowSizeGB,
+		DirectBoot: boot.KernelPath != "",
+	}
+}
 
-	if directBoot {
-		if cowPath == "" {
-			cowPath = fmt.Sprintf("cow-%s.raw", vmCfg.Name)
+func printCHDebug(s chDebugSpec) {
+	cpu := s.VMCfg.CPU
+	diskQueueSize := s.VMCfg.DiskQueueSize
+	noDirectIO := s.VMCfg.NoDirectIO
+
+	if s.DirectBoot {
+		if s.CowPath == "" {
+			s.CowPath = fmt.Sprintf("cow-%s.raw", s.VMCfg.Name)
 		}
-		debugConfigs := slices.Concat(configs, []*types.StorageConfig{
-			{Path: cowPath, RO: false, Serial: hypervisor.CowSerial},
+		debugConfigs := slices.Concat(s.Configs, []*types.StorageConfig{
+			{Path: s.CowPath, RO: false, Serial: hypervisor.CowSerial},
 		})
 		diskArgs := cloudhypervisor.DebugDiskCLIArgs(debugConfigs, cpu, diskQueueSize, noDirectIO)
-		cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(configs), ",")
+		cocoonLayers := strings.Join(cloudhypervisor.ReverseLayerSerials(s.Configs), ",")
 		cmdline := fmt.Sprintf(
 			"console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 			cocoonLayers, hypervisor.CowSerial)
 
 		fmt.Println("# Prepare COW disk")
-		fmt.Printf("truncate -s %dG %s\n", cowSize, cowPath)
-		fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", cowPath)
+		fmt.Printf("truncate -s %dG %s\n", s.CowSize, s.CowPath)
+		fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", s.CowPath)
 		fmt.Println()
-		fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", vmCfg.Name, vmCfg.Image)
-		fmt.Printf("%s \\\n", chBin)
-		fmt.Printf("  --kernel %s \\\n", boot.KernelPath)
-		fmt.Printf("  --initramfs %s \\\n", boot.InitrdPath)
+		fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", s.VMCfg.Name, s.VMCfg.Image)
+		fmt.Printf("%s \\\n", s.CHBin)
+		fmt.Printf("  --kernel %s \\\n", s.Boot.KernelPath)
+		fmt.Printf("  --initramfs %s \\\n", s.Boot.InitrdPath)
 		fmt.Printf("  --disk")
 		for _, d := range diskArgs {
 			fmt.Printf(" \\\n    \"%s\"", d)
@@ -188,46 +209,41 @@ func printCHDebug(configs []*types.StorageConfig, boot *types.BootConfig, vmCfg 
 		fmt.Printf(" \\\n")
 		fmt.Printf("  --cmdline \"%s\" \\\n", cmdline)
 	} else {
-		if cowPath == "" {
-			cowPath = fmt.Sprintf("cow-%s.qcow2", vmCfg.Name)
+		if s.CowPath == "" {
+			s.CowPath = fmt.Sprintf("cow-%s.qcow2", s.VMCfg.Name)
 		}
-		basePath := configs[0].Path
+		basePath := s.Configs[0].Path
 		fmt.Println("# Prepare COW overlay")
-		fmt.Printf("qemu-img create -f qcow2 -F qcow2 -b %s %s\n", basePath, cowPath)
-		if cowSize > 0 {
-			fmt.Printf("qemu-img resize %s %dG\n", cowPath, cowSize)
+		fmt.Printf("qemu-img create -f qcow2 -F qcow2 -b %s %s\n", basePath, s.CowPath)
+		if s.CowSize > 0 {
+			fmt.Printf("qemu-img resize %s %dG\n", s.CowPath, s.CowSize)
 		}
 		fmt.Println()
-		fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", vmCfg.Name, vmCfg.Image)
-		fmt.Printf("%s \\\n", chBin)
-		fmt.Printf("  --firmware %s \\\n", boot.FirmwarePath)
+		fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", s.VMCfg.Name, s.VMCfg.Image)
+		fmt.Printf("%s \\\n", s.CHBin)
+		fmt.Printf("  --firmware %s \\\n", s.Boot.FirmwarePath)
 		fmt.Printf("  --disk \\\n")
-		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: cowPath, RO: false}}, cpu, diskQueueSize, noDirectIO)
+		diskArgs := cloudhypervisor.DebugDiskCLIArgs([]*types.StorageConfig{{Path: s.CowPath, RO: false}}, cpu, diskQueueSize, noDirectIO)
 		fmt.Printf("    \"%s\" \\\n", diskArgs[0])
 	}
-	printCommonCHArgs(chDebugArgs{
-		CPU:          cpu,
-		MaxCPU:       maxCPU,
-		MemoryMB:     memory,
-		BalloonMB:    balloon,
-		Windows:      vmCfg.Windows,
-		SharedMemory: vmCfg.SharedMemory,
-	})
+	printCommonCHArgs(s)
 }
 
-func printCommonCHArgs(a chDebugArgs) {
+func printCommonCHArgs(s chDebugSpec) {
 	cpuExtra := ""
-	if a.Windows {
+	if s.VMCfg.Windows {
 		cpuExtra = ",kvm_hyperv=on"
 	}
 	memExtra := ""
-	if a.SharedMemory {
+	if s.VMCfg.SharedMemory {
 		memExtra = ",shared=on"
 	}
-	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", a.CPU, a.MaxCPU, cpuExtra)
-	fmt.Printf("  --memory size=%dM%s \\\n", a.MemoryMB, memExtra)
+	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", s.VMCfg.CPU, s.MaxCPU, cpuExtra)
+	fmt.Printf("  --memory size=%dM%s \\\n", s.Memory, memExtra)
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
-	fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", a.BalloonMB)
+	if s.Balloon > 0 {
+		fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", s.Balloon)
+	}
 	fmt.Printf("  --watchdog \\\n")
 	fmt.Printf("  --serial tty --console off\n")
 }

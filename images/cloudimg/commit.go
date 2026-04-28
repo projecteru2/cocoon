@@ -92,7 +92,7 @@ func prepareTmpBlob(
 	sourcePath string,
 	digestHex string,
 ) (string, error) {
-	logger := log.WithFunc("cloudimg.commit")
+	logger := log.WithFunc("cloudimg.prepareTmpBlob")
 
 	info, err := inspectImage(ctx, sourcePath)
 	if err != nil {

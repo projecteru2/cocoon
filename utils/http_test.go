@@ -15,16 +15,12 @@ import (
 	"time"
 )
 
-// --- APIError ---
-
 func TestAPIError_Error(t *testing.T) {
 	ae := &APIError{Code: 500, Message: "internal"}
 	if ae.Error() != "internal" {
 		t.Errorf("expected %q, got %q", "internal", ae.Error())
 	}
 }
-
-// --- NewSocketHTTPClient ---
 
 func TestNewSocketHTTPClient_DialsSocket(t *testing.T) {
 	// Use /tmp directly — t.TempDir() path may exceed Unix socket limit (104 chars).
@@ -71,8 +67,6 @@ func TestNewSocketHTTPClient_BadSocket(t *testing.T) {
 		t.Fatal("expected error for nonexistent socket")
 	}
 }
-
-// --- DoAPI ---
 
 func TestDoAPI_Success_GET(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -206,8 +200,6 @@ func TestDoAPI_ContextCanceled(t *testing.T) {
 	}
 }
 
-// --- CheckSocket ---
-
 func TestCheckSocket_Success(t *testing.T) {
 	sockPath := filepath.Join("/tmp", fmt.Sprintf("cocoon-check-%d.sock", os.Getpid()))
 	t.Cleanup(func() { os.Remove(sockPath) })
@@ -240,8 +232,6 @@ func TestCheckSocket_NotSocket(t *testing.T) {
 		t.Fatal("expected error for non-socket file")
 	}
 }
-
-// --- DoWithRetry ---
 
 func TestDoWithRetry_SuccessOnFirstAttempt(t *testing.T) {
 	calls := 0
@@ -363,8 +353,6 @@ func TestDoWithRetry_ContextCanceled_DuringBackoff(t *testing.T) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
-
-// --- IsRetryable ---
 
 func TestIsRetryable_APIError_4xx_NotRetryable(t *testing.T) {
 	cases := []int{400, 401, 403, 404, 409, 422}

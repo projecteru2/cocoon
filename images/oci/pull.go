@@ -73,7 +73,11 @@ func processLayers(ctx context.Context, conf *Config, layers []v1.Layer, workDir
 	totalLayers := len(layers)
 	results, waitErr := utils.Map(ctx, layers, func(ctx context.Context, i int, layer v1.Layer) (pullLayerResult, error) {
 		var r pullLayerResult
-		err := processLayer(ctx, conf, i, totalLayers, layer, workDir, knownBootHexes, tracker, &r)
+		err := processLayer(ctx, layerJob{
+			conf: conf, idx: i, total: totalLayers, layer: layer,
+			workDir: workDir, knownBootHexes: knownBootHexes,
+			tracker: tracker, result: &r,
+		})
 		return r, err
 	}, conf.Root.EffectivePoolSize())
 	if waitErr != nil {

@@ -57,7 +57,7 @@ write_files:
     permissions: '0644'
     content: |
       [Match]
-      MACAddress={{$n.Mac}}
+      MACAddress={{$n.MAC}}
 
       [Network]
 {{- if $n.IP}}
@@ -91,7 +91,7 @@ ethernets:
 {{- range $i, $n := .Networks}}
   id{{$i}}:
     match:
-      macaddress: "{{$n.Mac}}"
+      macaddress: "{{$n.MAC}}"
 {{- if $n.IP}}
     addresses:
       - {{$n.IP}}/{{$n.Prefix}}
@@ -130,7 +130,7 @@ type NetworkInfo struct {
 	IP      string // e.g. "10.0.0.2"
 	Prefix  int    // CIDR prefix length, e.g. 24
 	Gateway string // e.g. "10.0.0.1"
-	Mac     string // MAC address for match:macaddress in network-config
+	MAC     string // MAC address for match:macaddress in network-config
 }
 
 // MountSpec is one cloud-init `mounts:` row. Options defaults to

@@ -7,6 +7,7 @@
 package fs
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -81,12 +82,8 @@ func (s *Spec) Normalize() error {
 	if s.QueueSize < 0 {
 		return fmt.Errorf("queue-size must be non-negative, got %d", s.QueueSize)
 	}
-	if s.NumQueues == 0 {
-		s.NumQueues = DefaultNumQueues
-	}
-	if s.QueueSize == 0 {
-		s.QueueSize = DefaultQueueSize
-	}
+	s.NumQueues = cmp.Or(s.NumQueues, DefaultNumQueues)
+	s.QueueSize = cmp.Or(s.QueueSize, DefaultQueueSize)
 	return nil
 }
 

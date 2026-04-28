@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// --- EnsureDirs ---
-
 func TestEnsureDirs_CreateNew(t *testing.T) {
 	base := t.TempDir()
 	dirs := []string{
@@ -58,8 +56,6 @@ func TestEnsureDirs_FailsUnderFile(t *testing.T) {
 	}
 }
 
-// --- ValidFile ---
-
 func TestValidFile_RegularFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file.txt")
@@ -93,8 +89,6 @@ func TestValidFile_Nonexistent(t *testing.T) {
 		t.Error("expected ValidFile=false for nonexistent file")
 	}
 }
-
-// --- ScanFileStems ---
 
 func TestScanFileStems_Basic(t *testing.T) {
 	dir := t.TempDir()
@@ -150,8 +144,6 @@ func TestScanFileStems_NonexistentDir(t *testing.T) {
 	}
 }
 
-// --- ScanSubdirs ---
-
 func TestScanSubdirs_Basic(t *testing.T) {
 	dir := t.TempDir()
 	os.Mkdir(filepath.Join(dir, "sub1"), 0o755)                      //nolint:errcheck
@@ -200,8 +192,6 @@ func TestScanSubdirs_NonexistentDir(t *testing.T) {
 		t.Errorf("expected nil, got %v", subs)
 	}
 }
-
-// --- FilterUnreferenced ---
 
 func TestFilterUnreferenced_Basic(t *testing.T) {
 	candidates := []string{"a", "b", "c", "d"}
@@ -265,8 +255,6 @@ func TestFilterUnreferenced_MultipleExcludeSets(t *testing.T) {
 		t.Errorf("got %v, want [d e]", got)
 	}
 }
-
-// --- RemoveMatching ---
 
 func TestRemoveMatching_Basic(t *testing.T) {
 	dir := t.TempDir()

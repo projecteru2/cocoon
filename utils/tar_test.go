@@ -12,10 +12,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// tarFileFrom
-// ---------------------------------------------------------------------------
-
 // openAndTarFile is a test helper that opens a file and writes it via tarFileFrom.
 func openAndTarFile(tw *tar.Writer, path, nameInTar string) error {
 	f, err := os.Open(path) //nolint:gosec
@@ -106,10 +102,6 @@ func TestTarFile_NotExist(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TarDir
-// ---------------------------------------------------------------------------
-
 func TestTarDir(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string][]byte{
@@ -188,10 +180,6 @@ func TestTarDir_NotExist(t *testing.T) {
 		t.Fatal("expected error for nonexistent dir")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ExtractTar — basic
-// ---------------------------------------------------------------------------
 
 // makeTar builds a plain tar archive in memory from name→content pairs.
 func makeTar(t *testing.T, files map[string][]byte) *bytes.Buffer {
@@ -362,10 +350,6 @@ func TestExtractTar_RoundTrip(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ExtractTar — sparse PAX path (extractFileSparse)
-// ---------------------------------------------------------------------------
 
 // makeTarSparse builds a tar archive containing one file stored in our custom
 // COCOON.sparse PAX format. Only the bytes described by segments are stored;
@@ -609,10 +593,6 @@ func TestExtractTar_Sparse_MixedWithRegularEntries(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// extractFile — zero-block detection (writeBlockSparse path)
-// ---------------------------------------------------------------------------
-
 func TestExtractFile_AllZeroBlocks(t *testing.T) {
 	// 12KB of zeros — extractFile should create holes via seek.
 	data := make([]byte, 12*1024)
@@ -791,10 +771,6 @@ func TestExtractFile_SingleZeroByte(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// isAllZero
-// ---------------------------------------------------------------------------
-
 func TestIsAllZero(t *testing.T) {
 	tests := []struct {
 		name string
@@ -822,10 +798,6 @@ func TestIsAllZero(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// writeBlockSparse
-// ---------------------------------------------------------------------------
 
 func TestWriteBlockSparse_DataBlock(t *testing.T) {
 	dir := t.TempDir()
@@ -875,10 +847,6 @@ func TestWriteBlockSparse_ZeroBlock(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Full round-trip: TarDir → ExtractTar with large dense file
-// ---------------------------------------------------------------------------
-
 func TestExtractTar_RoundTrip_LargeFile(t *testing.T) {
 	srcDir := t.TempDir()
 
@@ -920,10 +888,6 @@ func TestExtractTar_RoundTrip_LargeFile(t *testing.T) {
 		t.Error("small.txt mismatch")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 func concat(slices ...[]byte) []byte {
 	var out []byte

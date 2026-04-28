@@ -12,12 +12,6 @@ import (
 	"os/exec"
 )
 
-type sourceImageInfo struct {
-	Format         string // "qcow2" or "raw"
-	Compat         string // qcow2 compat level (e.g. "0.10", "1.1"); empty for non-qcow2
-	HasBackingFile bool
-}
-
 var (
 	// qcow2Magic is the qcow2 file signature.
 	qcow2Magic = []byte{'Q', 'F', 'I', 0xfb}
@@ -33,6 +27,7 @@ var (
 		{[]byte("<H"), "content looks like HTML, not a disk image"},
 		{[]byte{0x1f, 0x8b}, "content is gzip-compressed (cloudimg does not auto-decompress)"},
 		{[]byte("\xfd7zXZ\x00"), "content is xz-compressed (cloudimg does not auto-decompress)"},
+
 		{[]byte("BZh"), "content is bzip2-compressed (cloudimg does not auto-decompress)"},
 		{[]byte{0x28, 0xb5, 0x2f, 0xfd}, "content is zstd-compressed (cloudimg does not auto-decompress)"},
 		{[]byte("PK"), "content is a zip archive, not a disk image"},
@@ -40,19 +35,10 @@ var (
 	}
 )
 
-// IsQcow2File checks whether path starts with qcow2 magic bytes.
-func IsQcow2File(path string) bool {
-	f, err := os.Open(path) //nolint:gosec // path is caller-controlled
-	if err != nil {
-		return false
-	}
-	defer f.Close() //nolint:errcheck
-
-	head, err := peekHead(f, len(qcow2Magic))
-	if err != nil {
-		return false
-	}
-	return bytes.HasPrefix(head, qcow2Magic)
+type sourceImageInfo struct {
+	Format         string // "qcow2" or "raw"
+	Compat         string // qcow2 compat level (e.g. "0.10", "1.1"); empty for non-qcow2
+	HasBackingFile bool
 }
 
 func sniffImageSource(f *os.File) error {

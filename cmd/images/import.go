@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,7 +27,7 @@ func (h Handler) Import(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	logger := log.WithFunc("cmd.image.import")
+	logger := log.WithFunc("cmd.images.Import")
 
 	name := args[0]
 	files := args[1:]
@@ -40,7 +41,7 @@ func (h Handler) Import(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) importLocalFiles(ctx context.Context, conf *config.Config, name string, files ...string) error {
-	logger := log.WithFunc("cmd.image.import")
+	logger := log.WithFunc("cmd.images.importLocalFiles")
 
 	plan, err := planLocalImport(files)
 	if err != nil {
@@ -76,9 +77,6 @@ func (h Handler) importLocalStream(ctx context.Context, conf *config.Config, nam
 	}
 	defer f.Close() //nolint:errcheck
 
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("seek %s: %w", filePath, err)
-	}
 	logger := log.WithFunc("cmd.images.importLocalStream")
 	logger.Infof(ctx, "importing from %s ...", filePath)
 	return h.importFromReader(ctx, conf, name, f)
@@ -224,7 +222,7 @@ func detectLocalImportSource(filePath string) (importSourceKind, error) {
 
 	var magic [4]byte
 	n, readErr := io.ReadFull(f, magic[:])
-	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
 		return 0, fmt.Errorf("peek %s: %w", filePath, readErr)
 	}
 

@@ -238,9 +238,21 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 	// Cache bridge providers by device name to avoid redundant netlink lookups.
 	bridgeProviders := map[string]network.Network{}
 
+	// Single List → byID map avoids one Inspect-per-ref under DB lock.
+	// Refs are pre-resolved full IDs (RouteRefs returns vm.ID), so byID is sufficient.
+	all, err := hyper.List(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "list VMs for recovery: %v", err)
+		return
+	}
+	byID := make(map[string]*types.VM, len(all))
+	for _, vm := range all {
+		byID[vm.ID] = vm
+	}
+
 	for _, ref := range refs {
-		vm, err := hyper.Inspect(ctx, ref)
-		if err != nil || vm == nil || len(vm.NetworkConfigs) == 0 {
+		vm := byID[ref]
+		if vm == nil || len(vm.NetworkConfigs) == 0 {
 			continue
 		}
 

@@ -18,7 +18,7 @@ import (
 )
 
 func importQcow2File(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, filePath string) error {
-	logger := log.WithFunc("cloudimg.import")
+	logger := log.WithFunc("cloudimg.importQcow2File")
 
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDownload})
 
@@ -81,7 +81,7 @@ func importQcow2File(ctx context.Context, conf *Config, store storage.Store[imag
 }
 
 func importQcow2Reader(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, r io.Reader) error {
-	logger := log.WithFunc("cloudimg.import")
+	logger := log.WithFunc("cloudimg.importQcow2Reader")
 
 	tracker.OnEvent(cloudimgProgress.Event{Phase: cloudimgProgress.PhaseDownload})
 
@@ -117,7 +117,7 @@ func importQcow2Reader(ctx context.Context, conf *Config, store storage.Store[im
 }
 
 func importQcow2Concat(ctx context.Context, conf *Config, store storage.Store[imageIndex], name string, tracker progress.Tracker, file ...string) error {
-	logger := log.WithFunc("cloudimg.import")
+	logger := log.WithFunc("cloudimg.importQcow2Concat")
 
 	if len(file) == 0 {
 		return errors.New("no qcow2 files provided")

@@ -56,7 +56,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	logger := log.WithFunc("cmd.image.rm")
+	logger := log.WithFunc("cmd.images.RM")
 	backends, err := cmdcore.InitImageBackends(ctx, conf)
 	if err != nil {
 		return err

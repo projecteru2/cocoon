@@ -75,7 +75,6 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 		return hyperErr
 	}
 
-	// Set up file watchers for all backends that support it.
 	watchCh := mergeWatchChannels(ctx, hypers)
 
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)

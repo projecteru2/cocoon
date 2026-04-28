@@ -1,6 +1,7 @@
 package localfile
 
 import (
+	"cmp"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -55,12 +56,8 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 	}
 
 	cfg.ID = id
-	if name != "" {
-		cfg.Name = name
-	}
-	if description != "" {
-		cfg.Description = description
-	}
+	cfg.Name = cmp.Or(name, cfg.Name)
+	cfg.Description = cmp.Or(description, cfg.Description)
 
 	if err = lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
 		if cfg.Name != "" {

@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// --- AtomicWriteFile ---
-
 func TestAtomicWriteFile_Basic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.dat")
@@ -98,8 +96,6 @@ func TestAtomicWriteFile_NoTempLeftBehind(t *testing.T) {
 	}
 }
 
-// --- AtomicWriteJSON ---
-
 func TestAtomicWriteJSON_Basic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "data.json")
@@ -178,8 +174,6 @@ func TestAtomicWriteJSON_Permissions(t *testing.T) {
 		t.Errorf("permissions: got %o, want 0644", fi.Mode().Perm())
 	}
 }
-
-// --- SyncParentDir ---
 
 func TestSyncParentDir_ValidDir(t *testing.T) {
 	dir := t.TempDir()

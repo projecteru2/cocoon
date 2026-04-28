@@ -8,8 +8,6 @@ import (
 
 var errNotFound = errors.New("not found")
 
-// --- ResolveRef ---
-
 func TestResolveRef_ExactID(t *testing.T) {
 	items := map[string]*int{"abc123": ptr(1), "def456": ptr(2)}
 	names := map[string]string{}
@@ -93,8 +91,6 @@ func TestResolveRef_NamePointsToNil(t *testing.T) {
 	}
 }
 
-// --- ResolveRefs ---
-
 func TestResolveRefs_Basic(t *testing.T) {
 	items := map[string]*int{"aaa": ptr(1), "bbb": ptr(2)}
 	names := map[string]string{"vm1": "aaa", "vm2": "bbb"}
@@ -143,8 +139,6 @@ func TestResolveRefs_Empty(t *testing.T) {
 		t.Errorf("expected empty, got %v", ids)
 	}
 }
-
-// --- InitNamedIndex ---
 
 func TestInitNamedIndex_NilMaps(t *testing.T) {
 	var items map[string]*int

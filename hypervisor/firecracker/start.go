@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -18,8 +19,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Start launches the Firecracker process for each VM ref, configures it
-// via the REST API, and issues InstanceStart.
+// Start launches FC, configures via REST, then InstanceStart.
 func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, error) {
 	return fc.StartAll(ctx, refs, fc.startOne)
 }
@@ -46,7 +46,6 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 		return fmt.Errorf("launch VM: %w", err)
 	}
 
-	// Configure VM via REST API and start the instance.
 	if err := fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), rec); err != nil {
 		fc.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
 		fc.MarkError(ctx, id)
@@ -55,8 +54,7 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 	return nil
 }
 
-// configureVM sends the pre-boot configuration to FC via REST API,
-// then issues InstanceStart to boot the guest.
+// configureVM sends pre-boot config via REST then InstanceStart.
 func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hypervisor.VMRecord) error {
 	memMiB := int(rec.Config.Memory >> 20) //nolint:mnd
 	hugePages := hugePagesNone
@@ -106,19 +104,16 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 		ifaceID := fmt.Sprintf(ifaceIDFmt, i)
 		if err := putNetworkInterface(ctx, hc, fcNetworkInterface{
 			IfaceID:     ifaceID,
-			HostDevName: nc.Tap,
-			GuestMAC:    nc.Mac,
+			HostDevName: nc.TAP,
+			GuestMAC:    nc.MAC,
 		}); err != nil {
 			return fmt.Errorf("network-interface %s: %w", ifaceID, err)
 		}
 	}
 
-	// Balloon: 25% of memory returned, only when memory >= MinBalloonMemory.
-	// Matches Cloud Hypervisor's balloon behavior.
-	if rec.Config.Memory >= hypervisor.MinBalloonMemory {
-		balloonMiB := memMiB / hypervisor.DefaultBalloonDiv
+	if size, ok := hypervisor.BalloonSize(rec.Config.Memory, rec.Config.Windows); ok {
 		if err := putBalloon(ctx, hc, fcBalloon{
-			AmountMiB:         balloonMiB,
+			AmountMiB:         int(size >> 20), //nolint:mnd
 			DeflateOnOOM:      true,
 			FreePageReporting: true,
 		}); err != nil {
@@ -136,13 +131,10 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 	return nil
 }
 
-// launchProcess starts the firecracker binary with --api-sock,
-// creates a PTY pair for the serial console, starts a background
-// relay process for console.sock, writes the PID file, and waits
-// for the API socket.
+// launchProcess starts firecracker, sets up PTY+console relay, waits for socket.
 func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, sockPath string, withNetwork bool) (int, error) {
 	fcLog := filepath.Join(rec.LogDir, "firecracker.log")
-	// FC requires the log file to exist before startup (opens O_WRONLY|O_APPEND, no O_CREATE).
+	// FC opens log O_WRONLY|O_APPEND without O_CREATE — touch first.
 	if f, createErr := os.Create(fcLog); createErr == nil { //nolint:gosec
 		_ = f.Close()
 	}
@@ -154,7 +146,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 	}
 	defer slave.Close() //nolint:errcheck
 
-	// shell out because launching the Firecracker hypervisor process (external binary is the authoritative implementation).
+	// shell out: the firecracker binary is the authoritative VMM.
 	fcCmd := exec.Command(fc.conf.FCBinary, //nolint:gosec
 		"--api-sock", sockPath,
 		"--log-path", fcLog,
@@ -208,7 +200,6 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 func (fc *Firecracker) startConsoleRelay(_ context.Context, runDir string, master *os.File, fcPID int) error {
 	consoleSock := hypervisor.ConsoleSockPath(runDir)
 
-	// Create Unix listener for console.sock.
 	listener, err := net.Listen("unix", consoleSock)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", consoleSock, err)
@@ -231,7 +222,7 @@ func (fc *Firecracker) startConsoleRelay(_ context.Context, runDir string, maste
 	relayCmd := exec.Command(self) //nolint:gosec
 	relayCmd.Env = []string{
 		relayEnvKey + "=1",
-		relayPIDEnvKey + "=" + fmt.Sprintf("%d", fcPID),
+		relayPIDEnvKey + "=" + strconv.Itoa(fcPID),
 	}
 	relayCmd.ExtraFiles = []*os.File{master, listenerFile}
 	relayCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

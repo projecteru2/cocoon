@@ -62,10 +62,9 @@ func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath 
 		cfg.Console = &chRuntimeFile{Mode: "Off"}
 	}
 
-	// Disable balloon on Windows; the driver can spin during shutdown.
-	if mem >= hypervisor.MinBalloonMemory && !rec.Config.Windows {
+	if size, ok := hypervisor.BalloonSize(mem, rec.Config.Windows); ok {
 		cfg.Balloon = &chBalloon{
-			Size:              mem / hypervisor.DefaultBalloonDiv, //nolint:mnd
+			Size:              size,
 			DeflateOnOOM:      true,
 			FreePageReporting: true,
 		}
@@ -165,8 +164,8 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 
 func networkConfigToNet(nc *types.NetworkConfig) chNet {
 	return chNet{
-		Tap:         nc.Tap,
-		Mac:         nc.Mac,
+		TAP:         nc.TAP,
+		MAC:         nc.MAC,
 		NumQueues:   nc.NumQueues,
 		QueueSize:   nc.QueueSize,
 		OffloadTSO:  true,
@@ -233,8 +232,8 @@ func diskToCLIArg(d chDisk) string {
 
 func netToCLIArg(n chNet) string {
 	var b kvBuilder
-	b.add("tap=" + n.Tap)
-	b.addIf(n.Mac != "", "mac="+n.Mac)
+	b.add("tap=" + n.TAP)
+	b.addIf(n.MAC != "", "mac="+n.MAC)
 	b.addIf(n.NumQueues > 0, fmt.Sprintf("num_queues=%d", n.NumQueues))
 	b.addIf(n.QueueSize > 0, fmt.Sprintf("queue_size=%d", n.QueueSize))
 	b.addIf(n.OffloadTSO, "offload_tso=on")

@@ -16,31 +16,42 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-func processLayer(ctx context.Context, conf *Config, idx, total int, layer v1.Layer, workDir string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) error {
+// layerJob carries the per-layer processing context (one struct per worker).
+type layerJob struct {
+	conf           *Config
+	idx, total     int
+	layer          v1.Layer
+	workDir        string
+	knownBootHexes map[string]struct{}
+	tracker        progress.Tracker
+	result         *pullLayerResult
+}
+
+func processLayer(ctx context.Context, j layerJob) error {
 	logger := log.WithFunc("oci.processLayer")
 
-	layerDigest, err := layer.Digest()
+	layerDigest, err := j.layer.Digest()
 	if err != nil {
 		return fmt.Errorf("get digest: %w", err)
 	}
 	digestHex := layerDigest.Hex
 
-	result.index = idx
-	result.digest = images.NewDigest(digestHex)
+	j.result.index = j.idx
+	j.result.digest = images.NewDigest(digestHex)
 
-	if utils.ValidFile(conf.BlobPath(digestHex)) {
-		handleCachedLayer(ctx, conf, layer, workDir, idx, total, digestHex, knownBootHexes, tracker, result)
+	if utils.ValidFile(j.conf.BlobPath(digestHex)) {
+		handleCachedLayer(ctx, j, digestHex)
 		return nil
 	}
 
-	logger.Debugf(ctx, "Layer %d: sha256:%s -> erofs (single-pass)", idx, digestHex[:12])
+	logger.Debugf(ctx, "Layer %d: sha256:%s -> erofs (single-pass)", j.idx, digestHex[:12])
 
-	layerDir := filepath.Join(workDir, fmt.Sprintf("layer-%d", idx))
+	layerDir := filepath.Join(j.workDir, fmt.Sprintf("layer-%d", j.idx))
 	if err = os.MkdirAll(layerDir, 0o750); err != nil {
 		return fmt.Errorf("create layer work dir: %w", err)
 	}
 
-	rc, err := layer.Uncompressed()
+	rc, err := j.layer.Uncompressed()
 	if err != nil {
 		return fmt.Errorf("open uncompressed layer: %w", err)
 	}
@@ -71,26 +82,26 @@ func processLayer(ctx context.Context, conf *Config, idx, total int, layer v1.La
 		return fmt.Errorf("scan boot files: %w", scanErr)
 	}
 
-	result.kernelPath = kernelPath
-	result.initrdPath = initrdPath
-	result.erofsPath = erofsPath
-	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
+	j.result.kernelPath = kernelPath
+	j.result.initrdPath = initrdPath
+	j.result.erofsPath = erofsPath
+	j.tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: j.idx, Total: j.total, Digest: digestHex[:12]})
 	return nil
 }
 
-func handleCachedLayer(ctx context.Context, conf *Config, layer v1.Layer, workDir string, idx, total int, digestHex string, knownBootHexes map[string]struct{}, tracker progress.Tracker, result *pullLayerResult) {
-	logger := log.WithFunc("oci.processLayer")
-	logger.Debugf(ctx, "Layer %d: sha256:%s already cached", idx, digestHex[:12])
-	result.erofsPath = conf.BlobPath(digestHex)
+func handleCachedLayer(ctx context.Context, j layerJob, digestHex string) {
+	logger := log.WithFunc("oci.handleCachedLayer")
+	logger.Debugf(ctx, "Layer %d: sha256:%s already cached", j.idx, digestHex[:12])
+	j.result.erofsPath = j.conf.BlobPath(digestHex)
 
-	if utils.ValidFile(conf.KernelPath(digestHex)) {
-		result.kernelPath = conf.KernelPath(digestHex)
+	if utils.ValidFile(j.conf.KernelPath(digestHex)) {
+		j.result.kernelPath = j.conf.KernelPath(digestHex)
 	}
-	if utils.ValidFile(conf.InitrdPath(digestHex)) {
-		result.initrdPath = conf.InitrdPath(digestHex)
+	if utils.ValidFile(j.conf.InitrdPath(digestHex)) {
+		j.result.initrdPath = j.conf.InitrdPath(digestHex)
 	}
 
-	selfHealBootFiles(ctx, conf, layer, workDir, idx, digestHex, knownBootHexes, result)
+	selfHealBootFiles(ctx, j, digestHex)
 
-	tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: idx, Total: total, Digest: digestHex[:12]})
+	j.tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: j.idx, Total: j.total, Digest: digestHex[:12]})
 }

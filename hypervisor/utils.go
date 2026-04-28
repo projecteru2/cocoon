@@ -75,7 +75,8 @@ func ExtractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfi
 	return ids
 }
 
-// e.g., "/var/lib/cocoon/oci/blobs/abc123.erofs" → "abc123"
+// BlobHexFromPath strips the directory and extension from a blob path, e.g.
+// "/var/lib/cocoon/oci/blobs/abc123.erofs" → "abc123".
 func BlobHexFromPath(path string) string {
 	base := filepath.Base(path)
 	return strings.TrimSuffix(base, filepath.Ext(base))
@@ -180,8 +181,7 @@ func DataDiskBaseName(serial string) string {
 	return "data-" + serial + ".raw"
 }
 
-// IsDataDiskFile reports whether name matches the data disk file pattern
-// (the matcher used by cleanSnapshotFiles in both backends).
+// IsDataDiskFile reports whether name matches the data disk file pattern.
 func IsDataDiskFile(name string) bool {
 	return strings.HasPrefix(name, "data-") && strings.HasSuffix(name, ".raw")
 }

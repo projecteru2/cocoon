@@ -1,10 +1,7 @@
+// Cross-module GC protocols: each is an unexported interface paired with an
+// exported accessor. Snapshot types in other packages opt in by adding the
+// matching method, so this file imports nothing concrete.
 package gc
-
-// --- Cross-module protocols ---
-//
-// Each protocol is an unexported interface (implementation detail) paired
-// with an exported accessor function. Snapshot types in other packages
-// implement the interface by adding the matching method.
 
 // usedBlobIDs is implemented by snapshots that reference image blobs.
 type usedBlobIDs interface {

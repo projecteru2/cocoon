@@ -2,27 +2,22 @@ package types
 
 // NetworkConfig describes a single NIC attached to a VM.
 type NetworkConfig struct {
-	Tap       string `json:"tap"`
-	Mac       string `json:"mac"`
+	TAP       string `json:"tap"`
+	MAC       string `json:"mac"`
 	NumQueues int    `json:"num_queues"` // Virtio queue count (= CPU * 2 for multi-queue).
 	QueueSize int    `json:"queue_size"`
 
-	// Backend identifies the network provider that created this NIC ("cni" or "bridge").
-	// Used to select the correct provider during network recovery on VM start.
-	// Empty means "cni" for backward compatibility with existing VM records.
+	// Backend is the provider type ("cni" or "bridge"); empty means "cni" for
+	// backward compat with pre-bridge VM records.
 	Backend string `json:"backend,omitempty"`
 
-	// BridgeDev is the Linux bridge device name (e.g. "cni0", "br0").
-	// Set only when Backend is "bridge"; required for recovery and GC.
+	// BridgeDev is the Linux bridge device name; set only when Backend=="bridge".
 	BridgeDev string `json:"bridge_dev,omitempty"`
 
-	// NetnsPath is the network namespace path where the tap device lives.
-	// Set by the network plugin at Config time; read by the hypervisor at Start time.
-	// Empty when the network backend does not use network namespaces (e.g. macOS vmnet).
+	// NetnsPath is the netns where the TAP lives; empty for backends without netns (e.g. macOS vmnet).
 	NetnsPath string `json:"netns_path,omitempty"`
 
-	// Guest-side IP configuration returned by the network plugin.
-	// nil means DHCP / no static config.
+	// Network is the guest-visible IP config; nil means DHCP.
 	Network *Network `json:"network,omitempty"`
 }
 

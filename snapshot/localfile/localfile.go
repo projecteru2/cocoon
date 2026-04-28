@@ -51,33 +51,20 @@ func New(conf *config.Config) (*LocalFile, error) {
 	return &LocalFile{conf: cfg, store: store, locker: locker}, nil
 }
 
-// Type returns the snapshot backend identifier.
 func (lf *LocalFile) Type() string { return typ }
 
 // DataDir returns the local data directory and snapshot config for direct file access.
 func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, *types.SnapshotConfig, error) {
-	var (
-		cfg     *types.SnapshotConfig
-		dataDir string
-	)
-	return dataDir, cfg, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
-		id, err := idx.Resolve(ref)
-		if err != nil {
-			return err
-		}
-		rec := idx.Snapshots[id]
-		if rec == nil || rec.Pending {
-			return snapshot.ErrNotFound
-		}
-		cfg = snapshotRecordToConfig(rec)
-		dataDir = rec.DataDir
-		return nil
-	})
+	rec, err := lf.resolveRecord(ctx, ref)
+	if err != nil {
+		return "", nil, err
+	}
+	return rec.DataDir, snapshotRecordToConfig(&rec), nil
 }
 
-// Uses a two-phase pattern (placeholder → extract → finalize) so that
-// a crash between phases leaves a pending record that GC will clean up,
-// rather than an orphan data directory with no DB entry.
+// Create stores a snapshot from stream. Uses a two-phase pattern
+// (placeholder → extract → finalize) so a crash between phases leaves a
+// pending record GC reclaims, not an orphan data directory.
 func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (_ string, err error) {
 	id := cfg.ID
 	if id == "" {
@@ -152,27 +139,18 @@ func (lf *LocalFile) List(ctx context.Context) ([]*types.Snapshot, error) {
 	})
 }
 
-// Inspect returns a single snapshot by ref (ID, name, or ID prefix).
 func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, error) {
-	var result *types.Snapshot
-	return result, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
-		id, err := idx.Resolve(ref)
-		if err != nil {
-			return err
-		}
-		rec := idx.Snapshots[id]
-		if rec == nil || rec.Pending {
-			return snapshot.ErrNotFound
-		}
-		s := rec.Snapshot // value copy
-		result = &s
-		return nil
-	})
+	rec, err := lf.resolveRecord(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	s := rec.Snapshot
+	return &s, nil
 }
 
-// Delete removes snapshots by ref. Returns the list of actually deleted IDs.
+// Delete processes each id atomically (rm dir → DB update). A mid-loop
+// failure leaves any rm-OK-then-DB-fail id as a stale DB record; GC reclaims it.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
-	// Resolve all refs under one lock.
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
 		var resolveErr error
@@ -182,14 +160,11 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 		return nil, err
 	}
 
-	// Delete data dirs and DB records.
 	var deleted []string
 	for _, id := range ids {
-		dataDir := lf.conf.SnapshotDataDir(id)
-		if err := os.RemoveAll(dataDir); err != nil {
+		if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
 			return deleted, fmt.Errorf("remove data dir %s: %w", id, err)
 		}
-
 		if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
 			rec := idx.Snapshots[id]
 			if rec == nil {
@@ -208,32 +183,14 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 	return deleted, nil
 }
 
-// Restore returns the snapshot config and a streaming tar reader of the snapshot data.
 func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
-	var (
-		cfg     *types.SnapshotConfig
-		dataDir string
-	)
-	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
-		id, err := idx.Resolve(ref)
-		if err != nil {
-			return err
-		}
-		rec := idx.Snapshots[id]
-		if rec == nil || rec.Pending {
-			return snapshot.ErrNotFound
-		}
-		cfg = snapshotRecordToConfig(rec)
-		dataDir = rec.DataDir
-		return nil
-	}); err != nil {
+	rec, err := lf.resolveRecord(ctx, ref)
+	if err != nil {
 		return nil, nil, err
 	}
-
-	return cfg, utils.TarDirStream(dataDir, nil), nil
+	return snapshotRecordToConfig(&rec), utils.TarDirStream(rec.DataDir, nil), nil
 }
 
-// RegisterGC registers the snapshot GC module with the orchestrator.
 func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker))
 }
@@ -249,6 +206,25 @@ func (lf *LocalFile) rollbackCreate(ctx context.Context, id, name string) {
 	}); err != nil {
 		log.WithFunc("localfile.rollbackCreate").Warnf(ctx, "rollback snapshot %s (name=%s): %v", id, name, err)
 	}
+}
+
+// resolveRecord locks the index once, resolves ref, and returns a value-copy
+// of the non-pending record. Used by DataDir / Inspect / Restore to avoid
+// repeating the resolve+pending-filter dance.
+func (lf *LocalFile) resolveRecord(ctx context.Context, ref string) (snapshot.SnapshotRecord, error) {
+	var rec snapshot.SnapshotRecord
+	return rec, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
+		id, err := idx.Resolve(ref)
+		if err != nil {
+			return err
+		}
+		r := idx.Snapshots[id]
+		if r == nil || r.Pending {
+			return snapshot.ErrNotFound
+		}
+		rec = *r
+		return nil
+	})
 }
 
 // snapshotRecordToConfig builds a detached SnapshotConfig from a record,

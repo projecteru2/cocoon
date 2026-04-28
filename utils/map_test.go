@@ -4,8 +4,6 @@ import (
 	"testing"
 )
 
-// --- LookupCopy ---
-
 func TestLookupCopy_Found(t *testing.T) {
 	type val struct {
 		Name string
@@ -44,8 +42,6 @@ func TestLookupCopy_NilValue(t *testing.T) {
 		t.Fatal("expected error for nil value")
 	}
 }
-
-// --- MergeSets ---
 
 func TestMergeSets_Basic(t *testing.T) {
 	s1 := map[string]struct{}{"a": {}, "b": {}}
@@ -98,8 +94,6 @@ func TestMergeSets_DoesNotModifyInput(t *testing.T) {
 		t.Error("s2 was modified")
 	}
 }
-
-// --- MapValues ---
 
 func TestMapValues_Basic(t *testing.T) {
 	type rec struct{ N int }

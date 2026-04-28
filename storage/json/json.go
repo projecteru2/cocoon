@@ -94,7 +94,7 @@ func (s *Store[T]) withLocked(ctx context.Context, fn func() error) error {
 	}
 	defer func() {
 		if err := s.locker.Unlock(ctx); err != nil {
-			log.WithFunc("storage.json").Warnf(ctx, "unlock %s: %v", s.filePath, err)
+			log.WithFunc("storage.json.withLocked").Warnf(ctx, "unlock %s: %v", s.filePath, err)
 		}
 	}()
 	return fn()
