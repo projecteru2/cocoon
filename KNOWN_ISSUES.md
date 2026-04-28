@@ -225,3 +225,7 @@ Cloud Hypervisor refuses to snapshot a VM that holds a vhost-user-fs share or a 
 ## Runtime attached devices do not survive VM stop / clone / restore
 
 Attaches via `cocoon vm fs attach` and `cocoon vm device attach` are runtime-only — they live in the CH process state and are never written into the VM record, sidecar, or snapshot. After `vm stop`, `vm clone`, or `vm restore`, the user must re-run the attach commands. `vm inspect` reflects the live CH `vm.info` for running VMs and omits `attached_devices` for stopped VMs. This is by design: cocoon does not own the backend (virtiofsd / vfio-pci binding) and cannot guarantee the resource still exists across host events.
+
+## virtiofsd is a single-shot daemon
+
+Upstream virtiofsd serves exactly one vhost-user client and exits when that client disconnects. Consequence: after `cocoon vm fs detach`, the daemon is gone — a follow-up `cocoon vm fs attach` against the same socket path will hang or time out until a fresh `virtiofsd` instance is launched. The same applies after `cocoon vm stop` (CH closes the socket on shutdown). Scripts that cycle attach/detach should respawn virtiofsd between calls. This is a virtiofsd behavior, not a cocoon limitation.

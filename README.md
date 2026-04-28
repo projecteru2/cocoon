@@ -428,7 +428,9 @@ Prerequisite: host has `intel_iommu=on` (or `amd_iommu=on`) on the kernel comman
 # Bind the device on the host (one-time per device).
 echo 0000:01:00.0 > /sys/bus/pci/drivers/vfio-pci/bind   # see https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF
 
-# Attach (BDF or full sysfs path both accepted).
+# --pci accepts: short BDF (01:00.0), full BDF (0000:01:00.0), or
+# sysfs path under /sys/bus/pci/devices/. Other absolute paths are
+# rejected so cocoon does not forward a non-PCI directory to CH.
 cocoon vm device attach my-vm --pci 01:00.0 --id mygpu
 
 # Detach.
