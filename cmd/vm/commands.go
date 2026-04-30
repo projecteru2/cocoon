@@ -52,9 +52,9 @@ func Command(h Actions) *cobra.Command {
 	cmdcore.AddOutputFlag(runCmd)
 
 	cloneCmd := &cobra.Command{
-		Use:   "clone [flags] SNAPSHOT",
-		Short: "Clone a new VM from a snapshot",
-		Args:  cobra.ExactArgs(1),
+		Use:   "clone [flags] [SNAPSHOT]",
+		Short: "Clone a new VM from a snapshot (or a directory via --from-dir)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  h.Clone,
 	}
 	addCloneFlags(cloneCmd)
@@ -259,4 +259,5 @@ func addCloneFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-direct-io", false, "disable O_DIRECT on writable disks (inherit from snapshot if not set)")
 	cmd.Flags().Bool("on-demand", false, "use UFFD on-demand memory loading for faster clone (CH only; snapshot file must remain on disk)")
 	cmd.Flags().Bool("pull", false, "auto-pull base image if not found locally (for cross-node clone)")
+	cmd.Flags().String("from-dir", "", "clone from a snapshot directory (must contain snapshot.json) instead of the local snapshot DB; mutually exclusive with positional SNAPSHOT")
 }

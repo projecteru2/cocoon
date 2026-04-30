@@ -79,6 +79,17 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	}
 	logger := log.WithFunc("cmd.vm.clone")
 
+	fromDir, _ := cmd.Flags().GetString("from-dir")
+	if fromDir != "" {
+		if len(args) > 0 {
+			return fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
+		}
+		return h.cloneFromDir(ctx, cmd, conf, fromDir, logger)
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
+	}
+
 	snapBackend, err := cmdcore.InitSnapshot(conf)
 	if err != nil {
 		return err
@@ -214,7 +225,35 @@ func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *conf
 	if err != nil {
 		return fmt.Errorf("open snapshot %s: %w", snapRef, err)
 	}
+	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, cfg, dataDir,
+		fmt.Sprintf("snapshot %s (direct)", snapRef), logger)
+}
 
+// cloneFromDir reads <dir>/snapshot.json, picks the matching backend based on
+// the envelope's Hypervisor field, and runs DirectClone over the dir. The dir
+// is treated as read-only — multiple clones of the same dir (golden image use
+// case) are safe.
+func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dir string, logger *log.Fields) error {
+	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
+	if err != nil {
+		return fmt.Errorf("load envelope: %w", err)
+	}
+	if cfg.Hypervisor != "" {
+		conf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
+	}
+	hyper, err := cmdcore.InitHypervisor(conf)
+	if err != nil {
+		return err
+	}
+	dcr, ok := hyper.(hypervisor.Direct)
+	if !ok {
+		return fmt.Errorf("backend %s does not support direct clone", hyper.Type())
+	}
+	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, cfg, dir,
+		fmt.Sprintf("dir %s", dir), logger)
+}
+
+func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, cfg *types.SnapshotConfig, srcDir, sourceLabel string, logger *log.Fields) error {
 	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
 		return err
@@ -222,10 +261,10 @@ func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *conf
 
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {
-		logger.Infof(ctx, "cloning VM from snapshot %s (direct) ...", snapRef)
+		logger.Infof(ctx, "cloning VM from %s ...", sourceLabel)
 	}
 
-	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, cfg, dataDir)
+	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, cfg, srcDir)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
