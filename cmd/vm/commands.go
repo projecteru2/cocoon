@@ -111,15 +111,17 @@ func Command(h Actions) *cobra.Command {
 	cmdcore.AddOutputFlag(rmCmd)
 
 	restoreCmd := &cobra.Command{
-		Use:   "restore [flags] VM SNAPSHOT",
-		Short: "Restore a running VM to a previous snapshot",
-		Args:  cobra.ExactArgs(2),
+		Use:   "restore [flags] VM [SNAPSHOT]",
+		Short: "Restore a running VM to a previous snapshot (or a directory via --from-dir)",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE:  h.Restore,
 	}
 	restoreCmd.Flags().Int("cpu", 0, "boot CPUs (0 = keep current)")
 	restoreCmd.Flags().String("memory", "", "memory size (empty = keep current)")
 	restoreCmd.Flags().String("storage", "", "COW disk size (empty = keep current)")
 	restoreCmd.Flags().Bool("on-demand", false, "use UFFD on-demand memory loading for faster restore (CH only; snapshot file must remain on disk)")
+	restoreCmd.Flags().String("from-dir", "", "restore from a snapshot directory (must contain snapshot.json) instead of the local snapshot DB; mutually exclusive with positional SNAPSHOT")
+	restoreCmd.Flags().Bool("force", false, "skip the snapshot-belongs-to-VM check (only meaningful with --from-dir; risk of restoring to an unrelated lineage)")
 	cmdcore.AddOutputFlag(restoreCmd)
 
 	debugCmd := &cobra.Command{

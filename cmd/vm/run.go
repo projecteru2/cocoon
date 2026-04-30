@@ -157,6 +157,16 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	logger := log.WithFunc("cmd.vm.restore")
 
 	vmRef := args[0]
+	fromDir, _ := cmd.Flags().GetString("from-dir")
+	if fromDir != "" {
+		if len(args) > 1 {
+			return fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
+		}
+		return h.restoreFromDir(ctx, cmd, conf, vmRef, fromDir, logger)
+	}
+	if len(args) < 2 {
+		return fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
+	}
 	snapRef := args[1]
 
 	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
@@ -215,6 +225,58 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 
 	if done, jsonErr := cmdcore.MaybeOutputJSON(cmd, result); done {
 		return jsonErr
+	}
+	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
+	return nil
+}
+
+// restoreFromDir restores a running VM from an arbitrary snapshot directory.
+// The envelope's snapshot ID is checked against vm.SnapshotIDs as a soft
+// gate: matching means it's almost certainly the VM's own backup synced
+// from another host (typical cross-host restore); mismatching requires
+// --force to acknowledge "use unrelated state to overwrite this VM".
+func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, vmRef, dir string, logger *log.Fields) error {
+	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
+	if err != nil {
+		return fmt.Errorf("load envelope: %w", err)
+	}
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
+	if err != nil {
+		return fmt.Errorf("find VM %s: %w", vmRef, err)
+	}
+	dcr, ok := hyper.(hypervisor.Direct)
+	if !ok {
+		return fmt.Errorf("backend %s does not support direct restore", hyper.Type())
+	}
+	vm, err := hyper.Inspect(ctx, vmRef)
+	if err != nil {
+		return fmt.Errorf("inspect VM: %w", err)
+	}
+	if _, owned := vm.SnapshotIDs[cfg.ID]; !owned {
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			return fmt.Errorf("snapshot envelope id %s does not belong to VM %s; pass --force to override", cfg.ID, vmRef)
+		}
+		logger.Warnf(ctx, "snapshot envelope id %s does not belong to VM %s; --force in effect", cfg.ID, vmRef)
+	}
+	if cfg.NICs != len(vm.NetworkConfigs) {
+		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
+			len(vm.NetworkConfigs), cfg.NICs)
+	}
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, cfg)
+	if err != nil {
+		return err
+	}
+	wantJSON := cmdcore.WantJSON(cmd)
+	if !wantJSON {
+		logger.Infof(ctx, "restoring VM %s from dir %s (direct) ...", vmRef, dir)
+	}
+	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, dir)
+	if err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+	if wantJSON {
+		return cmdcore.OutputJSON(result)
 	}
 	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
 	return nil
