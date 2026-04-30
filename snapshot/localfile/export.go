@@ -9,11 +9,10 @@ import (
 	"io"
 	"time"
 
+	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
-
-const snapshotJSONName = "snapshot.json"
 
 // Export streams the snapshot as a raw tar archive.
 // The first tar entry is snapshot.json containing the SnapshotConfig metadata;
@@ -67,7 +66,7 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 		tw := tar.NewWriter(w)
 
 		streamErr = tw.WriteHeader(&tar.Header{
-			Name:    snapshotJSONName,
+			Name:    snapshot.SnapshotJSONName,
 			Size:    int64(len(jsonData)),
 			Mode:    0o644,
 			ModTime: time.Now(),
