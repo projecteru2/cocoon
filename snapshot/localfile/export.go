@@ -32,7 +32,9 @@ func (lf *LocalFile) ExportCompressed(ctx context.Context, ref string) (io.ReadC
 
 // ExportToDir copies snapshot data into dir alongside a snapshot.json
 // envelope. ReflinkCopy keeps the result standalone (rsync-friendly), unlike
-// the hardlinks DirectClone uses internally for memory pages.
+// the hardlinks DirectClone uses internally for memory pages. The envelope
+// is written last so its presence is the all-data-ready marker that
+// `--from-dir` can rely on.
 func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 	dataDir, cfg, err := lf.DataDir(ctx, ref)
 	if err != nil {
@@ -40,9 +42,6 @@ func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 	}
 	if err = ensureEmptyDir(dir); err != nil {
 		return err
-	}
-	if err = snapshot.WriteSnapshotEnvelope(dir, cfg); err != nil {
-		return fmt.Errorf("write envelope: %w", err)
 	}
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -62,6 +61,9 @@ func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 		if err = utils.ReflinkCopy(dst, src); err != nil {
 			return fmt.Errorf("copy %s: %w", name, err)
 		}
+	}
+	if err = snapshot.WriteSnapshotEnvelope(dir, cfg); err != nil {
+		return fmt.Errorf("write envelope: %w", err)
 	}
 	return nil
 }
