@@ -101,9 +101,8 @@ func unwrapGzip(r io.Reader) (io.Reader, io.Closer, error) {
 	return full, nil, nil
 }
 
-// readAndRemoveSnapshotJSON reads the envelope from the data directory and
-// then removes the file so the registered snapshot dir doesn't carry the
-// import-only metadata (cocoon.json is the runtime sidecar).
+// readAndRemoveSnapshotJSON reads the envelope and deletes it; the registered
+// snapshot dir keeps only runtime sidecars (cocoon.json), not import metadata.
 func readAndRemoveSnapshotJSON(dataDir string) (*types.SnapshotConfig, error) {
 	cfg, err := snapshot.ReadSnapshotEnvelope(dataDir)
 	if err != nil {

@@ -30,13 +30,9 @@ func (lf *LocalFile) ExportCompressed(ctx context.Context, ref string) (io.ReadC
 	return lf.export(ctx, ref, true)
 }
 
-// ExportToDir copies the snapshot data into dir alongside a snapshot.json
-// envelope so the result is directly consumable by `vm clone --from-dir`.
-// dir must not exist or must be empty; this avoids silently merging into an
-// unrelated tree. Files use ReflinkCopy when supported (xfs/btrfs zero-copy)
-// and fall back to a plain read+write copy otherwise — the result is always
-// standalone (rsync-friendly), unlike the hardlinks DirectClone uses
-// internally for memory pages.
+// ExportToDir copies snapshot data into dir alongside a snapshot.json
+// envelope. ReflinkCopy keeps the result standalone (rsync-friendly), unlike
+// the hardlinks DirectClone uses internally for memory pages.
 func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 	dataDir, cfg, err := lf.DataDir(ctx, ref)
 	if err != nil {
@@ -58,7 +54,7 @@ func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 		}
 		name := entry.Name()
 		if name == snapshot.SnapshotJSONName {
-			// already-present envelope from a prior export; fresh envelope wins
+			// re-exporting a dir that already has an envelope: ours wins
 			continue
 		}
 		src := filepath.Join(dataDir, name)
@@ -137,8 +133,8 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 	return utils.NewPipeStreamReader(pr, done, nil), nil
 }
 
-// ensureEmptyDir mkdirs dir if absent and rejects non-empty directories so a
-// failed export can't silently land alongside arbitrary user files.
+// ensureEmptyDir rejects non-empty targets so an export can't silently merge
+// into an unrelated tree.
 func ensureEmptyDir(dir string) error {
 	entries, err := os.ReadDir(dir)
 	switch {

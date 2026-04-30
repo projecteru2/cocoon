@@ -1142,7 +1142,6 @@ func TestExportToDir_RoundTrip(t *testing.T) {
 		t.Fatalf("ExportToDir: %v", err)
 	}
 
-	// Envelope present and parseable.
 	cfg, err := snapshot.ReadSnapshotEnvelope(dst)
 	if err != nil {
 		t.Fatalf("ReadSnapshotEnvelope: %v", err)
@@ -1151,7 +1150,6 @@ func TestExportToDir_RoundTrip(t *testing.T) {
 		t.Errorf("envelope mismatch: %+v", cfg)
 	}
 
-	// Data files copied verbatim.
 	for name, want := range origFiles {
 		got, readErr := os.ReadFile(filepath.Join(dst, name))
 		if readErr != nil {

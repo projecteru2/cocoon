@@ -13,21 +13,15 @@ import (
 )
 
 const (
-	// SnapshotJSONName is the canonical envelope filename. Written as the
-	// first tar entry by Export and required at the root of any directory
-	// consumed by `vm clone --from-dir` or `vm restore --from-dir`.
 	SnapshotJSONName = "snapshot.json"
-
-	// envelopeVersion is the wire format version this build produces and accepts.
-	envelopeVersion = 1
+	envelopeVersion  = 1
 )
 
-// ErrEnvelopeMissing is returned when the directory has no snapshot.json.
+// ErrEnvelopeMissing wraps the not-found case so callers can render a
+// dir-specific error instead of a raw open failure.
 var ErrEnvelopeMissing = errors.New("snapshot envelope missing")
 
-// ReadSnapshotEnvelope reads <dir>/snapshot.json and returns the embedded
-// SnapshotConfig. Returns ErrEnvelopeMissing wrapped when the file is absent
-// so callers can surface a precise message instead of a generic open error.
+// ReadSnapshotEnvelope reads <dir>/snapshot.json into a SnapshotConfig.
 func ReadSnapshotEnvelope(dir string) (*types.SnapshotConfig, error) {
 	path := filepath.Join(dir, SnapshotJSONName)
 	data, err := os.ReadFile(path) //nolint:gosec
@@ -47,8 +41,8 @@ func ReadSnapshotEnvelope(dir string) (*types.SnapshotConfig, error) {
 	return &envelope.Config, nil
 }
 
-// WriteSnapshotEnvelope writes <dir>/snapshot.json atomically so a partial
-// write can't be consumed by a concurrent reader.
+// WriteSnapshotEnvelope writes <dir>/snapshot.json atomically so a concurrent
+// reader can't see a partial write.
 func WriteSnapshotEnvelope(dir string, cfg *types.SnapshotConfig) error {
 	envelope := types.SnapshotExport{Version: envelopeVersion, Config: *cfg}
 	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotJSONName), &envelope)

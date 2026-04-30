@@ -230,11 +230,9 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// restoreFromDir restores a running VM from an arbitrary snapshot directory.
-// The envelope's snapshot ID is checked against vm.SnapshotIDs as a soft
-// gate: matching means it's almost certainly the VM's own backup synced
-// from another host (typical cross-host restore); mismatching requires
-// --force to acknowledge "use unrelated state to overwrite this VM".
+// restoreFromDir runs DirectRestore over an envelope-bearing dir. The
+// envelope's snapshot ID is gated against vm.SnapshotIDs; a foreign ID
+// requires --force so "overwrite VM with unrelated lineage" is opt-in.
 func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, vmRef, dir string, logger *log.Fields) error {
 	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
 	if err != nil {
@@ -291,10 +289,8 @@ func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *conf
 		fmt.Sprintf("snapshot %s (direct)", snapRef), logger)
 }
 
-// cloneFromDir reads <dir>/snapshot.json, picks the matching backend based on
-// the envelope's Hypervisor field, and runs DirectClone over the dir. The dir
-// is treated as read-only — multiple clones of the same dir (golden image use
-// case) are safe.
+// cloneFromDir runs DirectClone over an envelope-bearing dir. The dir stays
+// read-only across the call so concurrent clones of a golden image are safe.
 func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dir string, logger *log.Fields) error {
 	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
 	if err != nil {

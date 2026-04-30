@@ -20,10 +20,9 @@ type CompressedExporter interface {
 	ExportCompressed(ctx context.Context, ref string) (io.ReadCloser, error)
 }
 
-// DirectoryExporter is an optional interface for backends that can export
-// directly into a target directory (with a snapshot.json envelope) instead of
-// streaming a tar. Pairs with `vm clone --from-dir` / `vm restore --from-dir`
-// so users can ship snapshots over rsync/NFS without a tar round-trip.
+// DirectoryExporter exports directly into a target directory (with a
+// snapshot.json envelope) so users can ship snapshots over rsync/NFS without
+// a tar round-trip. Pairs with `vm clone --from-dir`.
 type DirectoryExporter interface {
 	ExportToDir(ctx context.Context, ref, dir string) error
 }
