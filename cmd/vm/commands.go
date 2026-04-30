@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
@@ -52,9 +54,9 @@ func Command(h Actions) *cobra.Command {
 	cmdcore.AddOutputFlag(runCmd)
 
 	cloneCmd := &cobra.Command{
-		Use:   "clone [flags] SNAPSHOT",
-		Short: "Clone a new VM from a snapshot",
-		Args:  cobra.ExactArgs(1),
+		Use:   "clone [flags] [SNAPSHOT]",
+		Short: "Clone a new VM from a snapshot (or a directory via --from-dir)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  h.Clone,
 	}
 	addCloneFlags(cloneCmd)
@@ -111,15 +113,25 @@ func Command(h Actions) *cobra.Command {
 	cmdcore.AddOutputFlag(rmCmd)
 
 	restoreCmd := &cobra.Command{
-		Use:   "restore [flags] VM SNAPSHOT",
-		Short: "Restore a running VM to a previous snapshot",
-		Args:  cobra.ExactArgs(2),
-		RunE:  h.Restore,
+		Use:   "restore [flags] VM [SNAPSHOT]",
+		Short: "Restore a running VM to a previous snapshot (or a directory via --from-dir)",
+		Args:  cobra.RangeArgs(1, 2),
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			fromDir, _ := cmd.Flags().GetString("from-dir")
+			if force && fromDir == "" {
+				return fmt.Errorf("--force only applies with --from-dir")
+			}
+			return nil
+		},
+		RunE: h.Restore,
 	}
 	restoreCmd.Flags().Int("cpu", 0, "boot CPUs (0 = keep current)")
 	restoreCmd.Flags().String("memory", "", "memory size (empty = keep current)")
 	restoreCmd.Flags().String("storage", "", "COW disk size (empty = keep current)")
 	restoreCmd.Flags().Bool("on-demand", false, "use UFFD on-demand memory loading for faster restore (CH only; snapshot file must remain on disk)")
+	restoreCmd.Flags().String("from-dir", "", "restore from a snapshot directory (must contain snapshot.json) instead of the local snapshot DB; mutually exclusive with positional SNAPSHOT")
+	restoreCmd.Flags().Bool("force", false, "skip the snapshot-belongs-to-VM check (only meaningful with --from-dir; risk of restoring to an unrelated lineage)")
 	cmdcore.AddOutputFlag(restoreCmd)
 
 	debugCmd := &cobra.Command{
@@ -259,4 +271,5 @@ func addCloneFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-direct-io", false, "disable O_DIRECT on writable disks (inherit from snapshot if not set)")
 	cmd.Flags().Bool("on-demand", false, "use UFFD on-demand memory loading for faster clone (CH only; snapshot file must remain on disk)")
 	cmd.Flags().Bool("pull", false, "auto-pull base image if not found locally (for cross-node clone)")
+	cmd.Flags().String("from-dir", "", "clone from a snapshot directory (must contain snapshot.json) instead of the local snapshot DB; mutually exclusive with positional SNAPSHOT")
 }

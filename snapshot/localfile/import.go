@@ -4,11 +4,9 @@ import (
 	"cmp"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -67,7 +65,7 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 		}
 		idx.Snapshots[id] = &snapshot.SnapshotRecord{
 			Snapshot: types.Snapshot{
-				SnapshotConfig: *cfg,
+				SnapshotConfig: cfg,
 				CreatedAt:      time.Now(),
 			},
 			DataDir: dataDir,
@@ -103,29 +101,19 @@ func unwrapGzip(r io.Reader) (io.Reader, io.Closer, error) {
 	return full, nil, nil
 }
 
-// readAndRemoveSnapshotJSON reads snapshot.json from the data directory,
-// parses the SnapshotExport envelope, validates it, and removes the file.
-func readAndRemoveSnapshotJSON(dataDir string) (*types.SnapshotConfig, error) {
-	path := filepath.Join(dataDir, snapshotJSONName)
-	data, err := os.ReadFile(path) //nolint:gosec
+// readAndRemoveSnapshotJSON reads the envelope and deletes it; the registered
+// snapshot dir keeps only runtime sidecars (cocoon.json), not import metadata.
+func readAndRemoveSnapshotJSON(dataDir string) (types.SnapshotConfig, error) {
+	cfg, err := snapshot.ReadSnapshotEnvelope(dataDir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("invalid snapshot archive: %s not found", snapshotJSONName)
+		if errors.Is(err, snapshot.ErrEnvelopeMissing) {
+			return types.SnapshotConfig{}, fmt.Errorf("invalid snapshot archive: %s not found", snapshot.SnapshotJSONName)
 		}
-		return nil, fmt.Errorf("read %s: %w", snapshotJSONName, err)
+		return types.SnapshotConfig{}, err
 	}
-
-	var envelope types.SnapshotExport
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", snapshotJSONName, err)
-	}
-	if envelope.Version != 1 {
-		return nil, fmt.Errorf("unsupported snapshot archive version %d", envelope.Version)
-	}
-
+	path := filepath.Join(dataDir, snapshot.SnapshotJSONName)
 	if err := os.Remove(path); err != nil {
-		return nil, fmt.Errorf("remove %s from data dir: %w", snapshotJSONName, err)
+		return types.SnapshotConfig{}, fmt.Errorf("remove %s from data dir: %w", snapshot.SnapshotJSONName, err)
 	}
-
-	return &envelope.Config, nil
+	return cfg, nil
 }

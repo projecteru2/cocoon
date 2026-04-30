@@ -11,13 +11,20 @@ import (
 // Direct is an optional interface for snapshot backends that expose
 // the local data directory for per-file handling (hardlink, reflink, etc.).
 type Direct interface {
-	DataDir(ctx context.Context, ref string) (string, *types.SnapshotConfig, error)
+	DataDir(ctx context.Context, ref string) (string, types.SnapshotConfig, error)
 }
 
 // CompressedExporter is an optional interface for backends that support
 // exporting with compression (e.g. gzip). The default Export produces raw tar.
 type CompressedExporter interface {
 	ExportCompressed(ctx context.Context, ref string) (io.ReadCloser, error)
+}
+
+// DirectoryExporter exports directly into a target directory (with a
+// snapshot.json envelope) so users can ship snapshots over rsync/NFS without
+// a tar round-trip. Pairs with `vm clone --from-dir`.
+type DirectoryExporter interface {
+	ExportToDir(ctx context.Context, ref, dir string) error
 }
 
 // Snapshot manages snapshot lifecycle and storage.
@@ -33,7 +40,7 @@ type Snapshot interface {
 	// Delete removes snapshots by ID or name. Returns the list of actually deleted IDs.
 	Delete(ctx context.Context, refs []string) ([]string, error)
 	// Restore restores a snapshot by ID or name, returning the snapshot config and a data stream.
-	Restore(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
+	Restore(ctx context.Context, ref string) (types.SnapshotConfig, io.ReadCloser, error)
 
 	// Export streams the snapshot as a raw tar archive.
 	// The archive includes a snapshot.json metadata entry followed by data files.

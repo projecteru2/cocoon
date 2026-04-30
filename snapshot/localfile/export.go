@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
-
-const snapshotJSONName = "snapshot.json"
 
 // Export streams the snapshot as a raw tar archive.
 // The first tar entry is snapshot.json containing the SnapshotConfig metadata;
@@ -27,13 +28,56 @@ func (lf *LocalFile) ExportCompressed(ctx context.Context, ref string) (io.ReadC
 	return lf.export(ctx, ref, true)
 }
 
+// ExportToDir copies snapshot data into dir alongside a snapshot.json
+// envelope. ReflinkCopy keeps the result standalone (rsync-friendly), unlike
+// the hardlinks DirectClone uses internally for memory pages. The envelope
+// is written last so its presence is the all-data-ready marker that
+// `--from-dir` can rely on.
+func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
+	dataDir, cfg, err := lf.DataDir(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if err = utils.EnsureDirs(dir); err != nil {
+		return err
+	}
+	// Reject non-empty targets so the export can't silently merge into an
+	// unrelated tree.
+	dstEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", dir, err)
+	}
+	if len(dstEntries) > 0 {
+		return fmt.Errorf("target dir %s is not empty", dir)
+	}
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return fmt.Errorf("read snapshot dir: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		name := entry.Name()
+		src := filepath.Join(dataDir, name)
+		dst := filepath.Join(dir, name)
+		if err = utils.ReflinkCopy(dst, src); err != nil {
+			return fmt.Errorf("copy %s: %w", name, err)
+		}
+	}
+	if err = snapshot.WriteSnapshotEnvelope(dir, cfg); err != nil {
+		return fmt.Errorf("write envelope: %w", err)
+	}
+	return nil
+}
+
 func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.ReadCloser, error) {
 	dataDir, cfg, err := lf.DataDir(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 
-	envelope := types.SnapshotExport{Version: 1, Config: *cfg}
+	envelope := types.SnapshotExport{Version: snapshot.EnvelopeVersion, Config: cfg}
 	jsonData, err := json.MarshalIndent(envelope, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot metadata: %w", err)
@@ -67,7 +111,7 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 		tw := tar.NewWriter(w)
 
 		streamErr = tw.WriteHeader(&tar.Header{
-			Name:    snapshotJSONName,
+			Name:    snapshot.SnapshotJSONName,
 			Size:    int64(len(jsonData)),
 			Mode:    0o644,
 			ModTime: time.Now(),

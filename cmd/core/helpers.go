@@ -365,7 +365,7 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 }
 
 // CloneVMConfigFromFlags builds VMConfig for clone (inherits from snapshot).
-func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (*types.VMConfig, error) {
+func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
 	flagNetwork, _ := cmd.Flags().GetString("network")
 	network := cmp.Or(flagNetwork, snapCfg.Network)
@@ -410,7 +410,7 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg *types.SnapshotConfig) (
 }
 
 // RestoreVMConfigFromFlags builds VMConfig for restore (allows overrides).
-func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg *types.SnapshotConfig) (*types.VMConfig, error) {
+func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
 	result := vm.Config // value copy — keep current VM values
 
 	cpu, memBytes, storBytes, err := mergeResourceFlags(cmd, result.CPU, result.Memory, result.Storage, snapCfg)
@@ -570,7 +570,7 @@ func sanitizeVMName(image string) string {
 	return n
 }
 
-func mergeResourceFlags(cmd *cobra.Command, cpu int, memory, storage int64, snapCfg *types.SnapshotConfig) (int, int64, int64, error) {
+func mergeResourceFlags(cmd *cobra.Command, cpu int, memory, storage int64, snapCfg types.SnapshotConfig) (int, int64, int64, error) {
 	cpuFlag, _ := cmd.Flags().GetInt("cpu")
 	memStr, _ := cmd.Flags().GetString("memory")
 	storStr, _ := cmd.Flags().GetString("storage")

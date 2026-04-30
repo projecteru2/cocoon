@@ -79,12 +79,18 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	}
 	logger := log.WithFunc("cmd.vm.clone")
 
+	fromDir, snapRef, err := snapshotSource(cmd, args, 0)
+	if err != nil {
+		return err
+	}
+	if fromDir != "" {
+		return h.cloneFromDir(ctx, cmd, conf, fromDir, logger)
+	}
+
 	snapBackend, err := cmdcore.InitSnapshot(conf)
 	if err != nil {
 		return err
 	}
-
-	snapRef := args[0]
 
 	// Infer hypervisor backend from the snapshot's Hypervisor field.
 	snapInfo, err := snapBackend.Inspect(ctx, snapRef)
@@ -124,7 +130,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 
 	logger.Infof(ctx, "cloning VM from snapshot %s ...", snapRef)
 
-	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, networkConfigs, cfg, stream)
+	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, networkConfigs, &cfg, stream)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
@@ -146,7 +152,13 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	logger := log.WithFunc("cmd.vm.restore")
 
 	vmRef := args[0]
-	snapRef := args[1]
+	fromDir, snapRef, err := snapshotSource(cmd, args, 1)
+	if err != nil {
+		return err
+	}
+	if fromDir != "" {
+		return h.restoreFromDir(ctx, cmd, conf, vmRef, fromDir, logger)
+	}
 
 	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
 	if err != nil {
@@ -170,11 +182,11 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	}
 
 	if snapInfo.NICs != len(vm.NetworkConfigs) {
-		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
+		return fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), snapInfo.NICs)
 	}
 
-	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, &snapInfo.SnapshotConfig)
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, snapInfo.SnapshotConfig)
 	if err != nil {
 		return err
 	}
@@ -209,12 +221,80 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// restoreFromDir runs DirectRestore over an envelope-bearing dir. The
+// envelope's snapshot ID is gated against vm.SnapshotIDs; a foreign ID
+// requires --force so "overwrite VM with unrelated lineage" is opt-in.
+func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, vmRef, dir string, logger *log.Fields) error {
+	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
+	if err != nil {
+		return fmt.Errorf("load envelope: %w", err)
+	}
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
+	if err != nil {
+		return fmt.Errorf("find VM %s: %w", vmRef, err)
+	}
+	dcr, ok := hyper.(hypervisor.Direct)
+	if !ok {
+		return fmt.Errorf("backend %s does not support direct restore", hyper.Type())
+	}
+	vm, err := hyper.Inspect(ctx, vmRef)
+	if err != nil {
+		return fmt.Errorf("inspect VM: %w", err)
+	}
+	if _, owned := vm.SnapshotIDs[cfg.ID]; !owned {
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			return fmt.Errorf("snapshot envelope id %s does not belong to VM %s; pass --force to override", cfg.ID, vmRef)
+		}
+		logger.Warnf(ctx, "snapshot envelope id %s does not belong to VM %s; --force in effect", cfg.ID, vmRef)
+	}
+	if cfg.NICs != len(vm.NetworkConfigs) {
+		return fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
+			len(vm.NetworkConfigs), cfg.NICs)
+	}
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, cfg)
+	if err != nil {
+		return err
+	}
+	return h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dir,
+		fmt.Sprintf("dir %s", dir), logger)
+}
+
 func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, da snapshot.Direct, snapRef string, logger *log.Fields) error {
 	dataDir, cfg, err := da.DataDir(ctx, snapRef)
 	if err != nil {
 		return fmt.Errorf("open snapshot %s: %w", snapRef, err)
 	}
+	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, cfg, dataDir,
+		fmt.Sprintf("snapshot %s (direct)", snapRef), logger)
+}
 
+// cloneFromDir runs DirectClone over an envelope-bearing dir. The dir stays
+// read-only across the call so concurrent clones of a golden image are safe.
+func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dir string, logger *log.Fields) error {
+	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
+	if err != nil {
+		return fmt.Errorf("load envelope: %w", err)
+	}
+	// Local copy so flipping the backend selection doesn't leak to the caller's
+	// shared *config.Config (CLI is fine, daemons embedding cocoon would notice).
+	localConf := *conf
+	if cfg.Hypervisor != "" {
+		localConf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
+	}
+	hyper, err := cmdcore.InitHypervisor(&localConf)
+	if err != nil {
+		return err
+	}
+	dcr, ok := hyper.(hypervisor.Direct)
+	if !ok {
+		return fmt.Errorf("backend %s does not support direct clone", hyper.Type())
+	}
+	return h.cloneFromSrcDir(ctx, cmd, &localConf, dcr, cfg, dir,
+		fmt.Sprintf("dir %s", dir), logger)
+}
+
+func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, cfg types.SnapshotConfig, srcDir, sourceLabel string, logger *log.Fields) error {
 	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
 		return err
@@ -222,10 +302,10 @@ func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *conf
 
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {
-		logger.Infof(ctx, "cloning VM from snapshot %s (direct) ...", snapRef)
+		logger.Infof(ctx, "cloning VM from %s ...", sourceLabel)
 	}
 
-	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, cfg, dataDir)
+	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, &cfg, srcDir)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
@@ -239,7 +319,26 @@ func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *conf
 	return nil
 }
 
-func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg *types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
+// snapshotSource resolves the snapshot source for clone/restore: either a
+// directory via --from-dir or a positional SNAPSHOT ref. baseArgs is the
+// number of leading positional args before SNAPSHOT (0 for clone, 1 for
+// restore where args[0] is VM). Returns (fromDir, snapRef, err) with exactly
+// one of fromDir/snapRef non-empty on success.
+func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
+	fromDir, _ := cmd.Flags().GetString("from-dir")
+	if fromDir != "" {
+		if len(args) > baseArgs {
+			return "", "", fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
+		}
+		return fromDir, "", nil
+	}
+	if len(args) <= baseArgs {
+		return "", "", fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
+	}
+	return "", args[baseArgs], nil
+}
+
+func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
 	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
 	if err != nil {
 		return nil, "", nil, nil, err
@@ -290,26 +389,30 @@ func (h Handler) restoreDirect(ctx context.Context, cmd *cobra.Command, snapRef,
 	if !ok {
 		return false, nil
 	}
-
 	dataDir, _, err := da.DataDir(ctx, snapRef)
 	if err != nil {
 		return true, fmt.Errorf("open snapshot: %w", err)
 	}
+	return true, h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dataDir,
+		fmt.Sprintf("snapshot %s", snapRef), logger)
+}
 
+// runDirectRestore is the shared tail for the snapshot-DB and --from-dir
+// restore paths: log, DirectRestore, output.
+func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceLabel string, logger *log.Fields) error {
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {
-		logger.Infof(ctx, "restoring VM %s from snapshot %s (direct) ...", vmRef, snapRef)
+		logger.Infof(ctx, "restoring VM %s from %s (direct) ...", vmRef, sourceLabel)
 	}
-	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, dataDir)
+	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, srcDir)
 	if err != nil {
-		return true, fmt.Errorf("restore: %w", err)
+		return fmt.Errorf("restore: %w", err)
 	}
-
 	if wantJSON {
-		return true, cmdcore.OutputJSON(result)
+		return cmdcore.OutputJSON(result)
 	}
 	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
-	return true, nil
+	return nil
 }
 
 func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *types.VM, hypervisor.Hypervisor, error) {
@@ -529,7 +632,7 @@ func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	fmt.Println("  systemctl restart systemd-networkd")
 }
 
-func validateFCCloneOverrides(cmd *cobra.Command, cfg *types.SnapshotConfig) error {
+func validateFCCloneOverrides(cmd *cobra.Command, cfg types.SnapshotConfig) error {
 	if cpuFlag, _ := cmd.Flags().GetInt("cpu"); cpuFlag > 0 && cpuFlag != cfg.CPU {
 		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", cpuFlag, cfg.CPU)
 	}
