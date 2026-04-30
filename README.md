@@ -20,7 +20,8 @@ Lightweight MicroVM engine with dual hypervisor backends: [Cloud Hypervisor](htt
 - **Graceful shutdown** — ACPI power-button for UEFI VMs with configurable timeout, fallback to SIGTERM → SIGKILL
 - **Interactive console** — `cocoon vm console` with bidirectional PTY relay, SSH-style escape sequences (`~.` disconnect, `~?` help), configurable escape character, SIGWINCH propagation
 - **Snapshot & clone** — `cocoon snapshot save` captures a running VM's full state (memory, disks, config); `cocoon vm clone` restores it as a new VM with fresh network and identity, resource inheritance with validation
-- **Snapshot export & import** — `cocoon snapshot export` packages a snapshot into a portable `.tar.gz` archive (with sparse-aware pax headers); `cocoon snapshot import` restores it on another host or cluster; supports piping via stdout/stdin for direct host-to-host transfer
+- **Snapshot export & import** — `cocoon snapshot export` packages a snapshot into a portable `.tar.gz` archive (with sparse-aware pax headers); `cocoon snapshot import` restores it on another host or cluster; supports piping via stdout/stdin for direct host-to-host transfer; `--to-dir` writes a directory form (with `snapshot.json` envelope) for NFS / rsync-friendly handoff
+- **Clone / restore from a directory** — `cocoon vm clone --from-dir DIR` and `cocoon vm restore --from-dir DIR` consume any directory containing a `snapshot.json` envelope without first registering the snapshot in the local DB; the dir is treated as read-only so multi-VM golden-image use cases work without copying
 - **Live status monitoring** — `cocoon vm status` watches VM state changes in real time via fsnotify, with refresh mode (top-like) and event-stream mode (append-only, for scripting and vk-cocoon integration)
 - **Docker-like CLI** — `create`, `run`, `start`, `stop`, `list`, `inspect`, `console`, `rm`, `debug`, `clone`, `status`
 - **Structured logging** — configurable log level (`--log-level`), log rotation (max size / age / backups)
@@ -229,6 +230,10 @@ Applies to `cocoon snapshot export`:
 | Flag            | Default                    | Description                                       |
 | --------------- | -------------------------- | ------------------------------------------------- |
 | `--output`, `-o` |  `<name-or-id>.tar.gz`    | Output file path (`-` for stdout)                 |
+| `--gzip`        | `false`                    | Compress output with gzip                         |
+| `--to-dir`      |                            | Export into a directory (must be empty/absent) instead of a tar; pairs with `vm clone --from-dir` |
+
+`--to-dir` writes a `snapshot.json` envelope alongside reflink-copied data files. Useful for NFS golden images or rsync-friendly handoff: `cocoon snapshot export snap -o ... --to-dir /nfs/golden && rsync ...`. Mutually exclusive with `--output` and `--gzip`.
 
 ### Import Flags
 
@@ -240,6 +245,25 @@ Applies to `cocoon snapshot import`:
 | `--description` |         | Override snapshot description   |
 
 When FILE is omitted, data is read from stdin. This enables piping: `cocoon snapshot export snap1 -o - | ssh host2 cocoon snapshot import --name snap1`.
+
+### Direct Clone / Restore From a Directory
+
+`vm clone --from-dir DIR` and `vm restore --from-dir DIR` accept any directory containing a `snapshot.json` envelope (output of `snapshot export --to-dir`, or an extracted `.tar`). The snapshot does not need to be in the local snapshot DB:
+
+```bash
+# Build a portable snapshot dir, ship it, clone from it:
+cocoon snapshot export my-snap --to-dir /nfs/golden
+# ... rsync /nfs/golden to host B if needed ...
+cocoon vm clone --from-dir /nfs/golden --name fresh-vm --pull
+
+# Restore the same VM's externally-staged backup (envelope ID matches → silent OK):
+cocoon vm restore my-vm --from-dir /sync/from-host-a
+
+# Force-restore a foreign snapshot (acknowledges data-loss risk):
+cocoon vm restore my-vm --from-dir /unrelated/lineage --force
+```
+
+The dir is read-only across the call, so multiple clones of the same dir (golden image use case) are safe. Pass `--pull` if the base image's blobs may not be present locally — `EnsureImage` reads `image_blob_ids` from the envelope and pulls as needed.
 
 ### Status Flags
 
