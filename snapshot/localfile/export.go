@@ -40,8 +40,18 @@ func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 	if err != nil {
 		return err
 	}
-	if err = ensureEmptyDir(dir); err != nil {
-		return err
+	// Reject non-empty targets so the export can't silently merge into an
+	// unrelated tree; mkdir if absent.
+	dstEntries, err := os.ReadDir(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if err = os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+	case err != nil:
+		return fmt.Errorf("stat %s: %w", dir, err)
+	case len(dstEntries) > 0:
+		return fmt.Errorf("target dir %s is not empty", dir)
 	}
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -133,19 +143,4 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 	}()
 
 	return utils.NewPipeStreamReader(pr, done, nil), nil
-}
-
-// ensureEmptyDir rejects non-empty targets so an export can't silently merge
-// into an unrelated tree.
-func ensureEmptyDir(dir string) error {
-	entries, err := os.ReadDir(dir)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return os.MkdirAll(dir, 0o750)
-	case err != nil:
-		return fmt.Errorf("stat %s: %w", dir, err)
-	case len(entries) > 0:
-		return fmt.Errorf("target dir %s is not empty", dir)
-	}
-	return nil
 }
