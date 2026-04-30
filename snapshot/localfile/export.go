@@ -77,7 +77,7 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 		return nil, err
 	}
 
-	envelope := types.SnapshotExport{Version: 1, Config: cfg}
+	envelope := types.SnapshotExport{Version: snapshot.EnvelopeVersion, Config: cfg}
 	jsonData, err := json.MarshalIndent(envelope, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot metadata: %w", err)

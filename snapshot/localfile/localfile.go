@@ -28,6 +28,7 @@ var (
 	_ snapshot.Snapshot           = (*LocalFile)(nil)
 	_ snapshot.Direct             = (*LocalFile)(nil)
 	_ snapshot.CompressedExporter = (*LocalFile)(nil)
+	_ snapshot.DirectoryExporter  = (*LocalFile)(nil)
 )
 
 // LocalFile implements snapshot.Snapshot using the local filesystem.

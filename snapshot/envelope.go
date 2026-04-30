@@ -14,7 +14,7 @@ import (
 
 const (
 	SnapshotJSONName = "snapshot.json"
-	envelopeVersion  = 1
+	EnvelopeVersion  = 1
 )
 
 // ErrEnvelopeMissing wraps the not-found case so callers can render a
@@ -35,8 +35,8 @@ func ReadSnapshotEnvelope(dir string) (types.SnapshotConfig, error) {
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return types.SnapshotConfig{}, fmt.Errorf("parse %s: %w", SnapshotJSONName, err)
 	}
-	if envelope.Version != envelopeVersion {
-		return types.SnapshotConfig{}, fmt.Errorf("unsupported snapshot envelope version %d (want %d)", envelope.Version, envelopeVersion)
+	if envelope.Version != EnvelopeVersion {
+		return types.SnapshotConfig{}, fmt.Errorf("unsupported snapshot envelope version %d (want %d)", envelope.Version, EnvelopeVersion)
 	}
 	return envelope.Config, nil
 }
@@ -45,5 +45,5 @@ func ReadSnapshotEnvelope(dir string) (types.SnapshotConfig, error) {
 // reader can't see a partial write.
 func WriteSnapshotEnvelope(dir string, cfg types.SnapshotConfig) error {
 	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotJSONName),
-		types.SnapshotExport{Version: envelopeVersion, Config: cfg})
+		types.SnapshotExport{Version: EnvelopeVersion, Config: cfg})
 }
