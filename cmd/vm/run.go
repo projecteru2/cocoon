@@ -256,19 +256,8 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 	if err != nil {
 		return err
 	}
-	wantJSON := cmdcore.WantJSON(cmd)
-	if !wantJSON {
-		logger.Infof(ctx, "restoring VM %s from dir %s (direct) ...", vmRef, dir)
-	}
-	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, dir)
-	if err != nil {
-		return fmt.Errorf("restore: %w", err)
-	}
-	if wantJSON {
-		return cmdcore.OutputJSON(result)
-	}
-	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
-	return nil
+	return h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dir,
+		fmt.Sprintf("dir %s", dir), logger)
 }
 
 func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, da snapshot.Direct, snapRef string, logger *log.Fields) error {
@@ -400,26 +389,30 @@ func (h Handler) restoreDirect(ctx context.Context, cmd *cobra.Command, snapRef,
 	if !ok {
 		return false, nil
 	}
-
 	dataDir, _, err := da.DataDir(ctx, snapRef)
 	if err != nil {
 		return true, fmt.Errorf("open snapshot: %w", err)
 	}
+	return true, h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dataDir,
+		fmt.Sprintf("snapshot %s", snapRef), logger)
+}
 
+// runDirectRestore is the shared tail for the snapshot-DB and --from-dir
+// restore paths: log, DirectRestore, output.
+func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceLabel string, logger *log.Fields) error {
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {
-		logger.Infof(ctx, "restoring VM %s from snapshot %s (direct) ...", vmRef, snapRef)
+		logger.Infof(ctx, "restoring VM %s from %s (direct) ...", vmRef, sourceLabel)
 	}
-	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, dataDir)
+	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, srcDir)
 	if err != nil {
-		return true, fmt.Errorf("restore: %w", err)
+		return fmt.Errorf("restore: %w", err)
 	}
-
 	if wantJSON {
-		return true, cmdcore.OutputJSON(result)
+		return cmdcore.OutputJSON(result)
 	}
 	logger.Infof(ctx, "VM %s restored (state: %s)", result.ID, result.State)
-	return true, nil
+	return nil
 }
 
 func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *types.VM, hypervisor.Hypervisor, error) {
