@@ -79,23 +79,18 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	}
 	logger := log.WithFunc("cmd.vm.clone")
 
-	fromDir, _ := cmd.Flags().GetString("from-dir")
-	if fromDir != "" {
-		if len(args) > 0 {
-			return fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
-		}
-		return h.cloneFromDir(ctx, cmd, conf, fromDir, logger)
+	fromDir, snapRef, err := snapshotSource(cmd, args, 0)
+	if err != nil {
+		return err
 	}
-	if len(args) == 0 {
-		return fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
+	if fromDir != "" {
+		return h.cloneFromDir(ctx, cmd, conf, fromDir, logger)
 	}
 
 	snapBackend, err := cmdcore.InitSnapshot(conf)
 	if err != nil {
 		return err
 	}
-
-	snapRef := args[0]
 
 	// Infer hypervisor backend from the snapshot's Hypervisor field.
 	snapInfo, err := snapBackend.Inspect(ctx, snapRef)
@@ -157,17 +152,13 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	logger := log.WithFunc("cmd.vm.restore")
 
 	vmRef := args[0]
-	fromDir, _ := cmd.Flags().GetString("from-dir")
+	fromDir, snapRef, err := snapshotSource(cmd, args, 1)
+	if err != nil {
+		return err
+	}
 	if fromDir != "" {
-		if len(args) > 1 {
-			return fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
-		}
 		return h.restoreFromDir(ctx, cmd, conf, vmRef, fromDir, logger)
 	}
-	if len(args) < 2 {
-		return fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
-	}
-	snapRef := args[1]
 
 	hyper, err := cmdcore.FindHypervisor(ctx, conf, vmRef)
 	if err != nil {
@@ -334,6 +325,25 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
 	printPostCloneHints(vm, networkConfigs)
 	return nil
+}
+
+// snapshotSource resolves the snapshot source for clone/restore: either a
+// directory via --from-dir or a positional SNAPSHOT ref. baseArgs is the
+// number of leading positional args before SNAPSHOT (0 for clone, 1 for
+// restore where args[0] is VM). Returns (fromDir, snapRef, err) with exactly
+// one of fromDir/snapRef non-empty on success.
+func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
+	fromDir, _ := cmd.Flags().GetString("from-dir")
+	if fromDir != "" {
+		if len(args) > baseArgs {
+			return "", "", fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
+		}
+		return fromDir, "", nil
+	}
+	if len(args) <= baseArgs {
+		return "", "", fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
+	}
+	return "", args[baseArgs], nil
 }
 
 func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
