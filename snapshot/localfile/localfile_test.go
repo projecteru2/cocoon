@@ -1126,3 +1126,55 @@ func TestImport_NameOverride(t *testing.T) {
 		t.Errorf("Description: got %q, want %q", s.Description, "override-desc")
 	}
 }
+
+func TestExportToDir_RoundTrip(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	origFiles := map[string][]byte{
+		"cow.raw":    []byte("disk data"),
+		"state.json": []byte(`{"cpu":4}`),
+	}
+	makeExportableSnapshot(t, lf, "to-dir-src", origFiles)
+
+	dst := filepath.Join(t.TempDir(), "exported")
+	if err := lf.ExportToDir(ctx, "to-dir-src", dst); err != nil {
+		t.Fatalf("ExportToDir: %v", err)
+	}
+
+	// Envelope present and parseable.
+	cfg, err := snapshot.ReadSnapshotEnvelope(dst)
+	if err != nil {
+		t.Fatalf("ReadSnapshotEnvelope: %v", err)
+	}
+	if cfg.Name != "to-dir-src" || cfg.CPU != 4 {
+		t.Errorf("envelope mismatch: %+v", cfg)
+	}
+
+	// Data files copied verbatim.
+	for name, want := range origFiles {
+		got, readErr := os.ReadFile(filepath.Join(dst, name))
+		if readErr != nil {
+			t.Errorf("read %s: %v", name, readErr)
+			continue
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s: got %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestExportToDir_RejectNonEmpty(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+	makeExportableSnapshot(t, lf, "tdr-non-empty", map[string][]byte{"x": []byte("x")})
+
+	dst := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dst, "preexisting"), []byte("z"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := lf.ExportToDir(ctx, "tdr-non-empty", dst)
+	if err == nil {
+		t.Fatal("want non-empty rejection")
+	}
+}

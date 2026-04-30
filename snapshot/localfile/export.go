@@ -5,8 +5,12 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cocoonstack/cocoon/snapshot"
@@ -24,6 +28,46 @@ func (lf *LocalFile) Export(ctx context.Context, ref string) (io.ReadCloser, err
 // ExportCompressed streams the snapshot as a gzip-compressed tar archive.
 func (lf *LocalFile) ExportCompressed(ctx context.Context, ref string) (io.ReadCloser, error) {
 	return lf.export(ctx, ref, true)
+}
+
+// ExportToDir copies the snapshot data into dir alongside a snapshot.json
+// envelope so the result is directly consumable by `vm clone --from-dir`.
+// dir must not exist or must be empty; this avoids silently merging into an
+// unrelated tree. Files use ReflinkCopy when supported (xfs/btrfs zero-copy)
+// and fall back to a plain read+write copy otherwise — the result is always
+// standalone (rsync-friendly), unlike the hardlinks DirectClone uses
+// internally for memory pages.
+func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
+	dataDir, cfg, err := lf.DataDir(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if err = ensureEmptyDir(dir); err != nil {
+		return err
+	}
+	if err = snapshot.WriteSnapshotEnvelope(dir, cfg); err != nil {
+		return fmt.Errorf("write envelope: %w", err)
+	}
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return fmt.Errorf("read snapshot dir: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		name := entry.Name()
+		if name == snapshot.SnapshotJSONName {
+			// already-present envelope from a prior export; fresh envelope wins
+			continue
+		}
+		src := filepath.Join(dataDir, name)
+		dst := filepath.Join(dir, name)
+		if err = utils.ReflinkCopy(dst, src); err != nil {
+			return fmt.Errorf("copy %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.ReadCloser, error) {
@@ -91,4 +135,19 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 	}()
 
 	return utils.NewPipeStreamReader(pr, done, nil), nil
+}
+
+// ensureEmptyDir mkdirs dir if absent and rejects non-empty directories so a
+// failed export can't silently land alongside arbitrary user files.
+func ensureEmptyDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return os.MkdirAll(dir, 0o750)
+	case err != nil:
+		return fmt.Errorf("stat %s: %w", dir, err)
+	case len(entries) > 0:
+		return fmt.Errorf("target dir %s is not empty", dir)
+	}
+	return nil
 }

@@ -174,6 +174,20 @@ func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
 	ref := args[0]
 	output, _ := cmd.Flags().GetString("output")
 	useGzip, _ := cmd.Flags().GetBool("gzip")
+	toDir, _ := cmd.Flags().GetString("to-dir")
+
+	if toDir != "" {
+		exporter, ok := snapBackend.(snapshot.DirectoryExporter)
+		if !ok {
+			return fmt.Errorf("backend does not support directory export")
+		}
+		logger.Infof(ctx, "exporting to dir %s ...", toDir)
+		if err = exporter.ExportToDir(ctx, ref, toDir); err != nil {
+			return fmt.Errorf("export-to-dir: %w", err)
+		}
+		logger.Infof(ctx, "exported: %s", toDir)
+		return nil
+	}
 
 	var stream io.ReadCloser
 	if useGzip {
