@@ -261,7 +261,7 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), cfg.NICs)
 	}
-	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, cfg)
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, &cfg)
 	if err != nil {
 		return err
 	}
@@ -307,7 +307,7 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if !ok {
 		return fmt.Errorf("backend %s does not support direct clone", hyper.Type())
 	}
-	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, cfg, dir,
+	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, &cfg, dir,
 		fmt.Sprintf("dir %s", dir), logger)
 }
 

@@ -22,28 +22,28 @@ const (
 var ErrEnvelopeMissing = errors.New("snapshot envelope missing")
 
 // ReadSnapshotEnvelope reads <dir>/snapshot.json into a SnapshotConfig.
-func ReadSnapshotEnvelope(dir string) (*types.SnapshotConfig, error) {
+func ReadSnapshotEnvelope(dir string) (types.SnapshotConfig, error) {
 	path := filepath.Join(dir, SnapshotJSONName)
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%s missing in %s: %w", SnapshotJSONName, dir, ErrEnvelopeMissing)
+			return types.SnapshotConfig{}, fmt.Errorf("%s missing in %s: %w", SnapshotJSONName, dir, ErrEnvelopeMissing)
 		}
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return types.SnapshotConfig{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	var envelope types.SnapshotExport
+	envelope := types.SnapshotExport{}
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", SnapshotJSONName, err)
+		return types.SnapshotConfig{}, fmt.Errorf("parse %s: %w", SnapshotJSONName, err)
 	}
 	if envelope.Version != envelopeVersion {
-		return nil, fmt.Errorf("unsupported snapshot envelope version %d (want %d)", envelope.Version, envelopeVersion)
+		return types.SnapshotConfig{}, fmt.Errorf("unsupported snapshot envelope version %d (want %d)", envelope.Version, envelopeVersion)
 	}
-	return &envelope.Config, nil
+	return envelope.Config, nil
 }
 
 // WriteSnapshotEnvelope writes <dir>/snapshot.json atomically so a concurrent
 // reader can't see a partial write.
-func WriteSnapshotEnvelope(dir string, cfg *types.SnapshotConfig) error {
-	envelope := types.SnapshotExport{Version: envelopeVersion, Config: *cfg}
-	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotJSONName), &envelope)
+func WriteSnapshotEnvelope(dir string, cfg types.SnapshotConfig) error {
+	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotJSONName),
+		types.SnapshotExport{Version: envelopeVersion, Config: cfg})
 }

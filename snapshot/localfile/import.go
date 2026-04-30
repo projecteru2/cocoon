@@ -65,7 +65,7 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 		}
 		idx.Snapshots[id] = &snapshot.SnapshotRecord{
 			Snapshot: types.Snapshot{
-				SnapshotConfig: *cfg,
+				SnapshotConfig: cfg,
 				CreatedAt:      time.Now(),
 			},
 			DataDir: dataDir,
@@ -103,17 +103,17 @@ func unwrapGzip(r io.Reader) (io.Reader, io.Closer, error) {
 
 // readAndRemoveSnapshotJSON reads the envelope and deletes it; the registered
 // snapshot dir keeps only runtime sidecars (cocoon.json), not import metadata.
-func readAndRemoveSnapshotJSON(dataDir string) (*types.SnapshotConfig, error) {
+func readAndRemoveSnapshotJSON(dataDir string) (types.SnapshotConfig, error) {
 	cfg, err := snapshot.ReadSnapshotEnvelope(dataDir)
 	if err != nil {
 		if errors.Is(err, snapshot.ErrEnvelopeMissing) {
-			return nil, fmt.Errorf("invalid snapshot archive: %s not found", snapshot.SnapshotJSONName)
+			return types.SnapshotConfig{}, fmt.Errorf("invalid snapshot archive: %s not found", snapshot.SnapshotJSONName)
 		}
-		return nil, err
+		return types.SnapshotConfig{}, err
 	}
 	path := filepath.Join(dataDir, snapshot.SnapshotJSONName)
 	if err := os.Remove(path); err != nil {
-		return nil, fmt.Errorf("remove %s from data dir: %w", snapshot.SnapshotJSONName, err)
+		return types.SnapshotConfig{}, fmt.Errorf("remove %s from data dir: %w", snapshot.SnapshotJSONName, err)
 	}
 	return cfg, nil
 }

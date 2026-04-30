@@ -11,7 +11,7 @@ import (
 
 func TestReadSnapshotEnvelope_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &types.SnapshotConfig{
+	cfg := types.SnapshotConfig{
 		ID:         "snap-xxx",
 		Name:       "demo",
 		Hypervisor: "cloud-hypervisor",

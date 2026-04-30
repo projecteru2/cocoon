@@ -62,7 +62,7 @@ func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 			return fmt.Errorf("copy %s: %w", name, err)
 		}
 	}
-	if err = snapshot.WriteSnapshotEnvelope(dir, cfg); err != nil {
+	if err = snapshot.WriteSnapshotEnvelope(dir, *cfg); err != nil {
 		return fmt.Errorf("write envelope: %w", err)
 	}
 	return nil
