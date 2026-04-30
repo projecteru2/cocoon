@@ -183,13 +183,12 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 	return deleted, nil
 }
 
-func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error) {
+func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotConfig, io.ReadCloser, error) {
 	rec, err := lf.resolveRecord(ctx, ref)
 	if err != nil {
-		return nil, nil, err
+		return types.SnapshotConfig{}, nil, err
 	}
-	cfg := snapshotRecordToConfig(rec)
-	return &cfg, utils.TarDirStream(rec.DataDir, nil), nil
+	return snapshotRecordToConfig(rec), utils.TarDirStream(rec.DataDir, nil), nil
 }
 
 func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {

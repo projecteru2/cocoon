@@ -128,14 +128,14 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	})
 	defer stop()
 
-	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, *cfg)
+	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
 		return err
 	}
 
 	logger.Infof(ctx, "cloning VM from snapshot %s ...", snapRef)
 
-	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, networkConfigs, cfg, stream)
+	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, networkConfigs, &cfg, stream)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
