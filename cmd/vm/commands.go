@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
@@ -114,7 +116,15 @@ func Command(h Actions) *cobra.Command {
 		Use:   "restore [flags] VM [SNAPSHOT]",
 		Short: "Restore a running VM to a previous snapshot (or a directory via --from-dir)",
 		Args:  cobra.RangeArgs(1, 2),
-		RunE:  h.Restore,
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			force, _ := cmd.Flags().GetBool("force")
+			fromDir, _ := cmd.Flags().GetString("from-dir")
+			if force && fromDir == "" {
+				return fmt.Errorf("--force only applies with --from-dir")
+			}
+			return nil
+		},
+		RunE: h.Restore,
 	}
 	restoreCmd.Flags().Int("cpu", 0, "boot CPUs (0 = keep current)")
 	restoreCmd.Flags().String("memory", "", "memory size (empty = keep current)")

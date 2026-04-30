@@ -182,7 +182,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	}
 
 	if snapInfo.NICs != len(vm.NetworkConfigs) {
-		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
+		return fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), snapInfo.NICs)
 	}
 
@@ -249,7 +249,7 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 		logger.Warnf(ctx, "snapshot envelope id %s does not belong to VM %s; --force in effect", cfg.ID, vmRef)
 	}
 	if cfg.NICs != len(vm.NetworkConfigs) {
-		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
+		return fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), cfg.NICs)
 	}
 	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, cfg)
@@ -287,10 +287,13 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if err != nil {
 		return fmt.Errorf("load envelope: %w", err)
 	}
+	// Local copy so flipping the backend selection doesn't leak to the caller's
+	// shared *config.Config (CLI is fine, daemons embedding cocoon would notice).
+	localConf := *conf
 	if cfg.Hypervisor != "" {
-		conf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
+		localConf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
 	}
-	hyper, err := cmdcore.InitHypervisor(conf)
+	hyper, err := cmdcore.InitHypervisor(&localConf)
 	if err != nil {
 		return err
 	}
@@ -298,7 +301,7 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if !ok {
 		return fmt.Errorf("backend %s does not support direct clone", hyper.Type())
 	}
-	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, cfg, dir,
+	return h.cloneFromSrcDir(ctx, cmd, &localConf, dcr, cfg, dir,
 		fmt.Sprintf("dir %s", dir), logger)
 }
 
