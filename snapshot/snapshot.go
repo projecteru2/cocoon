@@ -11,7 +11,7 @@ import (
 // Direct is an optional interface for snapshot backends that expose
 // the local data directory for per-file handling (hardlink, reflink, etc.).
 type Direct interface {
-	DataDir(ctx context.Context, ref string) (string, *types.SnapshotConfig, error)
+	DataDir(ctx context.Context, ref string) (string, types.SnapshotConfig, error)
 }
 
 // CompressedExporter is an optional interface for backends that support

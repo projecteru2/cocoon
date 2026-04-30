@@ -128,7 +128,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	})
 	defer stop()
 
-	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
+	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, *cfg)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 			len(vm.NetworkConfigs), snapInfo.NICs)
 	}
 
-	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, &snapInfo.SnapshotConfig)
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, snapInfo.SnapshotConfig)
 	if err != nil {
 		return err
 	}
@@ -261,7 +261,7 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 		return fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), cfg.NICs)
 	}
-	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, &cfg)
+	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, cfg)
 	if err != nil {
 		return err
 	}
@@ -307,11 +307,11 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if !ok {
 		return fmt.Errorf("backend %s does not support direct clone", hyper.Type())
 	}
-	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, &cfg, dir,
+	return h.cloneFromSrcDir(ctx, cmd, conf, dcr, cfg, dir,
 		fmt.Sprintf("dir %s", dir), logger)
 }
 
-func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, cfg *types.SnapshotConfig, srcDir, sourceLabel string, logger *log.Fields) error {
+func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, cfg types.SnapshotConfig, srcDir, sourceLabel string, logger *log.Fields) error {
 	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
 		return err
@@ -322,7 +322,7 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 		logger.Infof(ctx, "cloning VM from %s ...", sourceLabel)
 	}
 
-	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, cfg, srcDir)
+	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, &cfg, srcDir)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
@@ -336,7 +336,7 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 	return nil
 }
 
-func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg *types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
+func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
 	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
 	if err != nil {
 		return nil, "", nil, nil, err
@@ -626,7 +626,7 @@ func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	fmt.Println("  systemctl restart systemd-networkd")
 }
 
-func validateFCCloneOverrides(cmd *cobra.Command, cfg *types.SnapshotConfig) error {
+func validateFCCloneOverrides(cmd *cobra.Command, cfg types.SnapshotConfig) error {
 	if cpuFlag, _ := cmd.Flags().GetInt("cpu"); cpuFlag > 0 && cpuFlag != cfg.CPU {
 		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", cpuFlag, cfg.CPU)
 	}

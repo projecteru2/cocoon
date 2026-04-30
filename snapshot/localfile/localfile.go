@@ -54,12 +54,12 @@ func New(conf *config.Config) (*LocalFile, error) {
 func (lf *LocalFile) Type() string { return typ }
 
 // DataDir returns the local data directory and snapshot config for direct file access.
-func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, *types.SnapshotConfig, error) {
+func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, types.SnapshotConfig, error) {
 	rec, err := lf.resolveRecord(ctx, ref)
 	if err != nil {
-		return "", nil, err
+		return "", types.SnapshotConfig{}, err
 	}
-	return rec.DataDir, snapshotRecordToConfig(&rec), nil
+	return rec.DataDir, snapshotRecordToConfig(rec), nil
 }
 
 // Create stores a snapshot from stream. Uses a two-phase pattern
@@ -188,7 +188,8 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (*types.SnapshotCo
 	if err != nil {
 		return nil, nil, err
 	}
-	return snapshotRecordToConfig(&rec), utils.TarDirStream(rec.DataDir, nil), nil
+	cfg := snapshotRecordToConfig(rec)
+	return &cfg, utils.TarDirStream(rec.DataDir, nil), nil
 }
 
 func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
@@ -229,8 +230,8 @@ func (lf *LocalFile) resolveRecord(ctx context.Context, ref string) (snapshot.Sn
 
 // snapshotRecordToConfig builds a detached SnapshotConfig from a record,
 // deep-copying ImageBlobIDs so the caller can use it after the lock is released.
-func snapshotRecordToConfig(rec *snapshot.SnapshotRecord) *types.SnapshotConfig {
-	cfg := rec.SnapshotConfig // value copy
+func snapshotRecordToConfig(rec snapshot.SnapshotRecord) types.SnapshotConfig {
+	cfg := rec.SnapshotConfig
 	cfg.ImageBlobIDs = maps.Clone(rec.ImageBlobIDs)
-	return &cfg
+	return cfg
 }
