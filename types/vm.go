@@ -44,8 +44,9 @@ type VM struct {
 	Config     VMConfig `json:"config"`
 
 	// Runtime — populated only while State == VMStateRunning.
-	PID        int    `json:"pid"`
-	SocketPath string `json:"socket_path,omitempty"` // CH API Unix socket
+	PID         int    `json:"pid"`
+	SocketPath  string `json:"socket_path,omitempty"`  // CH API Unix socket
+	VsockSocket string `json:"vsock_socket,omitempty"` // hybrid vsock UDS for cocoon-agent
 
 	// Attached resources — promoted into VMRecord via embedding.
 	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`

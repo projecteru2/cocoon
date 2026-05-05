@@ -52,6 +52,7 @@ func buildVMConfig(_ context.Context, rec *hypervisor.VMRecord, consoleSockPath 
 		Memory:   chMemory{Size: mem, HugePages: utils.DetectHugePages(), Shared: rec.Config.SharedMemory},
 		RNG:      chRNG{Src: "/dev/urandom"},
 		Watchdog: true,
+		Vsock:    &chVsock{CID: hypervisor.VsockGuestCID, Socket: hypervisor.VsockSockPath(rec.RunDir)},
 	}
 
 	if isDirectBoot(rec.BootConfig) {
@@ -150,6 +151,10 @@ func buildCLIArgs(cfg *chVMConfig, socketPath string) []string {
 
 	if b := cfg.Balloon; b != nil {
 		args = append(args, "--balloon", balloonToCLIArg(b))
+	}
+
+	if v := cfg.Vsock; v != nil {
+		args = append(args, "--vsock", fmt.Sprintf("cid=%d,socket=%s", v.CID, v.Socket))
 	}
 
 	if cfg.Serial != nil {

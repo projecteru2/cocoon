@@ -6,6 +6,7 @@ type chVMConfig struct {
 	Balloon *chBalloon     `json:"balloon,omitempty"`
 	Serial  *chRuntimeFile `json:"serial,omitempty"`
 	Console *chRuntimeFile `json:"console,omitempty"`
+	Vsock   *chVsock       `json:"vsock,omitempty"`
 
 	// Required — value (always present).
 	CPUs     chCPUs   `json:"cpus"`
@@ -81,6 +82,11 @@ type chRuntimeFile struct {
 	Mode   string `json:"mode"`
 	File   string `json:"file,omitempty"`
 	Socket string `json:"socket,omitempty"`
+}
+
+type chVsock struct {
+	CID    uint32 `json:"cid"`
+	Socket string `json:"socket"`
 }
 
 type chFs struct {

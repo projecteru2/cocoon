@@ -3,6 +3,7 @@ module github.com/cocoonstack/cocoon
 go 1.25.6
 
 require (
+	github.com/cocoonstack/cocoon-agent v0.1.1-0.20260505130343-db13d35d7b13
 	github.com/containernetworking/cni v1.3.0
 	github.com/containernetworking/plugins v1.9.0
 	github.com/creack/pty v1.1.24

@@ -24,6 +24,12 @@ import (
 const (
 	APISocketName   = "api.sock"
 	ConsoleSockName = "console.sock"
+	VsockSockName   = "vsock.uds"
+
+	// VsockGuestCID is constant — per-VM isolation comes from distinct UDS paths.
+	VsockGuestCID = 3
+	// VsockAgentPort is the cocoon-agent listen port.
+	VsockAgentPort = 1024
 
 	// CowSerial is the well-known virtio serial for the COW disk attached to OCI VMs.
 	CowSerial = "cocoon-cow"
@@ -153,6 +159,10 @@ func (b *Backend) ToVM(rec *VMRecord) *types.VM {
 	if info.State == types.VMStateRunning {
 		info.SocketPath = SocketPath(rec.RunDir)
 		info.PID, _ = utils.ReadPIDFile(b.PIDFilePath(rec.RunDir))
+		// Empty for legacy VMs whose UDS isn't bound.
+		if p := VsockSockPath(rec.RunDir); vsockBound(p) {
+			info.VsockSocket = p
+		}
 	}
 	info.SnapshotIDs = maps.Clone(info.SnapshotIDs)
 	return &info
@@ -968,6 +978,13 @@ func (b *Backend) killOrphanProcess(ctx context.Context, runDir string) {
 func SocketPath(runDir string) string { return filepath.Join(runDir, APISocketName) }
 
 func ConsoleSockPath(runDir string) string { return filepath.Join(runDir, ConsoleSockName) }
+
+func VsockSockPath(runDir string) string { return filepath.Join(runDir, VsockSockName) }
+
+func vsockBound(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // PrepareStagingDir extracts the snapshot tar into a sibling staging dir.
 func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cleanup func(), err error) {

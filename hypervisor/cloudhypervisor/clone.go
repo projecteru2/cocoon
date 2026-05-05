@@ -91,6 +91,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	if err = patchCHConfig(chConfigPath, &patchOptions{
 		storageConfigs: patchStorageConfigs,
 		consoleSock:    consoleSock,
+		vsockSock:      hypervisor.VsockSockPath(runDir),
 		directBoot:     directBoot,
 		windows:        vmCfg.Windows,
 		cpu:            vmCfg.CPU,

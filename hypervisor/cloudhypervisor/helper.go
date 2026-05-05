@@ -24,7 +24,7 @@ const (
 	chMemoryRestoreOnDemand chMemoryRestoreMode = "OnDemand"
 )
 
-var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName}
+var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName, hypervisor.VsockSockName}
 
 // chMemoryRestoreMode controls how CH restores guest memory from a snapshot.
 type chMemoryRestoreMode string

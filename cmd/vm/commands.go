@@ -18,6 +18,7 @@ type Actions interface {
 	List(cmd *cobra.Command, args []string) error
 	Inspect(cmd *cobra.Command, args []string) error
 	Console(cmd *cobra.Command, args []string) error
+	Exec(cmd *cobra.Command, args []string) error
 	RM(cmd *cobra.Command, args []string) error
 	Restore(cmd *cobra.Command, args []string) error
 	Debug(cmd *cobra.Command, args []string) error
@@ -103,6 +104,14 @@ func Command(h Actions) *cobra.Command {
 	}
 	consoleCmd.Flags().String("escape-char", "^]", "escape character (single char or ^X caret notation)")
 
+	execCmd := &cobra.Command{
+		Use:   "exec [flags] VM -- COMMAND [ARGS...]",
+		Short: "Run a command inside a running VM via cocoon-agent (vsock)",
+		Args:  cobra.MinimumNArgs(2),
+		RunE:  h.Exec,
+	}
+	execCmd.Flags().StringArrayP("env", "e", nil, "extra env var KEY=VALUE (repeatable)")
+
 	rmCmd := &cobra.Command{
 		Use:   "rm [flags] VM [VM...]",
 		Short: "Delete VM(s) (--force to stop running VMs first)",
@@ -164,6 +173,7 @@ func Command(h Actions) *cobra.Command {
 		listCmd,
 		inspectCmd,
 		consoleCmd,
+		execCmd,
 		rmCmd,
 		restoreCmd,
 		debugCmd,

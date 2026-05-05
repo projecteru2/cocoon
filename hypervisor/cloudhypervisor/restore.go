@@ -60,6 +60,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	if err = patchCHConfig(chConfigPath, &patchOptions{
 		storageConfigs: rec.StorageConfigs[:diskCount],
 		consoleSock:    hypervisor.ConsoleSockPath(rec.RunDir),
+		vsockSock:      hypervisor.VsockSockPath(rec.RunDir),
 		directBoot:     directBoot,
 		windows:        vmCfg.Windows,
 		cpu:            vmCfg.CPU,
