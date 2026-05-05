@@ -58,15 +58,20 @@ This is by design: clone restores the VM's exact state including all account set
 
 Race window: `cocoon vm run X && cocoon vm exec X -- cmd` may fail with `read CONNECT reply: EOF` if the in-guest agent hasn't started yet. The error includes the hint `(cocoon-agent may still be starting; retry shortly)`. Wait ~5–10s after `vm run` returns.
 
-## Clone/restore disk queue count is immutable
+## Clone/restore CPU and memory cannot grow
 
-When cloning or restoring a VM with a different `--cpu` value, the disk `num_queues` (one queue per vCPU) retains the snapshot's original value. This is because `num_queues` is part of the virtio-blk device state baked into the binary snapshot — changing it in `config.json` causes Cloud Hypervisor to crash on `vm.restore`.
+`--cpu` and `--memory` on `cocoon vm clone` / `cocoon vm restore` are written into the new VM's `config.json` (cocoon's `patchCHConfig` does its job), but **the guest still sees the snapshot's original vCPU count and memory size**. Cloud Hypervisor's `vm.restore` reconstructs the guest from the binary memory file and saved CPU state — both sized at snapshot time — so a higher value in `config.json` is silently ignored.
 
-`--disk-queue-size` (ring depth per queue) **is** correctly patched on clone/restore, since it is a software-layer configuration that CH re-reads from `config.json` during restore.
+| What you set | What `config.json` shows | What the guest sees |
+| --- | --- | --- |
+| `--cpu 4` (snapshot was 2-vCPU) | `boot_vcpus: 4` | `nproc` → 2 |
+| `--memory 2G` (snapshot was 1G) | `memory.size: 2147483648` | `MemTotal` → ~1 GiB |
 
-**Consequence**: a VM cloned with `--cpu 8` from a 2-vCPU snapshot still runs disks with 2 queues (not 8). Disk I/O is functional but does not scale to the new vCPU count.
+The disk `num_queues` follows vCPU count and is part of the virtio-blk device state, so it stays at the snapshot's value too. `--disk-queue-size` (ring depth) is software-only and **is** correctly patched on clone/restore.
 
-**Workaround**: none — this is a CH architectural limitation. Create a fresh VM with the desired CPU count instead of cloning if disk multi-queue scaling is critical.
+**Consequence**: clone/restore with grown `--cpu`/`--memory` boots successfully but the new resource ceiling is invisible to the guest kernel. Workloads sized for the requested target will not get the headroom they expect.
+
+**Workaround**: none — this is a CH architectural limitation (no hot-add of vCPU or memory at restore time). Create a fresh VM (`vm run` / `vm create`) with the desired CPU/memory if scaling beyond the snapshot's size is required.
 
 ## Cloud image UEFI boot compatibility
 
