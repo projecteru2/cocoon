@@ -69,6 +69,11 @@ type fcBalloon struct {
 	FreePageReporting bool `json:"free_page_reporting,omitempty"`
 }
 
+type fcVsock struct {
+	GuestCID uint32 `json:"guest_cid"`
+	UDSPath  string `json:"uds_path"`
+}
+
 // FC snapshot/load request types.
 type fcSnapshotCreate struct {
 	SnapshotPath string `json:"snapshot_path"`
@@ -81,6 +86,7 @@ type fcSnapshotLoad struct {
 	EnableDiffSnapshots bool                `json:"enable_diff_snapshots,omitempty"`
 	ResumeVM            bool                `json:"resume_vm,omitempty"`
 	NetworkOverrides    []fcNetworkOverride `json:"network_overrides,omitempty"`
+	VsockOverride       *fcVsockOverride    `json:"vsock_override,omitempty"`
 }
 
 // fcNetworkOverride overrides a network interface from the snapshot
@@ -90,6 +96,13 @@ type fcNetworkOverride struct {
 	HostDevName string `json:"host_dev_name"`
 }
 
+// fcVsockOverride retargets the snapshot's vsock UDS during snapshot/load.
+// Requires FC >= v1.16; older FC rejects unknown fields, so the wrapper is
+// *pointer + omitempty (nil never goes on the wire).
+type fcVsockOverride struct {
+	UDSPath string `json:"uds_path"`
+}
+
 type fcSnapshotMemBE struct {
 	BackendPath string `json:"backend_path"`
 	BackendType string `json:"backend_type"`
@@ -97,9 +110,9 @@ type fcSnapshotMemBE struct {
 
 // fcAPI PUTs body to a Firecracker REST endpoint with retry. Use only for
 // idempotent endpoints (pre-boot config — putMachineConfig, putBootSource,
-// putDrive, putNetworkInterface, putBalloon, putEntropy — where a retry
-// PUT just overwrites the same config). All current callers expect 204; if
-// a future endpoint needs alt success codes, switch to DoAPIWithRetry
+// putDrive, putNetworkInterface, putBalloon, putEntropy, putVsock — where
+// a retry PUT just overwrites the same config). All current callers expect
+// 204; if a future endpoint needs alt success codes, switch to DoAPIWithRetry
 // directly instead of widening this wrapper.
 func fcAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte) error {
 	_, err := utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost"+endpoint, body)
@@ -145,6 +158,10 @@ func putNetworkInterface(ctx context.Context, hc *http.Client, iface fcNetworkIn
 
 func putEntropy(ctx context.Context, hc *http.Client) error {
 	return fcAPI(ctx, hc, "/entropy", []byte("{}"))
+}
+
+func putVsock(ctx context.Context, hc *http.Client, vsock fcVsock) error {
+	return putJSON(ctx, hc, "/vsock", vsock, "vsock")
 }
 
 func instanceStart(ctx context.Context, hc *http.Client) error {
@@ -200,18 +217,22 @@ func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 	return err
 }
 
-// loadSnapshotFC loads a VM snapshot from sourceDir into a freshly started FC process.
-// networkOverrides replaces TAP devices from the snapshot with new ones.
+// loadSnapshotFC loads a snapshot from sourceDir into a freshly started FC.
+// vsockUDSOverride="" inherits the snapshot's path (same-VM restore, FC < v1.16).
 // Bypasses retry — same memory-transfer reasoning as createSnapshotFC.
-func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOverrides []fcNetworkOverride) error {
-	body, err := json.Marshal(fcSnapshotLoad{
+func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOverrides []fcNetworkOverride, vsockUDSOverride string) error {
+	req := fcSnapshotLoad{
 		SnapshotPath: filepath.Join(sourceDir, snapshotVMStateFile),
 		MemBackend: fcSnapshotMemBE{
 			BackendPath: filepath.Join(sourceDir, snapshotMemFile),
 			BackendType: memBackendTypeFile,
 		},
 		NetworkOverrides: networkOverrides,
-	})
+	}
+	if vsockUDSOverride != "" {
+		req.VsockOverride = &fcVsockOverride{UDSPath: vsockUDSOverride}
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal snapshot/load request: %w", err)
 	}

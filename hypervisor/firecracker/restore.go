@@ -81,7 +81,8 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 		}
 	}()
 
-	if err = loadSnapshotFC(ctx, sockPath, rec.RunDir, nil); err != nil {
+	// Same-VM: snapshot's UDS path already matches rec.RunDir; "" stays compatible with FC < v1.16.
+	if err = loadSnapshotFC(ctx, sockPath, rec.RunDir, nil, ""); err != nil {
 		return nil, fmt.Errorf("snapshot/load: %w", err)
 	}
 

@@ -48,6 +48,16 @@ Clone regenerates cidata for **network reconfiguration only** — it does not in
 
 This is by design: clone restores the VM's exact state including all account settings.
 
+## `vm exec` requires vsock — legacy VMs and Windows excluded
+
+`cocoon vm exec` dials the cocoon-agent inside the guest over hybrid vsock. Three caveats:
+
+- **Legacy VMs (created before vsock support landed)** have no vsock UDS bound. `vm inspect` omits `vsock_socket` and `vm exec` returns `vsock not configured for this VM (recreate the VM to enable agent exec)`. Recreate the VM to gain exec capability.
+- **Windows guests** (`--windows`) have no cocoon-agent build yet (v0.1 is Linux-only). `vm exec` short-circuits with a clear error.
+- **FC clone vsock requires FC ≥ v1.16** (the `vsock_override` field on `PUT /snapshot/load` was merged post-v1.15). Older FC rejects the field with `unknown field vsock_override`. Cocoon sends the field only on clone (omitted on same-VM restore for FC < v1.16 compatibility); upgrade FC to clone-with-vsock.
+
+Race window: `cocoon vm run X && cocoon vm exec X -- cmd` may fail with `read CONNECT reply: EOF` if the in-guest agent hasn't started yet. The error includes the hint `(cocoon-agent may still be starting; retry shortly)`. Wait ~5–10s after `vm run` returns.
+
 ## Clone/restore disk queue count is immutable
 
 When cloning or restoring a VM with a different `--cpu` value, the disk `num_queues` (one queue per vCPU) retains the snapshot's original value. This is because `num_queues` is part of the virtio-blk device state baked into the binary snapshot — changing it in `config.json` causes Cloud Hypervisor to crash on `vm.restore`.

@@ -14,6 +14,7 @@ import (
 type patchOptions struct {
 	storageConfigs []*types.StorageConfig
 	consoleSock    string
+	vsockSock      string
 	directBoot     bool
 	windows        bool
 	cpu            int
@@ -58,6 +59,19 @@ func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData [
 	} else {
 		_ = setField(raw, "serial", &chRuntimeFile{Mode: "Socket", Socket: opts.consoleSock})
 		_ = setField(raw, "console", &chRuntimeFile{Mode: "Off"})
+	}
+
+	if opts.vsockSock != "" {
+		if vsockRaw, ok := raw["vsock"]; ok && rawObjectPresent(vsockRaw) {
+			// Preserve id so CH reuses the snapshot's PCI slot instead of allocating a colliding new one.
+			patched, patchErr := patchRawObject(vsockRaw, func(obj map[string]json.RawMessage) error {
+				return setField(obj, "socket", opts.vsockSock)
+			})
+			if patchErr != nil {
+				return fmt.Errorf("patch vsock: %w", patchErr)
+			}
+			raw["vsock"] = patched
+		}
 	}
 
 	if opts.cpu > 0 {

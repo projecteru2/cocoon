@@ -125,6 +125,13 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 		return fmt.Errorf("entropy: %w", err)
 	}
 
+	if err := putVsock(ctx, hc, fcVsock{
+		GuestCID: hypervisor.VsockGuestCID,
+		UDSPath:  hypervisor.VsockSockPath(rec.RunDir),
+	}); err != nil {
+		return fmt.Errorf("vsock: %w", err)
+	}
+
 	if err := instanceStart(ctx, hc); err != nil {
 		return fmt.Errorf("instance-start: %w", err)
 	}

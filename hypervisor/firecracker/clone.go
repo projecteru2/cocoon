@@ -139,9 +139,10 @@ func (fc *Firecracker) restoreAndResumeClone(
 
 	// network_overrides points FC at the clone's TAP instead of the source TAP
 	// (FC recreates devices from vmstate). The earlier symlink redirect makes
-	// FC open the clone's COW; held fds survive its cleanup.
+	// FC open the clone's COW; held fds survive its cleanup. vsock_override
+	// retargets the snapshot's UDS — see fcVsockOverride.
 	netOverrides := buildNetworkOverrides(networkConfigs)
-	if err = loadSnapshotFC(ctx, sockPath, runDir, netOverrides); err != nil {
+	if err = loadSnapshotFC(ctx, sockPath, runDir, netOverrides, hypervisor.VsockSockPath(runDir)); err != nil {
 		return fmt.Errorf("snapshot/load: %w", err)
 	}
 	hc := utils.NewSocketHTTPClient(sockPath)

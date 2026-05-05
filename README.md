@@ -138,6 +138,7 @@ cocoon
 │   ├── list (alias: ls)           List VMs with status
 │   ├── inspect VM                 Show detailed VM info (JSON)
 │   ├── console [flags] VM         Attach interactive console
+│   ├── exec [flags] VM -- CMD     Run a command in a running VM via cocoon-agent (vsock)
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
 │   ├── restore [flags] VM SNAP   Restore a running VM to a snapshot
 │   ├── status [VM...]             Watch VM status in real time
@@ -291,6 +292,25 @@ Applies to `cocoon vm debug`:
 | Flag             | Default  | Description                                       |
 | ---------------- | -------- | ------------------------------------------------- |
 | `--escape-char`  | `^]`     | Escape character (single char or `^X` caret notation) |
+
+### Exec Flags
+
+`cocoon vm exec` runs a command inside a running VM via the cocoon-agent (vsock, no SSH). Stdin/stdout/stderr stream like `kubectl exec`; the host shell sees the guest command's exit code.
+
+| Flag           | Default | Description                                        |
+| -------------- | ------- | -------------------------------------------------- |
+| `--env`, `-e`  |         | Extra env var `KEY=VALUE` (repeatable)              |
+
+```
+$ cocoon vm exec myvm -- uname -n
+myvm
+$ echo hello | cocoon vm exec myvm -- cat
+hello
+$ cocoon vm exec -e FOO=bar myvm -- sh -c 'echo $FOO'
+bar
+```
+
+Requires cocoon-agent to be running inside the guest (already baked into the official `ghcr.io/cocoonstack/cocoon/ubuntu:24.04` image and started via systemd). Windows guests are not yet supported.
 
 ### List Flags
 
