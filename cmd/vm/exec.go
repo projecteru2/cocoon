@@ -74,6 +74,8 @@ func (h Handler) Exec(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("exec: %w", err)
 	}
 	if code != 0 {
+		// Suppress cobra's "Error: exit code N" so callers (e.g. vk-cocoon) only see the child's own output + exit code.
+		cmd.SilenceErrors = true
 		return &ExecExitError{Code: code}
 	}
 	return nil
