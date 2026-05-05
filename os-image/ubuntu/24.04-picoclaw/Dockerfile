@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
+    --mount=type=secret,id=cocoon_agent \
     --mount=type=secret,id=picoclaw_service \
     --mount=type=secret,id=config_json \
     --mount=type=secret,id=picoclaw_init \
@@ -13,7 +14,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     linux-image-virtual \
     initramfs-tools \
     systemd systemd-sysv systemd-timesyncd systemd-resolved \
-    udev kmod iproute2 iputils-ping curl wget arping tcpdump \
+    udev kmod ca-certificates iproute2 iputils-ping curl wget arping tcpdump \
     software-properties-common htop ncdu nload net-tools \
     openssh-server \
     openbox \
@@ -89,6 +90,8 @@ RUN --mount=type=secret,id=cocoon_overlay \
     cp /run/secrets/config_json /root/.picoclaw/config.json && \
     cp /run/secrets/picoclaw_init /usr/local/bin/picoclaw-init && \
     chmod 0755 /usr/local/bin/picoclaw-init && \
+    # [cocoon-agent] vsock exec daemon, auto-started on boot
+    sh /run/secrets/cocoon_agent && \
     # Cleanup
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/apt/lists/partial /var/cache/apt/archives/partial

@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install packages first so /etc/initramfs-tools/scripts/ exists, then inject the hook.
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
+    --mount=type=secret,id=cocoon_agent \
     apt-get update && apt-get install -y --no-install-recommends \
     linux-image-virtual \
     initramfs-tools \
@@ -17,6 +18,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     systemd-resolved \
     udev \
     kmod \
+    ca-certificates \
     iproute2 iputils-ping curl wget arping tcpdump \
     && \
     cp /run/secrets/cocoon_overlay /etc/initramfs-tools/scripts/cocoon-overlay && \
@@ -41,6 +43,8 @@ RUN --mount=type=secret,id=cocoon_overlay \
     systemctl enable systemd-networkd systemd-resolved systemd-timesyncd && \
     mkdir -p /etc/systemd/network && \
     printf "[Match]\nName=e* v*\n[Network]\nDHCP=yes\n\n[DHCPv4]\nClientIdentifier=mac\n" > /etc/systemd/network/20-wired.network && \
+    # [cocoon-agent] vsock exec daemon, auto-started on boot
+    sh /run/secrets/cocoon_agent && \
     # [Access] Set root password
     echo 'root:cocoon' | chpasswd && \
     # [Cleanup] Purge APT cache to minimize EROFS size

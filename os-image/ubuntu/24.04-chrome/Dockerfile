@@ -6,11 +6,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
+    --mount=type=secret,id=cocoon_agent \
     apt-get update && apt-get install -y --no-install-recommends \
     linux-image-virtual \
     initramfs-tools \
     systemd systemd-sysv systemd-timesyncd systemd-resolved \
-    udev kmod iproute2 iputils-ping curl wget arping tcpdump \
+    udev kmod ca-certificates iproute2 iputils-ping curl wget arping tcpdump \
     software-properties-common htop ncdu nload net-tools \
     openbox \
     xserver-xorg-core dbus-x11 xrdp xorgxrdp \
@@ -50,6 +51,8 @@ RUN --mount=type=secret,id=cocoon_overlay \
     sed -i 's/^tcp_nodelay=.*/tcp_nodelay=true/' /etc/xrdp/xrdp.ini && \
     adduser xrdp ssl-cert && \
     systemctl enable xrdp && \
+    # [cocoon-agent] vsock exec daemon, auto-started on boot
+    sh /run/secrets/cocoon_agent && \
     echo 'root:cocoon' | chpasswd && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/apt/lists/partial /var/cache/apt/archives/partial
