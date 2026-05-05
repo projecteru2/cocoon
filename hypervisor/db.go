@@ -1,6 +1,8 @@
 package hypervisor
 
 import (
+	"fmt"
+
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -40,4 +42,12 @@ func (idx *VMIndex) Resolve(ref string) (string, error) {
 
 func (idx *VMIndex) ResolveMany(refs []string) ([]string, error) {
 	return utils.ResolveRefs(idx.VMs, idx.Names, refs, ErrNotFound)
+}
+
+func (idx *VMIndex) GetRecord(vmID string) (*VMRecord, error) {
+	r := idx.VMs[vmID]
+	if r == nil {
+		return nil, fmt.Errorf("vm %s disappeared from index", vmID)
+	}
+	return r, nil
 }

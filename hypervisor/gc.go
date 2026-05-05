@@ -2,6 +2,7 @@ package hypervisor
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"slices"
 	"time"
@@ -82,4 +83,40 @@ func (b *Backend) RegisterGC(orch *gc.Orchestrator) {
 // WatchPath returns VM index file path for filesystem-based watching.
 func (b *Backend) WatchPath() string {
 	return b.Conf.IndexFile()
+}
+
+// GCCollect kills leftover hypervisor processes and removes orphan dirs/records.
+// Runs under the GC orchestrator's flock — uses lock-free DB access.
+func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
+	var errs []error
+	for _, id := range ids {
+		runDir, logDir := b.Conf.VMRunDir(id), b.Conf.VMLogDir(id)
+		_ = b.DB.ReadRaw(func(idx *VMIndex) error {
+			if rec := idx.VMs[id]; rec != nil {
+				runDir, logDir = rec.RunDir, rec.LogDir
+			}
+			return nil
+		})
+		b.killOrphanProcess(ctx, runDir)
+		if err := RemoveVMDirs(runDir, logDir); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := b.CleanStalePlaceholders(ctx, ids); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// killOrphanProcess terminates a leftover hypervisor process if PID matches the binary.
+func (b *Backend) killOrphanProcess(ctx context.Context, runDir string) {
+	pid, err := utils.ReadPIDFile(b.PIDFilePath(runDir))
+	if err != nil {
+		return
+	}
+	sockPath := SocketPath(runDir)
+	if !utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), sockPath) {
+		return
+	}
+	_ = utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod())
 }
