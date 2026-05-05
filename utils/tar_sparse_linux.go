@@ -11,6 +11,9 @@ import (
 	"strconv"
 )
 
+// Sparse-map JSON cap (margin under tar's 1MB PAX block); var so tests can override.
+var maxSparseMapJSONSize = 800 * 1024
+
 // tarFileMaybeSparse writes a file to tw using our custom COCOON.sparse PAX
 // format when the file has holes (detected via SEEK_HOLE/SEEK_DATA).
 //
@@ -21,6 +24,7 @@ import (
 //   - the file is empty or very small
 //   - SEEK_HOLE/SEEK_DATA fails (unsupported filesystem)
 //   - the file has no holes (not actually sparse)
+//   - the segment-map JSON would exceed tar's 1MB PAX cap
 func tarFileMaybeSparse(tw *tar.Writer, path, nameInTar string) error {
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {
@@ -41,10 +45,7 @@ func tarFileMaybeSparse(tw *tar.Writer, path, nameInTar string) error {
 	segments, err := scanDataSegments(int(f.Fd()), size)
 	if err != nil {
 		// SEEK_HOLE/SEEK_DATA unsupported (e.g. tmpfs, NFS). Fall back.
-		if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
-			return fmt.Errorf("seek %s: %w", path, seekErr)
-		}
-		return tarFileFrom(tw, f, fi, nameInTar)
+		return rewindAndTarFull(tw, f, fi, path, nameInTar)
 	}
 
 	var dataSize int64
@@ -52,15 +53,17 @@ func tarFileMaybeSparse(tw *tar.Writer, path, nameInTar string) error {
 		dataSize += seg.Length
 	}
 	if dataSize == size {
-		if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
-			return fmt.Errorf("seek %s: %w", path, seekErr)
-		}
-		return tarFileFrom(tw, f, fi, nameInTar)
+		return rewindAndTarFull(tw, f, fi, path, nameInTar)
 	}
 
 	mapJSON, err := json.Marshal(segments)
 	if err != nil {
 		return fmt.Errorf("marshal sparse map for %s: %w", path, err)
+	}
+
+	// Segment-map JSON exceeds tar's 1MB PAX cap. Fall back to non-sparse.
+	if len(mapJSON) > maxSparseMapJSONSize {
+		return rewindAndTarFull(tw, f, fi, path, nameInTar)
 	}
 
 	hdr, err := tar.FileInfoHeader(fi, "")
@@ -88,4 +91,12 @@ func tarFileMaybeSparse(tw *tar.Writer, path, nameInTar string) error {
 	}
 
 	return nil
+}
+
+// rewindAndTarFull seeks f to the start and writes it as a non-sparse tar entry.
+func rewindAndTarFull(tw *tar.Writer, f *os.File, fi os.FileInfo, path, nameInTar string) error {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seek %s: %w", path, err)
+	}
+	return tarFileFrom(tw, f, fi, nameInTar)
 }
