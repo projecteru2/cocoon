@@ -226,9 +226,10 @@ Applies to `cocoon vm restore`:
 | `--from-dir`  | empty   | Restore from a snapshot directory (must contain `snapshot.json`); mutually exclusive with positional `SNAPSHOT` |
 | `--force`     | `false` | Skip the snapshot-belongs-to-VM check (only meaningful with `--from-dir`)                              |
 
-All resources (CPU, memory, storage, NIC count) are inherited from the
-target VM and the snapshot — they must already match. Restore reuses the
-existing network namespace.
+CPU, memory, and storage come from the snapshot (the hypervisor
+reconstructs the guest from snapshot state, so the persisted record is
+realigned to match). NIC count must match the target VM — restore reuses
+its existing network namespace, TAP devices, and IP allocation.
 
 ### Snapshot Flags
 
@@ -744,8 +745,9 @@ Cocoon stages the snapshot into a scratch directory first, then restarts the hyp
 ### Restore Constraints
 
 - **VM must be running.** Restore operates on a live VM by restarting its CH process with snapshot state. For stopped VMs, use `cocoon vm clone` instead.
-- **Snapshot must belong to the VM.** Only snapshots created from the same VM (tracked in `snapshot_ids`) are accepted. Cross-VM restore is not supported; use `cocoon vm clone` for that.
-- **All resources are fixed at snapshot values.** CPU, memory, storage, and NIC count cannot be changed on restore — both hypervisors reconstruct the guest from the snapshot's binary device state.
+- **Snapshot must belong to the VM.** Only snapshots created from the same VM (tracked in `snapshot_ids`) are accepted; pass `--force` with `--from-dir` to opt into a foreign lineage.
+- **CPU, memory, and storage come from the snapshot.** The hypervisor reconstructs the guest from snapshot state, so these are not configurable at restore time; cocoon realigns the persisted record to match.
+- **NIC count must match the target VM.** Restore reuses the VM's existing network namespace, TAP devices, and IP allocation; a mismatched count is rejected.
 
 ## Status Monitoring
 
