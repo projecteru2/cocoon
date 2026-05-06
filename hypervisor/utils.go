@@ -22,6 +22,9 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// SnapshotFileKind classifies a snapshot file for CloneSnapshotFiles.
+type SnapshotFileKind int
+
 const (
 	// SnapshotFileMemory is a read-only memory/state file (hard link or symlink).
 	SnapshotFileMemory SnapshotFileKind = iota
@@ -40,9 +43,6 @@ const (
 	// usually appears within a few ms after process start.
 	socketReadyPollInterval = 1 * time.Millisecond
 )
-
-// SnapshotFileKind classifies a snapshot file for CloneSnapshotFiles.
-type SnapshotFileKind int
 
 func RemoveVMDirs(runDir, logDir string) error {
 	return errors.Join(

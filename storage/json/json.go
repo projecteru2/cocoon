@@ -2,11 +2,8 @@ package json
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
-	"os"
 
 	"github.com/projecteru2/core/log"
 
@@ -73,16 +70,8 @@ func (s *Store[T]) Unlock(ctx context.Context) error {
 
 func (s *Store[T]) load() (*T, error) {
 	var data T
-	raw, err := os.ReadFile(s.filePath) //nolint:gosec
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			initData(&data)
-			return &data, nil
-		}
-		return nil, fmt.Errorf("read %s: %w", s.filePath, err)
-	}
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", s.filePath, err)
+	if err := utils.ReadJSONFile(s.filePath, &data); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
 	}
 	initData(&data)
 	return &data, nil

@@ -94,16 +94,16 @@ func commitAndRecord(conf *Config, idx *imageIndex, ref string, manifestDigest i
 		}
 		totalSize += size
 	}
-	if size, err := validFileSize(conf.KernelPath(kernelLayer.Hex())); err != nil {
+	size, err := validFileSize(conf.KernelPath(kernelLayer.Hex()))
+	if err != nil {
 		return fmt.Errorf("kernel missing for %s (concurrent GC?)", kernelLayer)
-	} else {
-		totalSize += size
 	}
-	if size, err := validFileSize(conf.InitrdPath(initrdLayer.Hex())); err != nil {
+	totalSize += size
+	size, err = validFileSize(conf.InitrdPath(initrdLayer.Hex()))
+	if err != nil {
 		return fmt.Errorf("initrd missing for %s (concurrent GC?)", initrdLayer)
-	} else {
-		totalSize += size
 	}
+	totalSize += size
 
 	idx.Images[ref] = &imageEntry{
 		Ref:            ref,

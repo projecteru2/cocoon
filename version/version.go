@@ -6,7 +6,6 @@ import (
 )
 
 var (
-	NAME     = "Cocoon"
 	VERSION  = "unknown"
 	REVISION = "HEAD"
 	BUILTAT  = "now"
