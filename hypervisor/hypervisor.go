@@ -26,6 +26,7 @@ type Hypervisor interface {
 	List(context.Context) ([]*types.VM, error)
 	Delete(ctx context.Context, refs []string, force bool) ([]string, error)
 	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
+	LogPath(ctx context.Context, ref string) (string, error)
 	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
 	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error)
 	Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error)

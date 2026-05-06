@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 var (
@@ -42,7 +44,7 @@ type sourceImageInfo struct {
 }
 
 func sniffImageSource(f *os.File) error {
-	head, err := peekHead(f, 8)
+	head, err := utils.FileHead(f, 8) //nolint:mnd
 	if err != nil {
 		return fmt.Errorf("read source: %w", err)
 	}
@@ -62,15 +64,6 @@ func sniffHead(head []byte) error {
 		}
 	}
 	return nil
-}
-
-func peekHead(f *os.File, n int) ([]byte, error) {
-	buf := make([]byte, n)
-	m, err := f.ReadAt(buf, 0)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	return buf[:m], nil
 }
 
 func inspectImage(ctx context.Context, path string) (*sourceImageInfo, error) {

@@ -1,10 +1,12 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/moby/term"
 	"github.com/projecteru2/core/log"
@@ -19,7 +21,11 @@ import (
 	"github.com/cocoonstack/cocoon/network"
 	bridgenet "github.com/cocoonstack/cocoon/network/bridge"
 	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
+
+// logHeadSigLen spans CH/FC's boot timestamp on line 1.
+const logHeadSigLen = 64
 
 // attachedDevices is the inspect-only view of runtime hot-plugged devices.
 // Cocoon never persists this structure; it is read from CH vm.info on demand.
@@ -168,6 +174,74 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("relay: %w", err)
 	}
 	return nil
+}
+
+func (h Handler) Logs(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
+	if err != nil {
+		return fmt.Errorf("logs: %w", err)
+	}
+	path, err := hyper.LogPath(ctx, args[0])
+	if err != nil {
+		return fmt.Errorf("logs: %w", err)
+	}
+	follow, _ := cmd.Flags().GetBool("follow")
+	return streamLog(ctx, path, follow)
+}
+
+func streamLog(ctx context.Context, path string, follow bool) error {
+	f, err := os.Open(path) //nolint:gosec
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("open log %s: VM may not have been started yet", path)
+		}
+		return fmt.Errorf("open log: %w", err)
+	}
+	defer f.Close() //nolint:errcheck
+
+	if !follow {
+		if _, copyErr := io.Copy(os.Stdout, f); copyErr != nil {
+			return fmt.Errorf("read log: %w", copyErr)
+		}
+		return nil
+	}
+
+	events, err := utils.WatchFile(ctx, path, 100*time.Millisecond) //nolint:mnd
+	if err != nil {
+		return fmt.Errorf("watch log: %w", err)
+	}
+	sig, _ := utils.FileHead(f, logHeadSigLen)
+	if _, err := io.Copy(os.Stdout, f); err != nil {
+		return fmt.Errorf("read log: %w", err)
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case _, ok := <-events:
+			if !ok {
+				return nil
+			}
+			// stop/start re-opens with O_TRUNC; the head bytes change because
+			// CH/FC stamp a unique boot timestamp at line 1, so a sig mismatch
+			// catches a new generation even when the file regrows to the same
+			// length within the debounce window.
+			newSig, _ := utils.FileHead(f, logHeadSigLen)
+			if !bytes.Equal(newSig, sig) {
+				if _, err := f.Seek(0, io.SeekStart); err != nil {
+					return fmt.Errorf("rewind log: %w", err)
+				}
+				sig = newSig
+			}
+			if _, err := io.Copy(os.Stdout, f); err != nil {
+				return fmt.Errorf("read log: %w", err)
+			}
+		}
+	}
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {

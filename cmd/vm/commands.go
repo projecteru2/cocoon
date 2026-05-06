@@ -19,6 +19,7 @@ type Actions interface {
 	Inspect(cmd *cobra.Command, args []string) error
 	Console(cmd *cobra.Command, args []string) error
 	Exec(cmd *cobra.Command, args []string) error
+	Logs(cmd *cobra.Command, args []string) error
 	RM(cmd *cobra.Command, args []string) error
 	Restore(cmd *cobra.Command, args []string) error
 	Debug(cmd *cobra.Command, args []string) error
@@ -112,6 +113,14 @@ func Command(h Actions) *cobra.Command {
 	}
 	execCmd.Flags().StringArrayP("env", "e", nil, "extra env var KEY=VALUE (repeatable)")
 
+	logsCmd := &cobra.Command{
+		Use:   "logs [flags] VM",
+		Short: "Print the per-VM hypervisor log file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.Logs,
+	}
+	logsCmd.Flags().BoolP("follow", "f", false, "stream new log lines as they are written")
+
 	rmCmd := &cobra.Command{
 		Use:   "rm [flags] VM [VM...]",
 		Short: "Delete VM(s) (--force to stop running VMs first)",
@@ -171,6 +180,7 @@ func Command(h Actions) *cobra.Command {
 		inspectCmd,
 		consoleCmd,
 		execCmd,
+		logsCmd,
 		rmCmd,
 		restoreCmd,
 		debugCmd,
