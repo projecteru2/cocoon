@@ -42,11 +42,10 @@ func IsProcessAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// VerifyProcessCmdline matches pid against (binaryName, expectArg) in
-// /proc/<pid>/cmdline; expectArg must be non-empty to disambiguate VMs of
-// the same backend. Falls back to IsProcessAlive on non-Linux.
+// VerifyProcessCmdline matches pid against binaryName + expectArg in
+// /proc/<pid>/cmdline; falls back to IsProcessAlive on non-Linux.
 func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
-	if pid <= 0 || expectArg == "" {
+	if pid <= 0 {
 		return false
 	}
 	if match, ok := verifyProcessCmdline(pid, binaryName, expectArg); ok {
