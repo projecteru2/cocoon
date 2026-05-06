@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/moby/term"
 	"github.com/projecteru2/core/log"
@@ -168,6 +169,57 @@ func (h Handler) Console(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("relay: %w", err)
 	}
 	return nil
+}
+
+func (h Handler) Logs(cmd *cobra.Command, args []string) error {
+	ctx, conf, err := h.Init(cmd)
+	if err != nil {
+		return err
+	}
+	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
+	if err != nil {
+		return fmt.Errorf("logs: %w", err)
+	}
+	path, err := hyper.LogPath(ctx, args[0])
+	if err != nil {
+		return fmt.Errorf("logs: %w", err)
+	}
+	f, err := os.Open(path) //nolint:gosec
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("log file not found at %s (the VM may not have been started yet)", path)
+		}
+		return fmt.Errorf("open log: %w", err)
+	}
+	defer f.Close() //nolint:errcheck
+
+	if _, err := io.Copy(os.Stdout, f); err != nil {
+		return fmt.Errorf("read log: %w", err)
+	}
+	follow, _ := cmd.Flags().GetBool("follow")
+	if !follow {
+		return nil
+	}
+	return tailFollow(ctx, f)
+}
+
+// tailFollow polls f for new bytes after EOF and copies them to stdout
+// until ctx is canceled. The hypervisor never rotates this file, so we
+// don't need to handle truncation or rename.
+func tailFollow(ctx context.Context, f *os.File) error {
+	const pollInterval = 500 * time.Millisecond
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if _, err := io.Copy(os.Stdout, f); err != nil {
+				return fmt.Errorf("read log: %w", err)
+			}
+		}
+	}
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
