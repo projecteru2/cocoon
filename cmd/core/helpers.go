@@ -491,7 +491,7 @@ func IsURL(ref string) bool {
 
 // digestPullRef pins OCI pulls by digest; returns image as-is for others.
 func digestPullRef(image, digest, imageType string) string {
-	if digest == "" || imageType != "oci" {
+	if digest == "" || imageType != types.ImageTypeOCI {
 		return image
 	}
 	// OCI: convert "registry/repo:tag" → "registry/repo@sha256:..."

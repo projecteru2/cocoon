@@ -508,7 +508,7 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 		return
 	}
 
-	isCloudimg := vm.Config.ImageType == "cloudimg"
+	isCloudimg := vm.Config.ImageType == types.ImageTypeCloudImg
 
 	fmt.Println()
 	fmt.Println("Run inside the guest to finish setup:")
