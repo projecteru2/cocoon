@@ -101,6 +101,17 @@ func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byt
 	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
 
+// vmPutJSON marshals payload and PUTs to endpoint via vmAPIOnce. Mirrors
+// firecracker.putJSON so per-endpoint helpers stay one-line wrappers.
+func vmPutJSON[T any](ctx context.Context, hc *http.Client, endpoint, kind string, payload T, successCodes ...int) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", kind, err)
+	}
+	_, err = vmAPIOnce(ctx, hc, endpoint, body, successCodes...)
+	return err
+}
+
 // shutdownVM, pauseVM, resumeVM are all CH state transitions; a second call
 // in the wrong state returns an error. Route through vmAPIOnce so a retry
 // after a lost response cannot mask the original success.
@@ -158,34 +169,18 @@ func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand 
 // masks the original success. Used during clone (cidata hot-plug, NIC swap)
 // after vm.restore.
 func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
-	body, err := json.Marshal(disk)
-	if err != nil {
-		return fmt.Errorf("marshal add-disk request: %w", err)
-	}
-	_, err = vmAPIOnce(ctx, hc, "vm.add-disk", body, http.StatusOK, http.StatusNoContent)
-	return err
+	return vmPutJSON(ctx, hc, "vm.add-disk", "add-disk request", disk, http.StatusOK, http.StatusNoContent)
 }
 
 // removeDeviceVM is non-idempotent: a retry after CH already detached the
 // device but the response was lost would surface as "id not found" and mask
-// the original success. Route through vmAPIOnce, same shape as the add-* hot
-// paths.
+// the original success.
 func removeDeviceVM(ctx context.Context, hc *http.Client, deviceID string) error {
-	body, err := json.Marshal(map[string]string{"id": deviceID})
-	if err != nil {
-		return fmt.Errorf("marshal remove-device request: %w", err)
-	}
-	_, err = vmAPIOnce(ctx, hc, "vm.remove-device", body)
-	return err
+	return vmPutJSON(ctx, hc, "vm.remove-device", "remove-device request", map[string]string{"id": deviceID})
 }
 
 func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
-	body, err := json.Marshal(net)
-	if err != nil {
-		return fmt.Errorf("marshal add-net request: %w", err)
-	}
-	_, err = vmAPIOnce(ctx, hc, "vm.add-net", body, http.StatusOK, http.StatusNoContent)
-	return err
+	return vmPutJSON(ctx, hc, "vm.add-net", "add-net request", net, http.StatusOK, http.StatusNoContent)
 }
 
 // getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts

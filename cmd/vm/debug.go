@@ -22,9 +22,7 @@ type chDebugSpec struct {
 	CowPath    string
 	CHBin      string
 	MaxCPU     int
-	Memory     int
 	Balloon    int
-	CowSize    int
 	DirectBoot bool
 }
 
@@ -151,8 +149,6 @@ func buildCHDebugSpec(cmd *cobra.Command, storageConfigs []*types.StorageConfig,
 	balloon, _ := cmd.Flags().GetInt("balloon")
 	cowPath, _ := cmd.Flags().GetString("cow")
 	chBin, _ := cmd.Flags().GetString("ch")
-	memoryMB := int(vmCfg.Memory >> 20)   //nolint:mnd
-	cowSizeGB := int(vmCfg.Storage >> 30) //nolint:mnd
 	// Mirror runtime gating: Windows / sub-MinBalloon VMs never get balloon,
 	// even if the user passed --balloon, so debug output stays truthful.
 	size, ok := hypervisor.BalloonSize(vmCfg.Memory, vmCfg.Windows)
@@ -169,9 +165,7 @@ func buildCHDebugSpec(cmd *cobra.Command, storageConfigs []*types.StorageConfig,
 		CowPath:    cowPath,
 		CHBin:      chBin,
 		MaxCPU:     maxCPU,
-		Memory:     memoryMB,
 		Balloon:    balloon,
-		CowSize:    cowSizeGB,
 		DirectBoot: boot.KernelPath != "",
 	}
 }
@@ -195,7 +189,7 @@ func printCHDebug(s chDebugSpec) {
 			cocoonLayers, hypervisor.CowSerial)
 
 		fmt.Println("# Prepare COW disk")
-		fmt.Printf("truncate -s %dG %s\n", s.CowSize, s.CowPath)
+		fmt.Printf("truncate -s %dG %s\n", s.VMCfg.Storage>>30, s.CowPath) //nolint:mnd
 		fmt.Printf("mkfs.ext4 -F -m 0 -q -E lazy_itable_init=1,lazy_journal_init=1,discard %s\n", s.CowPath)
 		fmt.Println()
 		fmt.Printf("# Launch VM: %s (image: %s, boot: direct kernel)\n", s.VMCfg.Name, s.VMCfg.Image)
@@ -215,8 +209,8 @@ func printCHDebug(s chDebugSpec) {
 		basePath := s.Configs[0].Path
 		fmt.Println("# Prepare COW overlay")
 		fmt.Printf("qemu-img create -f qcow2 -F qcow2 -b %s %s\n", basePath, s.CowPath)
-		if s.CowSize > 0 {
-			fmt.Printf("qemu-img resize %s %dG\n", s.CowPath, s.CowSize)
+		if s.VMCfg.Storage > 0 {
+			fmt.Printf("qemu-img resize %s %dG\n", s.CowPath, s.VMCfg.Storage>>30) //nolint:mnd
 		}
 		fmt.Println()
 		fmt.Printf("# Launch VM: %s (image: %s, boot: UEFI firmware)\n", s.VMCfg.Name, s.VMCfg.Image)
@@ -239,7 +233,7 @@ func printCommonCHArgs(s chDebugSpec) {
 		memExtra = ",shared=on"
 	}
 	fmt.Printf("  --cpus boot=%d,max=%d%s \\\n", s.VMCfg.CPU, s.MaxCPU, cpuExtra)
-	fmt.Printf("  --memory size=%dM%s \\\n", s.Memory, memExtra)
+	fmt.Printf("  --memory size=%dM%s \\\n", s.VMCfg.Memory>>20, memExtra) //nolint:mnd
 	fmt.Printf("  --rng src=/dev/urandom \\\n")
 	if s.Balloon > 0 {
 		fmt.Printf("  --balloon size=%dM,deflate_on_oom=on,free_page_reporting=on \\\n", s.Balloon)

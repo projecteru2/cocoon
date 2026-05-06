@@ -35,6 +35,10 @@ const (
 	// MinDataDiskSize is the minimum user data disk size; mkfs.ext4 is
 	// unstable below this on small sparse files.
 	MinDataDiskSize int64 = 16 << 20
+
+	// socketReadyPollInterval is the WaitForSocket poll cadence — VMM socket
+	// usually appears within a few ms after process start.
+	socketReadyPollInterval = 1 * time.Millisecond
 )
 
 // SnapshotFileKind classifies a snapshot file for CloneSnapshotFiles.
@@ -75,8 +79,7 @@ func ExtractBlobIDs(storageConfigs []*types.StorageConfig, boot *types.BootConfi
 	return ids
 }
 
-// BlobHexFromPath strips the directory and extension from a blob path, e.g.
-// "/var/lib/cocoon/oci/blobs/abc123.erofs" → "abc123".
+// BlobHexFromPath returns the digest hex of a blob path (e.g. .../abc123.erofs → abc123).
 func BlobHexFromPath(path string) string {
 	base := filepath.Base(path)
 	return strings.TrimSuffix(base, filepath.Ext(base))
@@ -418,7 +421,7 @@ func CleanSnapshotFiles(runDir string, match func(name string) bool) error {
 }
 
 func WaitForSocket(ctx context.Context, socketPath string, pid int, timeout time.Duration, processName string) error {
-	return utils.WaitFor(ctx, timeout, 1*time.Millisecond, func() (bool, error) { //nolint:mnd
+	return utils.WaitFor(ctx, timeout, socketReadyPollInterval, func() (bool, error) {
 		if utils.CheckSocket(socketPath) == nil {
 			return true, nil
 		}
