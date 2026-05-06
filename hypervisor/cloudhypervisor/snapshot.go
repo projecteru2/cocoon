@@ -50,7 +50,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 // diverge for cloudimg post-FirstBooted but pre-restart: CH still holds cidata,
 // activeDisks would skip it.
 func buildSnapshotMeta(rec *hypervisor.VMRecord, tmpDir string) (*hypervisor.SnapshotMeta, error) {
-	chCfg, _, err := parseCHConfig(filepath.Join(tmpDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(tmpDir, "config.json"))
 	if err != nil {
 		return nil, fmt.Errorf("parse snapshot config: %w", err)
 	}

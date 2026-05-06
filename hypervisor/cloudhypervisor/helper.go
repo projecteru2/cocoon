@@ -46,7 +46,7 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	if err := hypervisor.ValidateSnapshotIntegrity(srcDir, sidecar); err != nil {
 		return err
 	}
-	chCfg, _, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
 	if err != nil {
 		return fmt.Errorf("parse snapshot config: %w", err)
 	}

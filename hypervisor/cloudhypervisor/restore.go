@@ -62,12 +62,9 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 		consoleSock:    hypervisor.ConsoleSockPath(rec.RunDir),
 		vsockSock:      hypervisor.VsockSockPath(rec.RunDir),
 		directBoot:     directBoot,
-		windows:        vmCfg.Windows,
-		cpu:            vmCfg.CPU,
-		memory:         vmCfg.Memory,
 		diskQueueSize:  vmCfg.DiskQueueSize,
 		noDirectIO:     vmCfg.NoDirectIO,
-	}, nil, nil); err != nil {
+	}); err != nil {
 		return nil, fmt.Errorf("patch config: %w", err)
 	}
 

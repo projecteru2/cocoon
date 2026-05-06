@@ -33,7 +33,7 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 }
 
 func cloneSnapshotFiles(dstDir, srcDir string) error {
-	chCfg, _, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
 	if err != nil {
 		return fmt.Errorf("parse source config: %w", err)
 	}

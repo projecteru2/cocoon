@@ -16,11 +16,10 @@ import (
 
 func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
 	return fc.RestoreSequence(ctx, vmRef, hypervisor.RestoreSpec{
-		VMCfg:         vmCfg,
-		Snapshot:      snapshot,
-		OverrideCheck: validateRestoreOverrides,
-		Preflight:     fc.preflightRestore,
-		Kill:          fc.killForRestore,
+		VMCfg:     vmCfg,
+		Snapshot:  snapshot,
+		Preflight: fc.preflightRestore,
+		Kill:      fc.killForRestore,
 		// Lock writable disks so recoverStaleBackup heals stale data-*.raw.cocoon-clone-backup
 		// before restore overwrites them; otherwise a future clone renames backup over restored data.
 		Wrap: func(rec *hypervisor.VMRecord, inner func() error) error {
@@ -93,15 +92,4 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 
 	logger.Infof(ctx, "VM %s restored from snapshot", vmID)
 	return fc.FinalizeRestore(ctx, vmID, vmCfg, rec, pid)
-}
-
-// validateRestoreOverrides rejects CPU/memory changes FC cannot apply post-load.
-func validateRestoreOverrides(rec *hypervisor.VMRecord, vmCfg *types.VMConfig) error {
-	if vmCfg.CPU != rec.Config.CPU {
-		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (VM has %d)", vmCfg.CPU, rec.Config.CPU)
-	}
-	if vmCfg.Memory != rec.Config.Memory {
-		return fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
-	}
-	return nil
 }

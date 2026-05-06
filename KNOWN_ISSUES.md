@@ -58,21 +58,6 @@ This is by design: clone restores the VM's exact state including all account set
 
 Race window: `cocoon vm run X && cocoon vm exec X -- cmd` may fail with `read CONNECT reply: EOF` if the in-guest agent hasn't started yet. The error includes the hint `(cocoon-agent may still be starting; retry shortly)`. Wait ~5–10s after `vm run` returns.
 
-## Clone/restore CPU and memory cannot grow
-
-`--cpu` and `--memory` on `cocoon vm clone` / `cocoon vm restore` are written into the new VM's `config.json` (cocoon's `patchCHConfig` does its job), but **the guest still sees the snapshot's original vCPU count and memory size**. Cloud Hypervisor's `vm.restore` reconstructs the guest from the binary memory file and saved CPU state — both sized at snapshot time — so a higher value in `config.json` is silently ignored.
-
-| What you set | What `config.json` shows | What the guest sees |
-| --- | --- | --- |
-| `--cpu 4` (snapshot was 2-vCPU) | `boot_vcpus: 4` | `nproc` → 2 |
-| `--memory 2G` (snapshot was 1G) | `memory.size: 2147483648` | `MemTotal` → ~1 GiB |
-
-The disk `num_queues` follows vCPU count and is part of the virtio-blk device state, so it stays at the snapshot's value too. `--disk-queue-size` (ring depth) is software-only and **is** correctly patched on clone/restore.
-
-**Consequence**: clone/restore with grown `--cpu`/`--memory` boots successfully but the new resource ceiling is invisible to the guest kernel. Workloads sized for the requested target will not get the headroom they expect.
-
-**Workaround**: none — this is a CH architectural limitation (no hot-add of vCPU or memory at restore time). Create a fresh VM (`vm run` / `vm create`) with the desired CPU/memory if scaling beyond the snapshot's size is required.
-
 ## Cloud image UEFI boot compatibility
 
 Cocoon uses [rust-hypervisor-firmware](https://github.com/cloud-hypervisor/rust-hypervisor-firmware) (`CLOUDHV.fd`) for cloud image UEFI boot. This firmware implements a minimal EFI specification and does **not** support the `InstallMultipleProtocolInterfaces()` call required by newer distributions.
@@ -197,7 +182,6 @@ Firecracker snapshots store absolute host paths in the vmstate binary (Rust serd
 
 - **Same-host clone/restore**: works without restrictions
 - **Cross-host export/import**: requires the target host to use **identical `root_dir` and `run_dir`** (default: `/var/lib/cocoon` and `/var/lib/cocoon/run`) and have the **same OCI image pulled**
-- **CPU/memory overrides**: not supported on clone/restore — Firecracker cannot change machine config after snapshot/load; `--cpu` and `--memory` flags are rejected if they differ from the snapshot values
 - **Drive path redirect**: Cocoon uses a temporary symlink to redirect the source COW path to the clone's COW during `snapshot/load`. This requires a COW flock to serialize with concurrent operations
 
 This is a fundamental Firecracker design limitation. Cloud Hypervisor snapshots do not have this restriction because CH stores device config in a patchable JSON format (`config.json`).
