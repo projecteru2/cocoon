@@ -69,11 +69,6 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	if err = hypervisor.VerifyBaseFiles(storageConfigs, bootCfg); err != nil {
 		return nil, fmt.Errorf("verify base files: %w", err)
 	}
-	if vmCfg.Storage > 0 {
-		if err = qemuExpandImage(ctx, cowPath, vmCfg.Storage, directBoot); err != nil {
-			return nil, fmt.Errorf("resize COW: %w", err)
-		}
-	}
 
 	stateReplacements := buildStateReplacements(chCfg, storageConfigs)
 

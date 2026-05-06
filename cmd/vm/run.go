@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -181,11 +180,6 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("snapshot %s does not belong to VM %s", snapRef, vmRef)
 	}
 
-	if snapInfo.NICs != len(vm.NetworkConfigs) {
-		return fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
-			len(vm.NetworkConfigs), snapInfo.NICs)
-	}
-
 	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, snapInfo.SnapshotConfig)
 	if err != nil {
 		return err
@@ -247,10 +241,6 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 			return fmt.Errorf("snapshot envelope id %s does not belong to VM %s; pass --force to override", cfg.ID, vmRef)
 		}
 		logger.Warnf(ctx, "snapshot envelope id %s does not belong to VM %s; --force in effect", cfg.ID, vmRef)
-	}
-	if cfg.NICs != len(vm.NetworkConfigs) {
-		return fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
-			len(vm.NetworkConfigs), cfg.NICs)
 	}
 	vmCfg, err := cmdcore.RestoreVMConfigFromFlags(cmd, vm, cfg)
 	if err != nil {
@@ -357,22 +347,8 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		cmdcore.EnsureImage(ctx, backends, vmCfg)
 	}
 
-	// FC snapshot/load cannot change CPU, memory, or NIC count.
-	// Reject overrides early before creating network/dirs.
-	if conf.UseFirecracker {
-		if validateErr := validateFCCloneOverrides(cmd, cfg); validateErr != nil {
-			return nil, "", nil, nil, validateErr
-		}
-	}
-
-	nicsFlag, _ := cmd.Flags().GetInt("nics")
-	nics := cmp.Or(nicsFlag, cfg.NICs)
-	if nics < cfg.NICs {
-		return nil, "", nil, nil, fmt.Errorf("--nics %d below snapshot minimum %d", nics, cfg.NICs)
-	}
-
 	bridgeDev, _ := cmd.Flags().GetString("bridge")
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, cfg.NICs, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
@@ -630,19 +606,6 @@ func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	}
 
 	fmt.Println("  systemctl restart systemd-networkd")
-}
-
-func validateFCCloneOverrides(cmd *cobra.Command, cfg types.SnapshotConfig) error {
-	if cpuFlag, _ := cmd.Flags().GetInt("cpu"); cpuFlag > 0 && cpuFlag != cfg.CPU {
-		return fmt.Errorf("--cpu %d not supported: Firecracker cannot change CPU after snapshot/load (snapshot has %d)", cpuFlag, cfg.CPU)
-	}
-	if memStr, _ := cmd.Flags().GetString("memory"); memStr != "" {
-		return fmt.Errorf("--memory not supported: Firecracker cannot change memory after snapshot/load")
-	}
-	if nics, _ := cmd.Flags().GetInt("nics"); nics > 0 && nics != cfg.NICs {
-		return fmt.Errorf("--nics %d not supported: Firecracker cannot change NIC count after snapshot/load (snapshot has %d)", nics, cfg.NICs)
-	}
-	return nil
 }
 
 func printBashArray(name string, nics []nicHint, field func(nicHint) string) {

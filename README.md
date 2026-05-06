@@ -19,7 +19,7 @@ Lightweight MicroVM engine with dual hypervisor backends: [Cloud Hypervisor](htt
 - **Memory balloon** — 25% of memory returned via virtio-balloon (deflate-on-OOM, free-page reporting) when memory >= 256 MiB
 - **Graceful shutdown** — ACPI power-button for UEFI VMs with configurable timeout, fallback to SIGTERM → SIGKILL
 - **Interactive console** — `cocoon vm console` with bidirectional PTY relay, SSH-style escape sequences (`~.` disconnect, `~?` help), configurable escape character, SIGWINCH propagation
-- **Snapshot & clone** — `cocoon snapshot save` captures a running VM's full state (memory, disks, config); `cocoon vm clone` restores it as a new VM with fresh network and identity; CPU/memory inherit from the snapshot, storage and NIC count can be grown
+- **Snapshot & clone** — `cocoon snapshot save` captures a running VM's full state (memory, disks, config); `cocoon vm clone` restores it as a new VM with fresh network and identity; all resources (CPU, memory, storage, NIC count) inherit verbatim from the snapshot
 - **Snapshot export & import** — `cocoon snapshot export` packages a snapshot into a portable `.tar.gz` archive (with sparse-aware pax headers); `cocoon snapshot import` restores it on another host or cluster; supports piping via stdout/stdin for direct host-to-host transfer; `--to-dir` writes a directory form (with `snapshot.json` envelope) for NFS / rsync-friendly handoff
 - **Clone / restore from a directory** — `cocoon vm clone --from-dir DIR` and `cocoon vm restore --from-dir DIR` consume any directory containing a `snapshot.json` envelope without first registering the snapshot in the local DB; the dir is treated as read-only so multi-VM golden-image use cases work without copying
 - **Live status monitoring** — `cocoon vm status` watches VM state changes in real time via fsnotify, with refresh mode (top-like) and event-stream mode (append-only, for scripting and vk-cocoon integration)
@@ -204,14 +204,17 @@ Applies to `cocoon vm clone`:
 | Flag        | Default                  | Description                                             |
 | ----------- | ------------------------ | ------------------------------------------------------- |
 | `--name`    | `cocoon-clone-<id>`      | VM name                                                 |
-| `--storage` | empty (inherit)          | COW disk size (must be >= snapshot value)                |
-| `--nics`    | `0` (inherit)            | Number of NICs (must be >= snapshot value)               |
 | `--queue-size` | `0` (inherit)         | Virtio-net ring depth per queue (0 = inherit from snapshot) |
 | `--disk-queue-size` | `0` (inherit)    | Virtio-blk ring depth per device (0 = inherit from snapshot; CH only) |
 | `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
 | `--bridge`  | empty                    | TAP-on-bridge mode (value is bridge device); mutually exclusive with `--network` |
 | `--no-direct-io` | `false` (inherit)  | Disable O_DIRECT on writable disks (inherit from snapshot if not set) |
 | `--pull`  | `false`              | Auto-pull base image if not found locally (for cross-node clone)      |
+
+CPU, memory, storage, and NIC count all inherit from the snapshot — both
+hypervisors restore the guest from the snapshot's binary device state, so
+those values are fixed at snapshot time. Use `cocoon vm run` to create a
+fresh VM with different resources.
 
 ### Snapshot Flags
 
@@ -619,8 +622,8 @@ cocoon snapshot list
 # 3. Clone a new VM from the snapshot
 cocoon vm clone my-snap
 
-# 4. Clone with a larger COW disk
-cocoon vm clone --name big-clone --storage 20G my-snap
+# 4. Clone with a custom name
+cocoon vm clone --name fresh-clone my-snap
 
 # 5. Delete a snapshot
 cocoon snapshot rm my-snap
@@ -632,12 +635,11 @@ A snapshot contains the full VM state:
 - **Memory**: complete RAM contents (memory-ranges)
 - **Disks**: COW disk (raw or qcow2), cidata disk (cloudimg)
 - **Config**: Cloud Hypervisor config.json and device state (state.json)
-- **Metadata**: image reference, storage/NIC count for resource inheritance
+- **Metadata**: image reference, hypervisor type, network/queue settings
 
 ### Clone Constraints
 
-- **CPU and memory are inherited verbatim from the snapshot.** Both hypervisors reconstruct the guest from the snapshot's binary memory image, so changing them at clone time would not be honored.
-- **Storage and NIC count can be increased, not decreased.** Clone validates them >= the snapshot's original values. Omitting a flag inherits the snapshot value.
+All resources (CPU, memory, storage, NIC count) are fixed at snapshot time. Both hypervisors reconstruct the guest from the snapshot's binary device state, so growing any of them at clone time would not be honored. Clone always uses the snapshot's resource topology; create a fresh VM with `cocoon vm run` if different sizing is needed.
 
 ### Post-Clone Guest Setup
 
@@ -721,9 +723,6 @@ Restore reverts a **running** VM to a previous snapshot's state in-place:
 ```bash
 # Restore a VM to a previous snapshot
 cocoon vm restore my-vm my-snap
-
-# Restore with a larger COW disk (must be >= snapshot value)
-cocoon vm restore --storage 20G my-vm my-snap
 ```
 
 Cocoon stages the snapshot into a scratch directory first, then restarts the hypervisor process only after the full extraction succeeds — a truncated or corrupt snapshot stream errors out with the running VM still intact. Network is fully preserved — same IP, same MAC, same network namespace. No guest-side reconfiguration is needed (unlike clone).
@@ -732,8 +731,7 @@ Cocoon stages the snapshot into a scratch directory first, then restarts the hyp
 
 - **VM must be running.** Restore operates on a live VM by restarting its CH process with snapshot state. For stopped VMs, use `cocoon vm clone` instead.
 - **Snapshot must belong to the VM.** Only snapshots created from the same VM (tracked in `snapshot_ids`) are accepted. Cross-VM restore is not supported; use `cocoon vm clone` for that.
-- **NIC count must match.** The VM's current NIC count must equal the snapshot's (restore reuses the VM's existing network, unlike clone which creates fresh NICs and hot-swaps).
-- **CPU and memory are fixed at snapshot values.** Both hypervisors restore the guest from the snapshot's binary memory image, so growing them on restore would not be honored. Storage can be grown.
+- **All resources are fixed at snapshot values.** CPU, memory, storage, and NIC count cannot be changed on restore — both hypervisors reconstruct the guest from the snapshot's binary device state.
 
 ## Status Monitoring
 

@@ -378,11 +378,6 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 		noDirectIO, _ = cmd.Flags().GetBool("no-direct-io")
 	}
 
-	storage, err := mergeStorageFlag(cmd, snapCfg.Storage, snapCfg)
-	if err != nil {
-		return nil, err
-	}
-
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
 
 	cfg := &types.VMConfig{
@@ -390,7 +385,7 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 		Config: types.Config{
 			CPU:           snapCfg.CPU,
 			Memory:        snapCfg.Memory,
-			Storage:       storage,
+			Storage:       snapCfg.Storage,
 			QueueSize:     queueSize,
 			DiskQueueSize: diskQueueSize,
 			Image:         snapCfg.Image,
@@ -409,19 +404,16 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 	return cfg, nil
 }
 
-// RestoreVMConfigFromFlags builds VMConfig for restore (only storage is overridable).
+// RestoreVMConfigFromFlags builds VMConfig for restore. Resources are
+// inherited verbatim from the VM; the snapshot's NIC count must match.
 func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
-	result := vm.Config // value copy — keep current VM values
-
-	storage, err := mergeStorageFlag(cmd, result.Storage, snapCfg)
-	if err != nil {
-		return nil, err
+	if snapCfg.NICs != len(vm.NetworkConfigs) {
+		return nil, fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
+			len(vm.NetworkConfigs), snapCfg.NICs)
 	}
-	result.Storage = storage
-
+	result := vm.Config
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
 	result.OnDemand = onDemand
-
 	return &result, nil
 }
 
@@ -566,23 +558,6 @@ func sanitizeVMName(image string) string {
 		n = n[:63]
 	}
 	return n
-}
-
-// mergeStorageFlag resolves --storage for clone/restore: empty keeps current,
-// explicit must be >= snapshot's COW size.
-func mergeStorageFlag(cmd *cobra.Command, storage int64, snapCfg types.SnapshotConfig) (int64, error) {
-	storStr, _ := cmd.Flags().GetString("storage")
-	if storStr != "" {
-		v, err := units.RAMInBytes(storStr)
-		if err != nil {
-			return 0, fmt.Errorf("invalid --storage %q: %w", storStr, err)
-		}
-		storage = v
-	}
-	if storage < snapCfg.Storage {
-		return 0, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(storage), FormatSize(snapCfg.Storage))
-	}
-	return storage, nil
 }
 
 // parseDataDiskFlags parses --data-disk values, normalizes defaults, and

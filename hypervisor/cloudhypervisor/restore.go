@@ -21,7 +21,7 @@ func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *typ
 		Kill:      ch.killForRestore,
 		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
 			directBoot := isDirectBoot(rec.BootConfig)
-			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot, ch.cowPath(vmID, directBoot))
+			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot)
 		},
 	})
 }
@@ -37,7 +37,7 @@ func (ch *CloudHypervisor) killForRestore(ctx context.Context, vmID string, rec 
 	}, runtimeFiles)
 }
 
-func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord, directBoot bool, cowPath string) (_ *types.VM, err error) {
+func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord, directBoot bool) (_ *types.VM, err error) {
 	logger := log.WithFunc("cloudhypervisor.Restore")
 
 	defer func() {
@@ -66,12 +66,6 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 		noDirectIO:     vmCfg.NoDirectIO,
 	}); err != nil {
 		return nil, fmt.Errorf("patch config: %w", err)
-	}
-
-	if vmCfg.Storage > 0 {
-		if err = qemuExpandImage(ctx, cowPath, vmCfg.Storage, directBoot); err != nil {
-			return nil, fmt.Errorf("resize COW: %w", err)
-		}
 	}
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)

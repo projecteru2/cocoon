@@ -61,11 +61,6 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	if verifyErr := hypervisor.VerifyBaseFiles(storageConfigs, bootCfg); verifyErr != nil {
 		return nil, fmt.Errorf("verify base files: %w", verifyErr)
 	}
-	if vmCfg.Storage > 0 {
-		if expandErr := hypervisor.ExpandRawImage(cowPath, vmCfg.Storage); expandErr != nil {
-			return nil, fmt.Errorf("resize COW: %w", expandErr)
-		}
-	}
 	if bootCfg != nil {
 		dns, dnsErr := fc.conf.DNSServers()
 		if dnsErr != nil {
