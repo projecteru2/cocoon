@@ -21,6 +21,10 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// statusWatchDebounce coalesces fsnotify events on the per-backend index file
+// during `vm status` polling.
+const statusWatchDebounce = 200 * time.Millisecond
+
 type vmEvent struct {
 	Event string   `json:"event"`
 	VM    types.VM `json:"vm"`
@@ -30,6 +34,12 @@ type vmSnapshot struct {
 	id, name, state, ip, image string
 	cpu                        int
 	memory                     int64
+}
+
+type eventEmitter struct {
+	begin func()
+	emit  func(event string, snap vmSnapshot, vm types.VM)
+	end   func()
 }
 
 func (h Handler) List(cmd *cobra.Command, _ []string) error {
@@ -102,7 +112,7 @@ func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-c
 		if !ok {
 			continue
 		}
-		ch, err := utils.WatchFile(ctx, w.WatchPath(), 200*time.Millisecond) //nolint:mnd
+		ch, err := utils.WatchFile(ctx, w.WatchPath(), statusWatchDebounce)
 		if err == nil {
 			channels = append(channels, ch)
 		}
@@ -179,72 +189,70 @@ func statusRefreshLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filt
 func statusEventLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	fmt.Println("EVENT\tID\tNAME\tSTATE\tCPU\tMEMORY\tIP\tIMAGE") //nolint:errcheck
 
-	prev := map[string]vmSnapshot{}
-	runLoop(ctx, watchCh, tick, func() {
-		vms := listAndFilter(ctx, hypers, filters)
-		curr := make(map[string]vmSnapshot, len(vms))
-		for _, vm := range vms {
-			curr[vm.ID] = takeSnapshot(vm)
-		}
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		for id, snap := range curr {
-			old, existed := prev[id]
-			switch {
-			case !existed:
-				printEventRow(w, "ADDED", snap)
-			case old != snap:
-				printEventRow(w, "MODIFIED", snap)
-			}
-		}
-		for id, snap := range prev {
-			if _, exists := curr[id]; !exists {
-				printEventRow(w, "DELETED", snap)
-			}
-		}
-		_ = w.Flush()
-		prev = curr
+	var w *tabwriter.Writer
+	statusEventDiffLoop(ctx, hypers, filters, watchCh, tick, eventEmitter{
+		begin: func() { w = tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0) },
+		emit:  func(event string, snap vmSnapshot, _ types.VM) { printEventRow(w, event, snap) },
+		end:   func() { _ = w.Flush() },
 	})
 }
 
 func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	enc := json.NewEncoder(os.Stdout)
-	type snapshotWithVM struct {
+	statusEventDiffLoop(ctx, hypers, filters, watchCh, tick, eventEmitter{
+		emit: func(event string, _ vmSnapshot, vm types.VM) {
+			_ = enc.Encode(vmEvent{Event: event, VM: vm})
+		},
+	})
+}
+
+// statusEventDiffLoop runs the shared diff: snapshot all VMs each tick, compare
+// against the previous tick's snapshots, and emit ADDED/MODIFIED/DELETED events
+// via emitter. Holds both snap and vm so emitters can choose either format.
+func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time, emitter eventEmitter) {
+	type entry struct {
 		snap vmSnapshot
 		vm   types.VM
 	}
-	prev := map[string]snapshotWithVM{}
+	prev := map[string]entry{}
 	runLoop(ctx, watchCh, tick, func() {
 		vms := listAndFilter(ctx, hypers, filters)
-		curr := make(map[string]snapshotWithVM, len(vms))
+		curr := make(map[string]entry, len(vms))
 		for _, vm := range vms {
-			vm.State = types.VMState(cmdcore.ReconcileState(vm))
-			curr[vm.ID] = snapshotWithVM{snap: takeSnapshot(vm), vm: *vm}
+			state := cmdcore.ReconcileState(vm)
+			vmCopy := *vm
+			vmCopy.State = types.VMState(state)
+			curr[vm.ID] = entry{snap: takeSnapshot(vm, state), vm: vmCopy}
 		}
-
-		for id, entry := range curr {
+		if emitter.begin != nil {
+			emitter.begin()
+		}
+		for id, e := range curr {
 			old, existed := prev[id]
 			switch {
 			case !existed:
-				_ = enc.Encode(vmEvent{Event: "ADDED", VM: entry.vm})
-			case old.snap != entry.snap:
-				_ = enc.Encode(vmEvent{Event: "MODIFIED", VM: entry.vm})
+				emitter.emit("ADDED", e.snap, e.vm)
+			case old.snap != e.snap:
+				emitter.emit("MODIFIED", e.snap, e.vm)
 			}
 		}
-		for id, entry := range prev {
+		for id, e := range prev {
 			if _, exists := curr[id]; !exists {
-				_ = enc.Encode(vmEvent{Event: "DELETED", VM: entry.vm})
+				emitter.emit("DELETED", e.snap, e.vm)
 			}
+		}
+		if emitter.end != nil {
+			emitter.end()
 		}
 		prev = curr
 	})
 }
 
-func takeSnapshot(vm *types.VM) vmSnapshot {
+func takeSnapshot(vm *types.VM, state string) vmSnapshot {
 	return vmSnapshot{
 		id:     vm.ID,
 		name:   vm.Config.Name,
-		state:  cmdcore.ReconcileState(vm),
+		state:  state,
 		cpu:    vm.Config.CPU,
 		memory: vm.Config.Memory,
 		ip:     vmIPs(vm),
@@ -293,7 +301,7 @@ func matchesFilter(vm *types.VM, filters []string) bool {
 func snapshotAll(vms []*types.VM) []vmSnapshot {
 	result := make([]vmSnapshot, len(vms))
 	for i, vm := range vms {
-		result[i] = takeSnapshot(vm)
+		result[i] = takeSnapshot(vm, cmdcore.ReconcileState(vm))
 	}
 	return result
 }

@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -35,9 +36,21 @@ func ReadSnapshotEnvelope(dir string) (types.SnapshotConfig, error) {
 	return envelope.Config, nil
 }
 
+// MarshalEnvelope returns the indented snapshot.json bytes for cfg.
+func MarshalEnvelope(cfg types.SnapshotConfig) ([]byte, error) {
+	data, err := json.MarshalIndent(types.SnapshotExport{Version: EnvelopeVersion, Config: cfg}, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal snapshot envelope: %w", err)
+	}
+	return append(data, '\n'), nil
+}
+
 // WriteSnapshotEnvelope writes <dir>/snapshot.json atomically so a concurrent
 // reader can't see a partial write.
 func WriteSnapshotEnvelope(dir string, cfg types.SnapshotConfig) error {
-	return utils.AtomicWriteJSON(filepath.Join(dir, SnapshotJSONName),
-		types.SnapshotExport{Version: EnvelopeVersion, Config: cfg})
+	data, err := MarshalEnvelope(cfg)
+	if err != nil {
+		return err
+	}
+	return utils.AtomicWriteFile(filepath.Join(dir, SnapshotJSONName), data, 0o644)
 }

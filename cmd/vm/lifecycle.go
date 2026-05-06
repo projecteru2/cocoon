@@ -24,8 +24,13 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// logHeadSigLen spans CH/FC's boot timestamp on line 1.
-const logHeadSigLen = 64
+const (
+	// logHeadSigLen spans CH/FC's boot timestamp on line 1.
+	logHeadSigLen = 64
+	// logFollowDebounce coalesces fsnotify events on the log file before
+	// the catch-up io.Copy fires.
+	logFollowDebounce = 100 * time.Millisecond
+)
 
 // attachedDevices is the inspect-only view of runtime hot-plugged devices.
 // Cocoon never persists this structure; it is read from CH vm.info on demand.
@@ -217,7 +222,7 @@ func streamLog(ctx context.Context, path string, follow bool, tail int) error {
 		return nil
 	}
 
-	events, err := utils.WatchFile(ctx, path, 100*time.Millisecond) //nolint:mnd
+	events, err := utils.WatchFile(ctx, path, logFollowDebounce)
 	if err != nil {
 		return fmt.Errorf("watch log: %w", err)
 	}
