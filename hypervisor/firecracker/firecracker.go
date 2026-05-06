@@ -3,7 +3,6 @@ package firecracker
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
@@ -11,10 +10,7 @@ import (
 	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
-const (
-	typ         = "firecracker"
-	logFileName = "firecracker.log"
-)
+const typ = "firecracker"
 
 // compile-time interface checks.
 var (
@@ -55,13 +51,4 @@ func New(conf *config.Config) (*Firecracker, error) {
 // Delete removes VMs. Running VMs require force=true (stops them first).
 func (fc *Firecracker) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
 	return fc.DeleteAll(ctx, refs, force, fc.stopOne)
-}
-
-// LogPath returns the absolute path to the per-VM firecracker.log file.
-func (fc *Firecracker) LogPath(ctx context.Context, ref string) (string, error) {
-	id, err := fc.ResolveRef(ctx, ref)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(fc.conf.VMLogDir(id), logFileName), nil
 }

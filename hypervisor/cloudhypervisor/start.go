@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 
 	"github.com/projecteru2/core/log"
@@ -47,7 +46,7 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 }
 
 func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, socketPath string, args []string, withNetwork bool) (int, error) {
-	processLog := filepath.Join(rec.LogDir, logFileName)
+	processLog := ch.LogFilePath(rec.LogDir)
 	logFile, err := os.Create(processLog) //nolint:gosec
 	if err != nil {
 		log.WithFunc("cloudhypervisor.launchProcess").Warnf(ctx, "create process log: %v", err)

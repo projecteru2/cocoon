@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -140,7 +139,7 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 
 // launchProcess starts firecracker, sets up PTY+console relay, waits for socket.
 func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, sockPath string, withNetwork bool) (int, error) {
-	fcLog := filepath.Join(rec.LogDir, logFileName)
+	fcLog := fc.LogFilePath(rec.LogDir)
 	// FC opens log O_WRONLY|O_APPEND without O_CREATE — touch first.
 	if f, createErr := os.Create(fcLog); createErr == nil { //nolint:gosec
 		_ = f.Close()

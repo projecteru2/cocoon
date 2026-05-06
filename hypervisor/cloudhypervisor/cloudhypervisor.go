@@ -3,7 +3,6 @@ package cloudhypervisor
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
@@ -11,10 +10,7 @@ import (
 	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
-const (
-	typ         = "cloud-hypervisor"
-	logFileName = "cloud-hypervisor.log"
-)
+const typ = "cloud-hypervisor"
 
 // compile-time interface checks.
 var (
@@ -54,13 +50,4 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 // Delete removes VMs. Running VMs require force=true (stops them first).
 func (ch *CloudHypervisor) Delete(ctx context.Context, refs []string, force bool) ([]string, error) {
 	return ch.DeleteAll(ctx, refs, force, ch.stopOne)
-}
-
-// LogPath returns the absolute path to the per-VM cloud-hypervisor.log file.
-func (ch *CloudHypervisor) LogPath(ctx context.Context, ref string) (string, error) {
-	id, err := ch.ResolveRef(ctx, ref)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(ch.conf.VMLogDir(id), logFileName), nil
 }
