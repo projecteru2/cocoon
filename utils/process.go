@@ -42,12 +42,11 @@ func IsProcessAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// VerifyProcessCmdline checks binary name and that expectArg appears in
-// /proc/{pid}/cmdline. This prevents cross-instance misidentification when
-// multiple processes of the same binary are running (e.g. multiple VMs).
-// On non-Linux platforms, falls back to IsProcessAlive.
+// VerifyProcessCmdline matches pid against (binaryName, expectArg) in
+// /proc/<pid>/cmdline; expectArg must be non-empty to disambiguate VMs of
+// the same backend. Falls back to IsProcessAlive on non-Linux.
 func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
-	if pid <= 0 {
+	if pid <= 0 || expectArg == "" {
 		return false
 	}
 	if match, ok := verifyProcessCmdline(pid, binaryName, expectArg); ok {

@@ -1,7 +1,6 @@
 package types
 
-// Image backend type names; persisted in Config.ImageType and returned
-// by Images.Type().
+// Image backend type names (Config.ImageType / Images.Type()).
 const (
 	ImageTypeOCI      = "oci"
 	ImageTypeCloudImg = "cloudimg"
