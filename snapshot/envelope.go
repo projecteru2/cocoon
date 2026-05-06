@@ -1,11 +1,9 @@
 package snapshot
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 
 	"github.com/cocoonstack/cocoon/types"
@@ -24,16 +22,12 @@ var ErrEnvelopeMissing = errors.New("snapshot envelope missing")
 // ReadSnapshotEnvelope reads <dir>/snapshot.json into a SnapshotConfig.
 func ReadSnapshotEnvelope(dir string) (types.SnapshotConfig, error) {
 	path := filepath.Join(dir, SnapshotJSONName)
-	data, err := os.ReadFile(path) //nolint:gosec
-	if err != nil {
+	envelope := types.SnapshotExport{}
+	if err := utils.ReadJSONFile(path, &envelope); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return types.SnapshotConfig{}, fmt.Errorf("%s missing in %s: %w", SnapshotJSONName, dir, ErrEnvelopeMissing)
 		}
-		return types.SnapshotConfig{}, fmt.Errorf("read %s: %w", path, err)
-	}
-	envelope := types.SnapshotExport{}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return types.SnapshotConfig{}, fmt.Errorf("parse %s: %w", SnapshotJSONName, err)
+		return types.SnapshotConfig{}, err
 	}
 	if envelope.Version != EnvelopeVersion {
 		return types.SnapshotConfig{}, fmt.Errorf("unsupported snapshot envelope version %d (want %d)", envelope.Version, EnvelopeVersion)

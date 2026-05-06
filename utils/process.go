@@ -42,29 +42,11 @@ func IsProcessAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// VerifyProcess checks whether pid is running the expected binary.
-// On Linux, reads /proc/{pid}/exe. On other platforms, falls back to
-// IsProcessAlive (can confirm the process exists but not its binary name).
-func VerifyProcess(pid int, binaryName string) bool {
-	if pid <= 0 {
-		return false
-	}
-	if match, ok := verifyProcessExe(pid, binaryName); ok {
-		return match
-	}
-	return IsProcessAlive(pid)
-}
-
-// VerifyProcessCmdline checks binary name and that expectArg appears in
-// /proc/{pid}/cmdline. This prevents cross-instance misidentification when
-// multiple processes of the same binary are running (e.g. multiple VMs).
-// On non-Linux platforms, falls back to IsProcessAlive.
+// VerifyProcessCmdline matches pid against binaryName + expectArg in
+// /proc/<pid>/cmdline; falls back to IsProcessAlive on non-Linux.
 func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	if pid <= 0 {
 		return false
-	}
-	if expectArg == "" {
-		return VerifyProcess(pid, binaryName)
 	}
 	if match, ok := verifyProcessCmdline(pid, binaryName, expectArg); ok {
 		return match

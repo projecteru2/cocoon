@@ -17,7 +17,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const typ = "cloudimg"
+const typ = types.ImageTypeCloudImg
 
 var _ images.Images = (*CloudImg)(nil)
 

@@ -9,19 +9,20 @@ import (
 	"strings"
 )
 
-func verifyProcessExe(pid int, binaryName string) (matched, available bool) {
-	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
-	if err != nil {
-		return false, false
-	}
-	return filepath.Base(exe) == binaryName, true
-}
-
+// /proc/<pid>/cmdline is NUL-separated argv. Match argv[0] basename strictly,
+// then apply the optional expectArg substring check on the remainder so a
+// process running "bash -c 'cloud-hypervisor ...'" can't impersonate the VMM.
 func verifyProcessCmdline(pid int, binaryName, expectArg string) (matched, available bool) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
 		return false, false
 	}
-	cmdline := string(data)
-	return strings.Contains(cmdline, binaryName) && strings.Contains(cmdline, expectArg), true
+	argv0, rest, _ := strings.Cut(string(data), "\x00")
+	if filepath.Base(argv0) != binaryName {
+		return false, true
+	}
+	if expectArg == "" {
+		return true, true
+	}
+	return strings.Contains(rest, expectArg), true
 }

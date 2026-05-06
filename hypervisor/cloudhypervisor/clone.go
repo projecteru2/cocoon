@@ -2,11 +2,9 @@ package cloudhypervisor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,16 +18,12 @@ import (
 )
 
 type cloneResumeOpts struct {
+	vmCfg               *types.VMConfig
 	directBoot          bool
-	windows             bool
 	hadCidataInSnapshot bool
 	storageConfigs      []*types.StorageConfig
 	networkConfigs      []*types.NetworkConfig
 	snapshotCfg         *chVMConfig
-	cpu                 int
-	diskQueueSize       int
-	noDirectIO          bool
-	onDemand            bool
 }
 
 func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
@@ -123,16 +117,12 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	}
 
 	if err := ch.restoreAndResumeClone(ctx, pid, sockPath, runDir, &cloneResumeOpts{
+		vmCfg:               vmCfg,
 		directBoot:          directBoot,
-		windows:             vmCfg.Windows,
 		hadCidataInSnapshot: hadCidataInSnapshot,
 		storageConfigs:      storageConfigs,
 		networkConfigs:      networkConfigs,
 		snapshotCfg:         chCfg,
-		cpu:                 vmCfg.CPU,
-		diskQueueSize:       vmCfg.DiskQueueSize,
-		noDirectIO:          vmCfg.NoDirectIO,
-		onDemand:            vmCfg.OnDemand,
 	}); err != nil {
 		return nil, err
 	}
@@ -165,7 +155,7 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 
 	hc := utils.NewSocketHTTPClient(sockPath)
 
-	if err = restoreVM(ctx, hc, runDir, opts.onDemand); err != nil {
+	if err = restoreVM(ctx, hc, runDir, opts.vmCfg.OnDemand); err != nil {
 		return fmt.Errorf("vm.restore: %w", err)
 	}
 
@@ -173,11 +163,11 @@ func (ch *CloudHypervisor) restoreAndResumeClone(
 		return fmt.Errorf("hot-swap NICs: %w", err)
 	}
 
-	if !opts.directBoot && !opts.windows && !opts.hadCidataInSnapshot {
+	if !opts.directBoot && !opts.vmCfg.Windows && !opts.hadCidataInSnapshot {
 		if len(opts.storageConfigs) == 0 {
 			return fmt.Errorf("vm.add-disk (cidata): missing storage config")
 		}
-		cidataDisk := storageConfigToDisk(opts.storageConfigs[len(opts.storageConfigs)-1], opts.cpu, opts.diskQueueSize, opts.noDirectIO)
+		cidataDisk := storageConfigToDisk(opts.storageConfigs[len(opts.storageConfigs)-1], opts.vmCfg.CPU, opts.vmCfg.DiskQueueSize, opts.vmCfg.NoDirectIO)
 		if err = addDiskVM(ctx, hc, cidataDisk); err != nil {
 			return fmt.Errorf("vm.add-disk (cidata): %w", err)
 		}
@@ -208,13 +198,9 @@ func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig,
 }
 
 func parseCHConfig(path string) (*chVMConfig, error) {
-	data, err := os.ReadFile(path) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
 	var cfg chVMConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", path, err)
+	if err := utils.ReadJSONFile(path, &cfg); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
 }

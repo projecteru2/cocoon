@@ -57,6 +57,18 @@ func AtomicWriteJSON(path string, v any) error {
 	return AtomicWriteFile(path, data, 0o644)
 }
 
+// ReadJSONFile loads path and unmarshals it into v.
+func ReadJSONFile(path string, v any) error {
+	data, err := os.ReadFile(path) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("decode %s: %w", path, err)
+	}
+	return nil
+}
+
 // SyncParentDir fsyncs the directory containing the file to ensure the directory entry is persisted.
 func SyncParentDir(dir string) error {
 	parent, err := os.Open(dir) //nolint:gosec // directory is derived from cocoon-managed target path

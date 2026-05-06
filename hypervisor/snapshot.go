@@ -2,7 +2,6 @@ package hypervisor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -30,13 +29,9 @@ func SaveSnapshotMeta(dir string, meta *SnapshotMeta) error {
 }
 
 func LoadSnapshotMeta(dir string) (*SnapshotMeta, error) {
-	data, err := os.ReadFile(filepath.Join(dir, SnapshotMetaFile)) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", SnapshotMetaFile, err)
-	}
 	var meta SnapshotMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", SnapshotMetaFile, err)
+	if err := utils.ReadJSONFile(filepath.Join(dir, SnapshotMetaFile), &meta); err != nil {
+		return nil, err
 	}
 	return &meta, nil
 }

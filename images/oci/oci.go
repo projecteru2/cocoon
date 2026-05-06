@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	typ          = "oci"
+	typ          = types.ImageTypeOCI
 	serialPrefix = "cocoon-layer"
 )
 
