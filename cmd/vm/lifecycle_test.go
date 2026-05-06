@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSeekToLastNLinesTmp(t *testing.T) {
+func TestSeekToLastNLines(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
