@@ -199,7 +199,7 @@ func TestTerminateProcess_AlreadyDead(t *testing.T) {
 
 	ctx := t.Context()
 	// Should return nil — process doesn't exist, VerifyProcessCmdline returns false.
-	err := TerminateProcess(ctx, pid, "true", "", 1*time.Second)
+	err := TerminateProcess(ctx, pid, "true", "true", 1*time.Second)
 	if err != nil {
 		t.Fatalf("TerminateProcess on dead process: %v", err)
 	}
@@ -208,10 +208,10 @@ func TestTerminateProcess_AlreadyDead(t *testing.T) {
 func TestTerminateProcess_InvalidPID(t *testing.T) {
 	ctx := t.Context()
 	// PID 0 → VerifyProcessCmdline returns false → return nil immediately.
-	if err := TerminateProcess(ctx, 0, "x", "", time.Second); err != nil {
+	if err := TerminateProcess(ctx, 0, "x", "x", time.Second); err != nil {
 		t.Errorf("expected nil for PID 0, got %v", err)
 	}
-	if err := TerminateProcess(ctx, -1, "x", "", time.Second); err != nil {
+	if err := TerminateProcess(ctx, -1, "x", "x", time.Second); err != nil {
 		t.Errorf("expected nil for PID -1, got %v", err)
 	}
 }
@@ -236,7 +236,7 @@ func TestTerminateProcess_SIGTERMIgnored_FallsBackToKill(t *testing.T) {
 
 	// Very short grace period — SIGTERM won't kill it, fallback to SIGKILL.
 	ctx := t.Context()
-	err := TerminateProcess(ctx, pid, "bash", "", 200*time.Millisecond)
+	err := TerminateProcess(ctx, pid, "bash", "sleep", 200*time.Millisecond)
 	if err != nil {
 		t.Fatalf("TerminateProcess: %v", err)
 	}
