@@ -1,5 +1,4 @@
 FROM ubuntu:24.04
-LABEL cocoon.ssh.username="root" cocoon.ssh.password="cocoon"
 
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
