@@ -418,7 +418,7 @@ Cloudimg VMs receive a NoCloud cidata disk (FAT12 with `CIDATA` volume label) co
 
 The cidata disk is **automatically excluded on subsequent boots** — after the first successful start, the VM record is marked as `first_booted` and the cidata disk is no longer attached, preventing cloud-init from re-running.
 
-Note: `--user`/`--password` only apply to **cloudimg** VMs (cloud-init). OCI VM images bake credentials at build time. Host-to-guest control plane operations (kubectl exec, kubectl logs) go through cocoon-agent over vsock, not SSH; only `os-image/ubuntu/24.04-picoclaw` ships sshd for legacy serial / network workflows.
+Note: `--user`/`--password` only apply to **cloudimg** VMs (cloud-init). OCI VM images bake credentials at build time. Host-to-guest control plane operations (kubectl exec, kubectl logs) go through cocoon-agent over vsock, not SSH. Only `os-image/ubuntu/24.04-picoclaw` ships sshd; its credentials are documented via `LABEL cocoon.ssh.username` / `cocoon.ssh.password` in the Dockerfile so glance and other SSH-aware tooling can populate their own credential stores.
 
 ## Data Disks
 
