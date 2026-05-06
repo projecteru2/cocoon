@@ -139,7 +139,7 @@ cocoon
 │   ├── inspect VM                 Show detailed VM info (JSON)
 │   ├── console [flags] VM         Attach interactive console
 │   ├── exec [flags] VM -- CMD     Run a command in a running VM via cocoon-agent (vsock)
-│   ├── logs [-f] VM               Print the per-VM hypervisor log file
+│   ├── logs [-f] [--tail N] VM    Print the per-VM hypervisor log file
 │   ├── rm [flags] VM [VM...]      Delete VM(s) (--force to stop first)
 │   ├── restore [flags] VM SNAP   Restore a running VM to a snapshot
 │   ├── status [VM...]             Watch VM status in real time
@@ -335,15 +335,18 @@ Requires cocoon-agent to be running inside the guest (already baked into the off
 
 `cocoon vm logs` prints the per-VM hypervisor process log (`cloud-hypervisor.log` or `firecracker.log` under the configured `log_dir`). The log captures VMM-side activity — device init warnings, API errors, virtio messages, shutdown — but **not** guest console output (use `cocoon vm console` for that). The file lives under the VM's log dir for as long as the VM record exists (cleaned up on `vm rm`); each `vm run` / `vm start` truncates and rewrites it from scratch — `-f` detects the truncation and seeks back to the start of the file so you don't miss the new boot's lines.
 
-| Flag           | Default | Description                                        |
-| -------------- | ------- | -------------------------------------------------- |
-| `--follow`, `-f` | `false` | Stream new log lines as they are written (Ctrl-C to stop) |
+| Flag             | Default | Description                                                          |
+| ---------------- | ------- | -------------------------------------------------------------------- |
+| `--follow`, `-f` | `false` | Stream new log lines as they are written (Ctrl-C to stop)            |
+| `--tail`         | `0`     | Show only the last N lines (0 = all); pairs with `-f` for tail+follow |
 
 ```
 $ cocoon vm logs myvm
 cloud-hypervisor:   0.003732s: <vmm> WARN:virtio-devices/src/block.rs:793 -- sparse=on requested but backend does not support sparse operations
-$ cocoon vm logs -f myvm
-... live tail ...
+$ cocoon vm logs --tail 5 myvm
+... last 5 lines ...
+$ cocoon vm logs -f --tail 10 myvm
+... last 10 lines, then live tail ...
 ```
 
 ### List Flags

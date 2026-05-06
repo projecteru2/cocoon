@@ -190,10 +190,11 @@ func (h Handler) Logs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("logs: %w", err)
 	}
 	follow, _ := cmd.Flags().GetBool("follow")
-	return streamLog(ctx, path, follow)
+	tail, _ := cmd.Flags().GetInt("tail")
+	return streamLog(ctx, path, follow, tail)
 }
 
-func streamLog(ctx context.Context, path string, follow bool) error {
+func streamLog(ctx context.Context, path string, follow bool, tail int) error {
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -202,6 +203,12 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 		return fmt.Errorf("open log: %w", err)
 	}
 	defer f.Close() //nolint:errcheck
+
+	if tail > 0 {
+		if seekErr := seekToLastNLines(f, tail); seekErr != nil {
+			return fmt.Errorf("seek tail: %w", seekErr)
+		}
+	}
 
 	if !follow {
 		if _, copyErr := io.Copy(os.Stdout, f); copyErr != nil {
@@ -242,6 +249,41 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 			}
 		}
 	}
+}
+
+// seekToLastNLines positions f so a subsequent read returns the last n lines.
+// A final trailing '\n' is not counted as a line separator.
+func seekToLastNLines(f *os.File, n int) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil
+	}
+	const chunk = 4096
+	buf := make([]byte, chunk)
+	pos, found := size, 0
+	for pos > 0 {
+		readSize := min(int64(chunk), pos)
+		pos -= readSize
+		if _, readErr := f.ReadAt(buf[:readSize], pos); readErr != nil {
+			return readErr
+		}
+		for i := readSize - 1; i >= 0; i-- {
+			if buf[i] != '\n' || pos+i == size-1 {
+				continue
+			}
+			found++
+			if found == n {
+				_, seekErr := f.Seek(pos+i+1, io.SeekStart)
+				return seekErr
+			}
+		}
+	}
+	_, err = f.Seek(0, io.SeekStart)
+	return err
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {

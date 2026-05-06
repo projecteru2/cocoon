@@ -120,6 +120,7 @@ func Command(h Actions) *cobra.Command {
 		RunE:  h.Logs,
 	}
 	logsCmd.Flags().BoolP("follow", "f", false, "stream new log lines as they are written")
+	logsCmd.Flags().Int("tail", 0, "show only the last N lines (0 = all)")
 
 	rmCmd := &cobra.Command{
 		Use:   "rm [flags] VM [VM...]",
