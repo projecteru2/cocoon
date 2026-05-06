@@ -216,6 +216,20 @@ hypervisors restore the guest from the snapshot's binary device state, so
 those values are fixed at snapshot time. Use `cocoon vm run` to create a
 fresh VM with different resources.
 
+### Restore Flags
+
+Applies to `cocoon vm restore`:
+
+| Flag          | Default | Description                                                                                            |
+| ------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `--on-demand` | `false` | Use UFFD on-demand memory loading for faster restore (CH only; snapshot file must remain on disk)      |
+| `--from-dir`  | empty   | Restore from a snapshot directory (must contain `snapshot.json`); mutually exclusive with positional `SNAPSHOT` |
+| `--force`     | `false` | Skip the snapshot-belongs-to-VM check (only meaningful with `--from-dir`)                              |
+
+All resources (CPU, memory, storage, NIC count) are inherited from the
+target VM and the snapshot — they must already match. Restore reuses the
+existing network namespace.
+
 ### Snapshot Flags
 
 Applies to `cocoon snapshot save`:
