@@ -19,7 +19,7 @@ type Bridge struct{}
 
 // New returns an error on non-Linux.
 func New(_ *config.Config, _ string) (*Bridge, error) {
-	return nil, fmt.Errorf("bridge TAP networking requires Linux (running on %s)", runtime.GOOS)
+	return nil, errUnsupported
 }
 
 // Type returns the provider identifier.

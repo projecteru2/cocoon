@@ -329,7 +329,7 @@ $ cocoon vm exec -e FOO=bar myvm -- sh -c 'echo $FOO'
 bar
 ```
 
-Requires cocoon-agent to be running inside the guest (already baked into the official `ghcr.io/cocoonstack/cocoon/ubuntu:24.04` image and started via systemd). Windows guests are not yet supported.
+Requires cocoon-agent to be running inside the guest. All official `ghcr.io/cocoonstack/cocoon/ubuntu:*` and `ghcr.io/cocoonstack/cocoon/android:*` images now bake the binary and enable it on boot (systemd unit on Ubuntu, init.rc service on Android). Windows guests are not yet supported.
 
 ### Logs Flags
 
@@ -418,7 +418,7 @@ Cloudimg VMs receive a NoCloud cidata disk (FAT12 with `CIDATA` volume label) co
 
 The cidata disk is **automatically excluded on subsequent boots** — after the first successful start, the VM record is marked as `first_booted` and the cidata disk is no longer attached, preventing cloud-init from re-running.
 
-Note: `--user`/`--password` only apply to **cloudimg** VMs (cloud-init). OCI VM images bake credentials at build time. Host-to-guest control plane operations (kubectl exec, kubectl logs) go through cocoon-agent over vsock, not SSH. Only `os-image/ubuntu/24.04-picoclaw` ships sshd; its credentials are documented via `LABEL cocoon.ssh.username` / `cocoon.ssh.password` in the Dockerfile so glance and other SSH-aware tooling can populate their own credential stores.
+Note: `--user`/`--password` only apply to **cloudimg** VMs (cloud-init). OCI VM images bake credentials at build time — every official `os-image/ubuntu/*` image ships `openssh-server` enabled with `PermitRootLogin yes` and the default `root:cocoon` credentials. Host-to-guest control plane operations (kubectl exec, kubectl logs) prefer cocoon-agent over vsock; SSH stays available as the human-on-keyboard path.
 
 ## Data Disks
 
@@ -807,7 +807,7 @@ cocoon image pull ghcr.io/cocoonstack/cocoon/ubuntu:24.04
 cocoon image pull ghcr.io/cocoonstack/cocoon/ubuntu:22.04
 ```
 
-These images include kernel, initramfs, and a systemd-based rootfs with an overlayfs boot script.
+These images include kernel, initramfs, and a systemd-based rootfs with an overlayfs boot script. Every official OS image (Ubuntu + Android) bakes `cocoon-agent` (vsock exec) with auto-start; Ubuntu images additionally enable `sshd` with `PermitRootLogin yes` so `ssh root@<vm>` works out of the box (default `root:cocoon`).
 
 ## Shell Completion
 

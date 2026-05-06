@@ -68,6 +68,15 @@ IMAGE_NAME="ghcr.io/cocoonstack/cocoon/ubuntu:24.04" bash start.sh
 IMAGE_NAME="ghcr.io/cocoonstack/cocoon/android:14.0" bash start.sh
 ```
 
+## In-VM Services
+
+Every official OS image bakes the following on top of its base distro:
+
+- **cocoon-agent** (vsock exec) — pinned binary from [cocoonstack/cocoon-agent](https://github.com/cocoonstack/cocoon-agent), auto-started on boot. Backs `cocoon vm exec` (kubectl-style stdin/stdout/stderr/exit, no SSH/network dependency). Ubuntu uses a systemd unit; Android uses `/system/etc/init/cocoon-agent.rc`.
+- **sshd** *(Ubuntu only)* — `openssh-server` enabled with `PermitRootLogin yes`. Default credentials are `root:cocoon`. SSH covers the human-on-keyboard case while cocoon-agent handles control-plane traffic.
+
+Default credentials apply to fresh VMs. If you fork an image you should rotate the root password and (if you keep sshd) flip `PermitRootLogin` back to `no` once you have a non-root sudoer.
+
 ## DHCP and VM Cloning
 
 All Ubuntu images configure systemd-networkd with `ClientIdentifier=mac` in their DHCP settings. This ensures that when a VM is cloned from a snapshot, each clone uses its unique MAC address as the DHCP client identifier instead of the machine-id-derived DUID. Without this, clones from the same snapshot share an identical DUID and dnsmasq treats them as a single client, causing IP conflicts.

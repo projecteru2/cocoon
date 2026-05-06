@@ -16,17 +16,21 @@ FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG COCOON_AGENT_VERSION=0.1.0
+
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
     --mount=type=secret,id=cocoon_init_wrapper \
     --mount=type=secret,id=cocoon_network_rc \
     --mount=type=secret,id=cocoon_omx_fix_rc \
     --mount=type=secret,id=cocoon_disable_bt_rc \
+    --mount=type=secret,id=cocoon_agent_rc \
     # --- Install kernel + initramfs tooling ---
     apt-get update && apt-get install -y --no-install-recommends \
     linux-image-generic \
     initramfs-tools \
     busybox-static \
+    ca-certificates curl \
     && \
     apt-get install -y --no-install-recommends \
         linux-modules-extra-$(ls /lib/modules/ | head -1) \
@@ -38,6 +42,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     { \
       echo erofs; echo overlay; echo ext4; \
       echo virtio_blk; echo virtio_pci; echo virtio_ring; echo virtio_net; \
+      echo vsock; echo vmw_vsock_virtio_transport; \
       echo binder_linux; echo loop; \
     } >> /etc/initramfs-tools/modules && \
     # netfilter: Android netd requires iptables tables.
@@ -68,6 +73,11 @@ RUN --mount=type=secret,id=cocoon_overlay \
     cp /run/secrets/cocoon_network_rc /output/system/etc/init/cocoon-network.rc && \
     cp /run/secrets/cocoon_omx_fix_rc /output/system/etc/init/cocoon-omx-fix.rc && \
     cp /run/secrets/cocoon_disable_bt_rc /output/system/etc/init/cocoon-disable-bt.rc && \
+    # --- cocoon-agent (vsock exec) — Android amd64 only ---
+    cp /run/secrets/cocoon_agent_rc /output/system/etc/init/cocoon-agent.rc && \
+    curl -fsSL "https://github.com/cocoonstack/cocoon-agent/releases/download/v${COCOON_AGENT_VERSION}/cocoon-agent_${COCOON_AGENT_VERSION}_Linux_x86_64.tar.gz" \
+        | tar -xz -C /output/system/bin/ cocoon-agent && \
+    chmod 0755 /output/system/bin/cocoon-agent && \
     rm -rf /var/lib/apt/lists/*
 
 # ---- Stage 2: Android rootfs + single cocoon layer ----

@@ -16,7 +16,11 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// chMemoryRestoreMode controls how CH restores guest memory from a snapshot.
+type chMemoryRestoreMode string
+
 const (
+	pidFileName     = "ch.pid"
 	cmdlineFileName = "cmdline"
 
 	// chMemoryRestoreOnDemand uses userfaultfd (UFFD) to lazily page in
@@ -24,10 +28,7 @@ const (
 	chMemoryRestoreOnDemand chMemoryRestoreMode = "OnDemand"
 )
 
-var runtimeFiles = []string{hypervisor.APISocketName, "ch.pid", hypervisor.ConsoleSockName, cmdlineFileName, hypervisor.VsockSockName}
-
-// chMemoryRestoreMode controls how CH restores guest memory from a snapshot.
-type chMemoryRestoreMode string
+var runtimeFiles = []string{hypervisor.APISocketName, pidFileName, hypervisor.ConsoleSockName, cmdlineFileName, hypervisor.VsockSockName}
 
 type chRestoreConfig struct {
 	SourceURL         string              `json:"source_url"`

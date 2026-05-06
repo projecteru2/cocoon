@@ -2,6 +2,11 @@ package images
 
 import cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 
+// imageType identifies the content type detected from a stream.
+type imageType int
+
+type importSourceKind int
+
 const (
 	// digestDisplayLen = len("sha256:") + 12 hex digits for compact display.
 	digestDisplayLen = 19
@@ -17,11 +22,6 @@ const (
 type Handler struct {
 	cmdcore.BaseHandler
 }
-
-// imageType identifies the content type detected from a stream.
-type imageType int
-
-type importSourceKind int
 
 type importLocalPlan struct {
 	kind  importSourceKind
