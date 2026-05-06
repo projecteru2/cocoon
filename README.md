@@ -650,7 +650,7 @@ A snapshot contains the full VM state:
 - **Memory**: complete RAM contents (memory-ranges)
 - **Disks**: COW disk (raw or qcow2), cidata disk (cloudimg)
 - **Config**: Cloud Hypervisor config.json and device state (state.json)
-- **Metadata**: image reference, hypervisor type, network/queue settings
+- **Metadata**: image reference, hypervisor type, network/queue settings, and resource topology (CPU, memory, storage, NIC count) — recorded for inspection and reuse at clone/restore but not overridable on those paths
 
 ### Clone Constraints
 
