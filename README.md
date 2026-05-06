@@ -333,7 +333,7 @@ Requires cocoon-agent to be running inside the guest (already baked into the off
 
 ### Logs Flags
 
-`cocoon vm logs` prints the per-VM hypervisor process log (`cloud-hypervisor.log` or `firecracker.log` under the configured `log_dir`). The log captures VMM-side activity — device init warnings, API errors, virtio messages, shutdown — but **not** guest console output (use `cocoon vm console` for that). Persists for the VM's lifetime; cleaned up on `vm rm`.
+`cocoon vm logs` prints the per-VM hypervisor process log (`cloud-hypervisor.log` or `firecracker.log` under the configured `log_dir`). The log captures VMM-side activity — device init warnings, API errors, virtio messages, shutdown — but **not** guest console output (use `cocoon vm console` for that). The file lives under the VM's log dir for as long as the VM record exists (cleaned up on `vm rm`); each `vm run` / `vm start` truncates and rewrites it from scratch — `-f` reopens after the truncate so you don't miss the new boot's lines.
 
 | Flag           | Default | Description                                        |
 | -------------- | ------- | -------------------------------------------------- |

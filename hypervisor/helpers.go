@@ -21,12 +21,19 @@ func (b *Backend) LogFilePath(logDir string) string {
 }
 
 // LogPath resolves ref to a VM ID and returns its hypervisor log path.
+// Reads LogDir from the persisted record so it stays correct after a
+// --log-dir config change; falls back to the current Conf for legacy
+// records that predate LogDir persistence.
 func (b *Backend) LogPath(ctx context.Context, ref string) (string, error) {
 	id, err := b.ResolveRef(ctx, ref)
 	if err != nil {
 		return "", err
 	}
-	return b.LogFilePath(b.Conf.VMLogDir(id)), nil
+	logDir := b.Conf.VMLogDir(id)
+	if rec, err := b.LoadRecord(ctx, id); err == nil && rec.LogDir != "" {
+		logDir = rec.LogDir
+	}
+	return b.LogFilePath(logDir), nil
 }
 
 // ForEachVM runs fn over ids in parallel up to EffectivePoolSize, logging per-id failures.
