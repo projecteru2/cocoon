@@ -38,7 +38,7 @@ type vmSnapshot struct {
 
 type eventEmitter struct {
 	begin func()
-	emit  func(event string, snap vmSnapshot, vm *types.VM)
+	emit  func(event string, snap vmSnapshot, vm types.VM)
 	end   func()
 }
 
@@ -192,7 +192,7 @@ func statusEventLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filter
 	var w *tabwriter.Writer
 	statusEventDiffLoop(ctx, hypers, filters, watchCh, tick, eventEmitter{
 		begin: func() { w = tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0) },
-		emit:  func(event string, snap vmSnapshot, _ *types.VM) { printEventRow(w, event, snap) },
+		emit:  func(event string, snap vmSnapshot, _ types.VM) { printEventRow(w, event, snap) },
 		end:   func() { _ = w.Flush() },
 	})
 }
@@ -200,15 +200,15 @@ func statusEventLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filter
 func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time) {
 	enc := json.NewEncoder(os.Stdout)
 	statusEventDiffLoop(ctx, hypers, filters, watchCh, tick, eventEmitter{
-		emit: func(event string, _ vmSnapshot, vm *types.VM) {
-			_ = enc.Encode(vmEvent{Event: event, VM: *vm})
+		emit: func(event string, _ vmSnapshot, vm types.VM) {
+			_ = enc.Encode(vmEvent{Event: event, VM: vm})
 		},
 	})
 }
 
 // statusEventDiffLoop runs the shared diff: snapshot all VMs each tick, compare
 // against the previous tick's snapshots, and emit ADDED/MODIFIED/DELETED events
-// via emitter. Holds both snap and *vm so emitters can choose either format.
+// via emitter. Holds both snap and vm so emitters can choose either format.
 func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time, emitter eventEmitter) {
 	type entry struct {
 		snap vmSnapshot
@@ -229,14 +229,14 @@ func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, fi
 			old, existed := prev[id]
 			switch {
 			case !existed:
-				emitter.emit("ADDED", e.snap, &e.vm)
+				emitter.emit("ADDED", e.snap, e.vm)
 			case old.snap != e.snap:
-				emitter.emit("MODIFIED", e.snap, &e.vm)
+				emitter.emit("MODIFIED", e.snap, e.vm)
 			}
 		}
 		for id, e := range prev {
 			if _, exists := curr[id]; !exists {
-				emitter.emit("DELETED", e.snap, &e.vm)
+				emitter.emit("DELETED", e.snap, e.vm)
 			}
 		}
 		if emitter.end != nil {
