@@ -27,13 +27,13 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 		},
 		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
 			directBoot := isDirectBoot(rec.BootConfig)
-			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot, ch.cowPath(vmID, directBoot))
+			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot)
 		},
 	})
 }
 
 func cloneSnapshotFiles(dstDir, srcDir string) error {
-	chCfg, _, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
 	if err != nil {
 		return fmt.Errorf("parse source config: %w", err)
 	}

@@ -16,11 +16,10 @@ func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *type
 
 func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
 	return fc.DirectRestoreSequence(ctx, vmRef, hypervisor.DirectRestoreSpec{
-		VMCfg:         vmCfg,
-		SrcDir:        srcDir,
-		OverrideCheck: validateRestoreOverrides,
-		Preflight:     fc.preflightRestore,
-		Kill:          fc.killForRestore,
+		VMCfg:     vmCfg,
+		SrcDir:    srcDir,
+		Preflight: fc.preflightRestore,
+		Kill:      fc.killForRestore,
 		// Lock writable disks so recoverStaleBackup heals stale data-*.raw.cocoon-clone-backup
 		// before restore overwrites them; otherwise a future clone renames backup over restored data.
 		Wrap: func(rec *hypervisor.VMRecord, inner func() error) error {

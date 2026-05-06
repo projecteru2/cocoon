@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -16,25 +15,17 @@ type patchOptions struct {
 	consoleSock    string
 	vsockSock      string
 	directBoot     bool
-	windows        bool
-	cpu            int
-	memory         int64
 	diskQueueSize  int
 	noDirectIO     bool
 }
 
 // patchCHConfig patches specific fields in config.json while preserving all
 // unknown fields that CH adds internally (platform, cpus.topology, etc.).
-// If chCfg and rawData are provided, the file is not re-read.
-func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData []byte) error {
-	var err error
-	if rawData == nil {
-		rawData, err = os.ReadFile(path) //nolint:gosec
-		if err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
-		}
+func patchCHConfig(path string, opts *patchOptions) error {
+	rawData, err := os.ReadFile(path) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
 	}
-
 	var raw map[string]json.RawMessage
 	if e := json.Unmarshal(rawData, &raw); e != nil {
 		return fmt.Errorf("decode raw %s: %w", path, e)
@@ -74,24 +65,6 @@ func patchCHConfig(path string, opts *patchOptions, chCfg *chVMConfig, rawData [
 		}
 	}
 
-	if opts.cpu > 0 {
-		if cpuRaw, ok := raw["cpus"]; ok {
-			patched, patchErr := patchRawObject(cpuRaw, func(obj map[string]json.RawMessage) error {
-				return setField(obj, "boot_vcpus", opts.cpu)
-			})
-			if patchErr != nil {
-				return fmt.Errorf("patch cpus: %w", patchErr)
-			}
-			raw["cpus"] = patched
-		}
-	}
-
-	if opts.memory > 0 {
-		if memErr := patchMemoryAndBalloon(raw, chCfg, opts.memory, opts.windows); memErr != nil {
-			return memErr
-		}
-	}
-
 	return utils.AtomicWriteJSON(path, raw)
 }
 
@@ -116,52 +89,6 @@ func patchDisks(diskRaw json.RawMessage, opts *patchOptions) (json.RawMessage, e
 			directIO = !sc.RO && !opts.noDirectIO
 		}
 		return setField(elem, "direct", directIO)
-	})
-}
-
-func patchMemoryAndBalloon(raw map[string]json.RawMessage, chCfg *chVMConfig, memory int64, windows bool) error {
-	if memRaw, ok := raw["memory"]; ok {
-		patched, err := patchRawObject(memRaw, func(obj map[string]json.RawMessage) error {
-			return setField(obj, "size", memory)
-		})
-		if err != nil {
-			return fmt.Errorf("patch memory: %w", err)
-		}
-		raw["memory"] = patched
-	}
-	newSize, enabled := hypervisor.BalloonSize(memory, windows)
-	if !enabled {
-		delete(raw, "balloon")
-		return nil
-	}
-	hasBalloon := chCfg != nil && chCfg.Balloon != nil
-	if !hasBalloon {
-		balloonRaw, ok := raw["balloon"]
-		hasBalloon = ok && rawObjectPresent(balloonRaw)
-	}
-	if err := patchBalloonRaw(raw, hasBalloon, newSize); err != nil {
-		return fmt.Errorf("patch balloon: %w", err)
-	}
-	return nil
-}
-
-func patchBalloonRaw(raw map[string]json.RawMessage, hasBalloon bool, newSize int64) error {
-	if hasBalloon {
-		if balloonRaw, ok := raw["balloon"]; ok {
-			patched, err := patchRawObject(balloonRaw, func(obj map[string]json.RawMessage) error {
-				return setField(obj, "size", newSize)
-			})
-			if err != nil {
-				return fmt.Errorf("patch balloon size: %w", err)
-			}
-			raw["balloon"] = patched
-			return nil
-		}
-	}
-	return setField(raw, "balloon", &chBalloon{
-		Size:              newSize,
-		DeflateOnOOM:      true,
-		FreePageReporting: true,
 	})
 }
 

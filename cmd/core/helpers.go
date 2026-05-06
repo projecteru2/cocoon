@@ -378,19 +378,15 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 		noDirectIO, _ = cmd.Flags().GetBool("no-direct-io")
 	}
 
-	cpu, memBytes, storBytes, err := mergeResourceFlags(cmd, snapCfg.CPU, snapCfg.Memory, snapCfg.Storage, snapCfg)
-	if err != nil {
-		return nil, err
-	}
-
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
 
-	cfg := &types.VMConfig{
+	// Validate runs in prepareClone, after the default name is filled in.
+	return &types.VMConfig{
 		Name: vmName,
 		Config: types.Config{
-			CPU:           cpu,
-			Memory:        memBytes,
-			Storage:       storBytes,
+			CPU:           snapCfg.CPU,
+			Memory:        snapCfg.Memory,
+			Storage:       snapCfg.Storage,
 			QueueSize:     queueSize,
 			DiskQueueSize: diskQueueSize,
 			Image:         snapCfg.Image,
@@ -402,29 +398,29 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 			SharedMemory:  snapCfg.SharedMemory,
 		},
 		OnDemand: onDemand,
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
+	}, nil
 }
 
-// RestoreVMConfigFromFlags builds VMConfig for restore (allows overrides).
+// RestoreVMConfigFromFlags builds VMConfig for restore: resources from the
+// snapshot, Name/Network from the VM (CNI namespace survives restore).
 func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
-	result := vm.Config // value copy — keep current VM values
-
-	cpu, memBytes, storBytes, err := mergeResourceFlags(cmd, result.CPU, result.Memory, result.Storage, snapCfg)
-	if err != nil {
-		return nil, err
+	if snapCfg.NICs != len(vm.NetworkConfigs) {
+		return nil, fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
+			len(vm.NetworkConfigs), snapCfg.NICs)
 	}
-	result.CPU = cpu
-	result.Memory = memBytes
-	result.Storage = storBytes
-
+	cfg := snapCfg.Config
+	cfg.Network = vm.Config.Network
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
-	result.OnDemand = onDemand
-
-	return &result, nil
+	result := &types.VMConfig{
+		Config:   cfg,
+		Name:     vm.Config.Name,
+		OnDemand: onDemand,
+	}
+	// Guard against tampered --from-dir --force envelopes.
+	if err := result.Validate(); err != nil {
+		return nil, fmt.Errorf("snapshot config: %w", err)
+	}
+	return result, nil
 }
 
 func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
@@ -568,41 +564,6 @@ func sanitizeVMName(image string) string {
 		n = n[:63]
 	}
 	return n
-}
-
-func mergeResourceFlags(cmd *cobra.Command, cpu int, memory, storage int64, snapCfg types.SnapshotConfig) (int, int64, int64, error) {
-	cpuFlag, _ := cmd.Flags().GetInt("cpu")
-	memStr, _ := cmd.Flags().GetString("memory")
-	storStr, _ := cmd.Flags().GetString("storage")
-
-	if cpuFlag > 0 {
-		cpu = cpuFlag
-	}
-	if memStr != "" {
-		v, err := units.RAMInBytes(memStr)
-		if err != nil {
-			return 0, 0, 0, fmt.Errorf("invalid --memory %q: %w", memStr, err)
-		}
-		memory = v
-	}
-	if storStr != "" {
-		v, err := units.RAMInBytes(storStr)
-		if err != nil {
-			return 0, 0, 0, fmt.Errorf("invalid --storage %q: %w", storStr, err)
-		}
-		storage = v
-	}
-
-	if cpu < snapCfg.CPU {
-		return 0, 0, 0, fmt.Errorf("--cpu %d below snapshot minimum %d", cpu, snapCfg.CPU)
-	}
-	if memory < snapCfg.Memory {
-		return 0, 0, 0, fmt.Errorf("--memory %s below snapshot minimum %s", FormatSize(memory), FormatSize(snapCfg.Memory))
-	}
-	if storage < snapCfg.Storage {
-		return 0, 0, 0, fmt.Errorf("--storage %s below snapshot minimum %s", FormatSize(storage), FormatSize(snapCfg.Storage))
-	}
-	return cpu, memory, storage, nil
 }
 
 // parseDataDiskFlags parses --data-disk values, normalizes defaults, and

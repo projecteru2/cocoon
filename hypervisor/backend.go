@@ -75,26 +75,24 @@ type LaunchSpec struct {
 
 // RestoreSpec carries the backend-specific hooks for Backend.RestoreSequence.
 type RestoreSpec struct {
-	VMCfg         *types.VMConfig
-	Snapshot      io.Reader
-	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error
-	Preflight     func(stagingDir string, rec *VMRecord) error
-	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap          func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
-	BeforeMerge   func(rec *VMRecord) error                  // e.g. FC removes stale COW
-	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+	VMCfg        *types.VMConfig
+	Snapshot     io.Reader
+	Preflight    func(stagingDir string, rec *VMRecord) error
+	Kill         func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap         func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
+	BeforeMerge  func(rec *VMRecord) error                  // e.g. FC removes stale COW
+	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
 // DirectRestoreSpec is RestoreSpec for a local srcDir rather than a tar; Populate replaces staging+merge.
 type DirectRestoreSpec struct {
-	VMCfg         *types.VMConfig
-	SrcDir        string
-	OverrideCheck func(rec *VMRecord, vmCfg *types.VMConfig) error
-	Preflight     func(srcDir string, rec *VMRecord) error
-	Kill          func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap          func(rec *VMRecord, fn func() error) error
-	Populate      func(rec *VMRecord, srcDir string) error
-	AfterExtract  func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+	VMCfg        *types.VMConfig
+	SrcDir       string
+	Preflight    func(srcDir string, rec *VMRecord) error
+	Kill         func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap         func(rec *VMRecord, fn func() error) error
+	Populate     func(rec *VMRecord, srcDir string) error
+	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
 // CreateSpec carries the inputs to CreateSequence. Prepare returns the

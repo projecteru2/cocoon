@@ -77,11 +77,6 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	if err != nil {
 		return nil, err
 	}
-	if spec.OverrideCheck != nil {
-		if checkErr := spec.OverrideCheck(rec, spec.VMCfg); checkErr != nil {
-			return nil, checkErr
-		}
-	}
 
 	stagingDir, cleanupStaging, err := PrepareStagingDir(rec.RunDir, spec.Snapshot)
 	if err != nil {
@@ -130,11 +125,6 @@ func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec 
 	vmID, rec, err := b.ResolveForRestore(ctx, vmRef)
 	if err != nil {
 		return nil, err
-	}
-	if spec.OverrideCheck != nil {
-		if checkErr := spec.OverrideCheck(rec, spec.VMCfg); checkErr != nil {
-			return nil, checkErr
-		}
 	}
 
 	if preflightErr := spec.Preflight(spec.SrcDir, rec); preflightErr != nil {

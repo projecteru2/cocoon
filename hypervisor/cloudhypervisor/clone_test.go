@@ -135,7 +135,7 @@ func TestPatchCHConfig_PreservesUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	path := writeCHConfig(t, dir, baseCHConfig())
 
-	if err := patchCHConfig(path, basePatchOpts(), nil, nil); err != nil {
+	if err := patchCHConfig(path, basePatchOpts()); err != nil {
 		t.Fatalf("patchCHConfig: %v", err)
 	}
 
@@ -196,7 +196,7 @@ func TestPatchCHConfig_UpdatesDiskPaths(t *testing.T) {
 	path := writeCHConfig(t, dir, baseCHConfig())
 
 	opts := basePatchOpts()
-	if err := patchCHConfig(path, opts, nil, nil); err != nil {
+	if err := patchCHConfig(path, opts); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,7 +226,7 @@ func TestPatchCHConfig_SerialConsole(t *testing.T) {
 
 		opts := basePatchOpts()
 		opts.directBoot = true
-		if err := patchCHConfig(path, opts, nil, nil); err != nil {
+		if err := patchCHConfig(path, opts); err != nil {
 			t.Fatal(err)
 		}
 
@@ -250,7 +250,7 @@ func TestPatchCHConfig_SerialConsole(t *testing.T) {
 		opts := basePatchOpts()
 		opts.directBoot = false
 		opts.consoleSock = "/new/console.sock"
-		if err := patchCHConfig(path, opts, nil, nil); err != nil {
+		if err := patchCHConfig(path, opts); err != nil {
 			t.Fatal(err)
 		}
 
@@ -269,132 +269,6 @@ func TestPatchCHConfig_SerialConsole(t *testing.T) {
 	})
 }
 
-func TestPatchCHConfig_CPUMemoryBalloon(t *testing.T) {
-	dir := t.TempDir()
-	path := writeCHConfig(t, dir, baseCHConfig())
-
-	opts := basePatchOpts()
-	opts.cpu = 4
-	opts.memory = 2 << 30 // 2 GiB
-	if err := patchCHConfig(path, opts, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	result := readRawJSON(t, path)
-
-	cpus := result["cpus"].(map[string]any)
-	if cpus["boot_vcpus"] != float64(4) {
-		t.Errorf("boot_vcpus: got %v, want 4", cpus["boot_vcpus"])
-	}
-	// max_phys_bits preserved.
-	if cpus["max_phys_bits"] != float64(46) {
-		t.Errorf("max_phys_bits lost: got %v", cpus["max_phys_bits"])
-	}
-
-	mem := result["memory"].(map[string]any)
-	if mem["size"] != float64(2<<30) {
-		t.Errorf("memory.size: got %v, want %v", mem["size"], float64(2<<30))
-	}
-	// shared preserved.
-	if _, ok := mem["shared"]; !ok {
-		t.Error("memory.shared lost")
-	}
-
-	balloon := result["balloon"].(map[string]any)
-	expectedSize := float64(2 << 30 / 4)
-	if balloon["size"] != expectedSize {
-		t.Errorf("balloon.size: got %v, want %v", balloon["size"], expectedSize)
-	}
-	// Balloon device id preserved.
-	if balloon["id"] != "_balloon0" {
-		t.Errorf("balloon.id lost: got %v", balloon["id"])
-	}
-}
-
-func TestPatchCHConfig_BalloonRemoved(t *testing.T) {
-	dir := t.TempDir()
-	path := writeCHConfig(t, dir, baseCHConfig())
-
-	opts := basePatchOpts()
-	opts.memory = 128 << 20 // 128 MiB, below minBalloonMemory
-	if err := patchCHConfig(path, opts, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	result := readRawJSON(t, path)
-	if _, ok := result["balloon"]; ok {
-		t.Error("balloon should be removed for memory < 256 MiB")
-	}
-}
-
-func TestPatchCHConfig_BalloonCreated(t *testing.T) {
-	dir := t.TempDir()
-	cfg := baseCHConfig()
-	delete(cfg, "balloon") // no balloon initially
-	path := writeCHConfig(t, dir, cfg)
-
-	opts := basePatchOpts()
-	opts.memory = 1 << 30 // 1 GiB
-	if err := patchCHConfig(path, opts, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	result := readRawJSON(t, path)
-	balloon, ok := result["balloon"].(map[string]any)
-	if !ok {
-		t.Fatal("balloon should be created for memory >= 256 MiB")
-	}
-	expectedSize := float64(1 << 30 / 4)
-	if balloon["size"] != expectedSize {
-		t.Errorf("balloon.size: got %v, want %v", balloon["size"], expectedSize)
-	}
-	if balloon["deflate_on_oom"] != true {
-		t.Error("deflate_on_oom should be true")
-	}
-}
-
-func TestPatchCHConfig_WindowsBalloonRemoved(t *testing.T) {
-	dir := t.TempDir()
-	cfg := baseCHConfig()
-	cfg["balloon"] = nil
-	path := writeCHConfig(t, dir, cfg)
-
-	opts := basePatchOpts()
-	opts.windows = true
-	opts.memory = 4 << 30
-	if err := patchCHConfig(path, opts, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	result := readRawJSON(t, path)
-	if _, ok := result["balloon"]; ok {
-		t.Fatal("balloon should be removed for Windows")
-	}
-}
-
-func TestPatchCHConfig_BalloonNullCreated(t *testing.T) {
-	dir := t.TempDir()
-	cfg := baseCHConfig()
-	cfg["balloon"] = nil
-	path := writeCHConfig(t, dir, cfg)
-
-	opts := basePatchOpts()
-	opts.memory = 1 << 30
-	if err := patchCHConfig(path, opts, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	result := readRawJSON(t, path)
-	balloon, ok := result["balloon"].(map[string]any)
-	if !ok {
-		t.Fatal("balloon should be created when raw balloon is null")
-	}
-	expectedSize := float64(1 << 30 / 4)
-	if balloon["size"] != expectedSize {
-		t.Errorf("balloon.size: got %v, want %v", balloon["size"], expectedSize)
-	}
-}
-
 func TestPatchCHConfig_DiskCountMismatch(t *testing.T) {
 	dir := t.TempDir()
 	path := writeCHConfig(t, dir, baseCHConfig())
@@ -402,7 +276,7 @@ func TestPatchCHConfig_DiskCountMismatch(t *testing.T) {
 	opts := basePatchOpts()
 	// 3 storage configs vs 2 disks in config.
 	opts.storageConfigs = append(opts.storageConfigs, &types.StorageConfig{Path: "/extra"})
-	err := patchCHConfig(path, opts, nil, nil)
+	err := patchCHConfig(path, opts)
 	if err == nil {
 		t.Fatal("expected error for disk count mismatch")
 	}

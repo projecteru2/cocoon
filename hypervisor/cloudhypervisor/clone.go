@@ -40,7 +40,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
 	chConfigPath := filepath.Join(runDir, "config.json")
-	chCfg, chConfigRaw, err := parseCHConfig(chConfigPath)
+	chCfg, err := parseCHConfig(chConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("parse CH config: %w", err)
 	}
@@ -69,11 +69,6 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	if err = hypervisor.VerifyBaseFiles(storageConfigs, bootCfg); err != nil {
 		return nil, fmt.Errorf("verify base files: %w", err)
 	}
-	if vmCfg.Storage > 0 {
-		if err = qemuExpandImage(ctx, cowPath, vmCfg.Storage, directBoot); err != nil {
-			return nil, fmt.Errorf("resize COW: %w", err)
-		}
-	}
 
 	stateReplacements := buildStateReplacements(chCfg, storageConfigs)
 
@@ -93,12 +88,9 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		consoleSock:    consoleSock,
 		vsockSock:      hypervisor.VsockSockPath(runDir),
 		directBoot:     directBoot,
-		windows:        vmCfg.Windows,
-		cpu:            vmCfg.CPU,
-		memory:         vmCfg.Memory,
 		diskQueueSize:  vmCfg.DiskQueueSize,
 		noDirectIO:     vmCfg.NoDirectIO,
-	}, chCfg, chConfigRaw); err != nil {
+	}); err != nil {
 		return nil, fmt.Errorf("patch CH config: %w", err)
 	}
 
@@ -215,16 +207,16 @@ func (ch *CloudHypervisor) ensureCloneCidata(vmID string, vmCfg *types.VMConfig,
 	return storageConfigs, nil
 }
 
-func parseCHConfig(path string) (*chVMConfig, []byte, error) {
+func parseCHConfig(path string) (*chVMConfig, error) {
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
-		return nil, nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var cfg chVMConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("decode %s: %w", path, err)
+		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
-	return &cfg, data, nil
+	return &cfg, nil
 }
 
 func rebuildBootConfig(cfg *chVMConfig) *types.BootConfig {
