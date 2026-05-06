@@ -20,6 +20,7 @@ import (
 	"github.com/cocoonstack/cocoon/network"
 	bridgenet "github.com/cocoonstack/cocoon/network/bridge"
 	"github.com/cocoonstack/cocoon/types"
+	"github.com/cocoonstack/cocoon/utils"
 )
 
 // attachedDevices is the inspect-only view of runtime hot-plugged devices.
@@ -184,10 +185,25 @@ func (h Handler) Logs(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("logs: %w", err)
 	}
+	follow, _ := cmd.Flags().GetBool("follow")
+	return streamLog(ctx, path, follow)
+}
+
+func streamLog(ctx context.Context, path string, follow bool) error {
+	// Open the watcher before opening the file so we don't miss writes that
+	// arrive between catching up and entering the wait loop.
+	var events <-chan struct{}
+	if follow {
+		ch, err := utils.WatchFile(ctx, path, 100*time.Millisecond) //nolint:mnd
+		if err != nil {
+			return fmt.Errorf("watch log: %w", err)
+		}
+		events = ch
+	}
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("log file not found at %s (the VM may not have been started yet)", path)
+			return fmt.Errorf("open log %s: VM may not have been started yet", path)
 		}
 		return fmt.Errorf("open log: %w", err)
 	}
@@ -196,25 +212,17 @@ func (h Handler) Logs(cmd *cobra.Command, args []string) error {
 	if _, err := io.Copy(os.Stdout, f); err != nil {
 		return fmt.Errorf("read log: %w", err)
 	}
-	follow, _ := cmd.Flags().GetBool("follow")
 	if !follow {
 		return nil
 	}
-	return tailFollow(ctx, f)
-}
-
-// tailFollow polls f for new bytes after EOF and copies them to stdout
-// until ctx is canceled. The hypervisor never rotates this file, so we
-// don't need to handle truncation or rename.
-func tailFollow(ctx context.Context, f *os.File) error {
-	const pollInterval = 500 * time.Millisecond
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case _, ok := <-events:
+			if !ok {
+				return nil
+			}
 			if _, err := io.Copy(os.Stdout, f); err != nil {
 				return fmt.Errorf("read log: %w", err)
 			}

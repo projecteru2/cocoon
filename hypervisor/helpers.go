@@ -13,6 +13,22 @@ func (b *Backend) PIDFilePath(runDir string) string {
 	return filepath.Join(runDir, b.Conf.PIDFileName())
 }
 
+// LogFilePath returns the per-VM hypervisor log file under logDir, named
+// after the backend type. Used at launch time (write) and by LogPath
+// (read) so the two ends can't drift.
+func (b *Backend) LogFilePath(logDir string) string {
+	return filepath.Join(logDir, b.Typ+".log")
+}
+
+// LogPath resolves ref to a VM ID and returns its hypervisor log path.
+func (b *Backend) LogPath(ctx context.Context, ref string) (string, error) {
+	id, err := b.ResolveRef(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	return b.LogFilePath(b.Conf.VMLogDir(id)), nil
+}
+
 // ForEachVM runs fn over ids in parallel up to EffectivePoolSize, logging per-id failures.
 func (b *Backend) ForEachVM(ctx context.Context, ids []string, op string, fn func(context.Context, string) error) ([]string, error) {
 	logger := log.WithFunc(b.Typ + "." + op)
