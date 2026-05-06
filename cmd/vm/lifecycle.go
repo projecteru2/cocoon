@@ -213,8 +213,8 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 		events = ch
 	}
 
-	if _, err := io.Copy(os.Stdout, f); err != nil {
-		return fmt.Errorf("read log: %w", err)
+	if err := copyCtx(ctx, os.Stdout, f); err != nil {
+		return err
 	}
 	if !follow {
 		return nil
@@ -232,8 +232,8 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 			if err := rewindIfTruncated(f); err != nil {
 				return err
 			}
-			if _, err := io.Copy(os.Stdout, f); err != nil {
-				return fmt.Errorf("read log: %w", err)
+			if err := copyCtx(ctx, os.Stdout, f); err != nil {
+				return err
 			}
 		}
 	}
@@ -254,6 +254,32 @@ func rewindIfTruncated(f *os.File) error {
 		}
 	}
 	return nil
+}
+
+// copyCtx copies src to dst in 32 KiB chunks, returning without error when
+// ctx is canceled. This lets Ctrl-C interrupt a large log copy promptly
+// instead of waiting for io.Copy to drain the whole reader.
+func copyCtx(ctx context.Context, dst io.Writer, src io.Reader) error {
+	buf := make([]byte, 32*1024) //nolint:mnd
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		nr, readErr := src.Read(buf)
+		if nr > 0 {
+			if _, writeErr := dst.Write(buf[:nr]); writeErr != nil {
+				return fmt.Errorf("write log: %w", writeErr)
+			}
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return fmt.Errorf("read log: %w", readErr)
+		}
+	}
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
