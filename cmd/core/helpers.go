@@ -404,18 +404,21 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 	return cfg, nil
 }
 
-// RestoreVMConfigFromFlags builds VMConfig for restore. Resources come from
-// the snapshot (the hypervisor reconstructs the guest from snapshot state, so
-// the persisted record must match), VM identity stays, --from-dir / --force
-// foreign lineages are gated by the NIC-count check.
+// RestoreVMConfigFromFlags builds VMConfig for restore. Guest-state fields
+// come from the snapshot so the persisted record matches what the hypervisor
+// reconstructs; VM-bound fields (Name, Network) stay because the CNI
+// namespace, TAPs and IPs were allocated at create time and survive restore.
+// --from-dir / --force foreign lineages are gated by the NIC-count check.
 func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
 	if snapCfg.NICs != len(vm.NetworkConfigs) {
 		return nil, fmt.Errorf("NIC count mismatch: vm has %d, snapshot has %d",
 			len(vm.NetworkConfigs), snapCfg.NICs)
 	}
+	cfg := snapCfg.Config
+	cfg.Network = vm.Config.Network
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
 	return &types.VMConfig{
-		Config:   snapCfg.Config,
+		Config:   cfg,
 		Name:     vm.Config.Name,
 		OnDemand: onDemand,
 	}, nil
