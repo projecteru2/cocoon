@@ -190,16 +190,6 @@ func (h Handler) Logs(cmd *cobra.Command, args []string) error {
 }
 
 func streamLog(ctx context.Context, path string, follow bool) error {
-	// Open the watcher before opening the file so we don't miss writes that
-	// arrive between catching up and entering the wait loop.
-	var events <-chan struct{}
-	if follow {
-		ch, err := utils.WatchFile(ctx, path, 100*time.Millisecond) //nolint:mnd
-		if err != nil {
-			return fmt.Errorf("watch log: %w", err)
-		}
-		events = ch
-	}
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -208,6 +198,20 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 		return fmt.Errorf("open log: %w", err)
 	}
 	defer f.Close() //nolint:errcheck
+
+	// Watcher must be in place before the catch-up io.Copy returns so writes
+	// landing in that window queue an event for the wait loop. A child ctx
+	// keeps the goroutine bounded to streamLog's lifetime.
+	var events <-chan struct{}
+	if follow {
+		watchCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		ch, watchErr := utils.WatchFile(watchCtx, path, 100*time.Millisecond) //nolint:mnd
+		if watchErr != nil {
+			return fmt.Errorf("watch log: %w", watchErr)
+		}
+		events = ch
+	}
 
 	if _, err := io.Copy(os.Stdout, f); err != nil {
 		return fmt.Errorf("read log: %w", err)
