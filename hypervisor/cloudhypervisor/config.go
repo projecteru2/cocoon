@@ -19,7 +19,7 @@ func NewConfig(conf *config.Config) *Config {
 
 func (c *Config) BinaryName() string { return filepath.Base(c.CHBinary) }
 
-func (c *Config) PIDFileName() string { return "ch.pid" }
+func (c *Config) PIDFileName() string { return pidFileName }
 
 func (c *Config) COWRawPath(vmID string) string {
 	return filepath.Join(c.VMRunDir(vmID), "cow.raw")
