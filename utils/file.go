@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,6 +25,17 @@ func EnsureDirs(dirs ...string) error {
 		}
 	}
 	return nil
+}
+
+// FileHead returns up to n bytes from offset 0 without moving the read
+// position. Truncated at EOF, no error if shorter than n.
+func FileHead(f *os.File, n int) ([]byte, error) {
+	buf := make([]byte, n)
+	m, err := f.ReadAt(buf, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return buf[:m], nil
 }
 
 // ValidFile returns true if path is a regular file with size > 0.

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -199,25 +200,20 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 	}
 	defer f.Close() //nolint:errcheck
 
-	// Watcher must be in place before the catch-up io.Copy returns so writes
-	// landing in that window queue an event for the wait loop. A child ctx
-	// keeps the goroutine bounded to streamLog's lifetime.
-	var events <-chan struct{}
-	if follow {
-		watchCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		ch, watchErr := utils.WatchFile(watchCtx, path, 100*time.Millisecond) //nolint:mnd
-		if watchErr != nil {
-			return fmt.Errorf("watch log: %w", watchErr)
+	if !follow {
+		if _, copyErr := io.Copy(os.Stdout, f); copyErr != nil {
+			return fmt.Errorf("read log: %w", copyErr)
 		}
-		events = ch
+		return nil
 	}
 
-	if err := copyCtx(ctx, os.Stdout, f); err != nil {
-		return err
+	events, err := utils.WatchFile(ctx, path, 100*time.Millisecond) //nolint:mnd
+	if err != nil {
+		return fmt.Errorf("watch log: %w", err)
 	}
-	if !follow {
-		return nil
+	sig, _ := utils.FileHead(f, logHeadSigLen)
+	if _, err := io.Copy(os.Stdout, f); err != nil {
+		return fmt.Errorf("read log: %w", err)
 	}
 	for {
 		select {
@@ -227,60 +223,26 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 			if !ok {
 				return nil
 			}
-			// VM stop/start re-opens the log with O_TRUNC (same inode); rewind
-			// so the new boot's content isn't shadowed by the old EOF offset.
-			if err := rewindIfTruncated(f); err != nil {
-				return err
+			// stop/start re-opens with O_TRUNC; the head bytes change because
+			// CH/FC stamp a unique boot timestamp at line 1, so a sig mismatch
+			// catches a new generation even when the file regrows to the same
+			// length within the debounce window.
+			newSig, _ := utils.FileHead(f, logHeadSigLen)
+			if !bytes.Equal(newSig, sig) {
+				if _, err := f.Seek(0, io.SeekStart); err != nil {
+					return fmt.Errorf("rewind log: %w", err)
+				}
+				sig = newSig
 			}
-			if err := copyCtx(ctx, os.Stdout, f); err != nil {
-				return err
+			if _, err := io.Copy(os.Stdout, f); err != nil {
+				return fmt.Errorf("read log: %w", err)
 			}
 		}
 	}
 }
 
-func rewindIfTruncated(f *os.File) error {
-	pos, err := f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return fmt.Errorf("tell log: %w", err)
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat log: %w", err)
-	}
-	if info.Size() < pos {
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("rewind log: %w", err)
-		}
-	}
-	return nil
-}
-
-// copyCtx copies src to dst in 32 KiB chunks, returning without error when
-// ctx is canceled. This lets Ctrl-C interrupt a large log copy promptly
-// instead of waiting for io.Copy to drain the whole reader.
-func copyCtx(ctx context.Context, dst io.Writer, src io.Reader) error {
-	buf := make([]byte, 32*1024) //nolint:mnd
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-		nr, readErr := src.Read(buf)
-		if nr > 0 {
-			if _, writeErr := dst.Write(buf[:nr]); writeErr != nil {
-				return fmt.Errorf("write log: %w", writeErr)
-			}
-		}
-		if readErr == io.EOF {
-			return nil
-		}
-		if readErr != nil {
-			return fmt.Errorf("read log: %w", readErr)
-		}
-	}
-}
+// logHeadSigLen is enough to span CH/FC's boot timestamp on line 1.
+const logHeadSigLen = 64
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
