@@ -380,7 +380,9 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
 
-	cfg := &types.VMConfig{
+	// Validate is deferred to prepareClone, which fills the default
+	// "cocoon-clone-<id>" name once vmID has been generated.
+	return &types.VMConfig{
 		Name: vmName,
 		Config: types.Config{
 			CPU:           snapCfg.CPU,
@@ -397,11 +399,7 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 			SharedMemory:  snapCfg.SharedMemory,
 		},
 		OnDemand: onDemand,
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
+	}, nil
 }
 
 // RestoreVMConfigFromFlags builds VMConfig for restore. Guest-state fields

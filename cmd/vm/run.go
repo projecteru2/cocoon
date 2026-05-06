@@ -337,6 +337,9 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	if vmCfg.Name == "" {
 		vmCfg.Name = "cocoon-clone-" + network.VMIDPrefix(vmID)
 	}
+	if err = vmCfg.Validate(); err != nil {
+		return nil, "", nil, nil, err
+	}
 
 	// Auto-pull base image if --pull is set (cross-node clone).
 	if pull, _ := cmd.Flags().GetBool("pull"); pull && vmCfg.Image != "" && vmCfg.ImageType != "" {
