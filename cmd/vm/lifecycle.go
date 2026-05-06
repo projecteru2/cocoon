@@ -227,11 +227,33 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 			if !ok {
 				return nil
 			}
+			// VM stop/start re-opens the log with O_TRUNC (same inode); rewind
+			// so the new boot's content isn't shadowed by the old EOF offset.
+			if err := rewindIfTruncated(f); err != nil {
+				return err
+			}
 			if _, err := io.Copy(os.Stdout, f); err != nil {
 				return fmt.Errorf("read log: %w", err)
 			}
 		}
 	}
+}
+
+func rewindIfTruncated(f *os.File) error {
+	pos, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return fmt.Errorf("tell log: %w", err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat log: %w", err)
+	}
+	if info.Size() < pos {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("rewind log: %w", err)
+		}
+	}
+	return nil
 }
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
