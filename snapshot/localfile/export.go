@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cocoonstack/cocoon/snapshot"
-	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
 
@@ -77,12 +75,10 @@ func (lf *LocalFile) export(ctx context.Context, ref string, compress bool) (io.
 		return nil, err
 	}
 
-	envelope := types.SnapshotExport{Version: snapshot.EnvelopeVersion, Config: cfg}
-	jsonData, err := json.MarshalIndent(envelope, "", "  ")
+	jsonData, err := snapshot.MarshalEnvelope(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("marshal snapshot metadata: %w", err)
+		return nil, err
 	}
-	jsonData = append(jsonData, '\n')
 
 	pr, pw := io.Pipe()
 	done := make(chan error, 1)
