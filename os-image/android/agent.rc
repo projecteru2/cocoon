@@ -1,0 +1,12 @@
+# /system/etc/init/cocoon-agent.rc
+#
+# Cocoon vsock exec agent (host-side `cocoon vm exec` listens on AF_VSOCK).
+# Persistent service: init restarts the binary if it exits.
+
+service cocoon-agent /system/bin/cocoon-agent serve
+    class core
+    user root
+    group root
+
+on boot
+    start cocoon-agent

@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
+    --mount=type=secret,id=cocoon_install_agent \
     apt-get update && apt-get install -y --no-install-recommends \
     linux-image-virtual \
     initramfs-tools \
@@ -13,6 +14,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     software-properties-common htop ncdu nload net-tools \
     openbox \
     xserver-xorg-core dbus-x11 xrdp xorgxrdp \
+    openssh-server ca-certificates \
     && \
     ARCH=${TARGETARCH:-$(dpkg --print-architecture)}; \
     if [ "$ARCH" = "amd64" ]; then \
@@ -32,7 +34,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     chmod 0755 /etc/initramfs-tools/scripts/cocoon-overlay && \
     cp /run/secrets/cocoon_network /etc/initramfs-tools/scripts/init-bottom/cocoon-network && \
     chmod 0755 /etc/initramfs-tools/scripts/init-bottom/cocoon-network && \
-    printf "erofs\nlz4\nlz4_compress\nzstd\nzstd_compress\noverlay\next4\nvirtio_blk\nvirtio_pci\nvirtio_ring\nvirtio_net\nvirtio_gpu\n" >> /etc/initramfs-tools/modules && \
+    printf "erofs\nlz4\nlz4_compress\nzstd\nzstd_compress\noverlay\next4\nvirtio_blk\nvirtio_pci\nvirtio_ring\nvirtio_net\nvirtio_gpu\nvsock\nvmw_vsock_virtio_transport\n" >> /etc/initramfs-tools/modules && \
     sed -i 's/^COMPRESS=.*/COMPRESS=gzip/' /etc/initramfs-tools/initramfs.conf && \
     sed -i '/^IP=/d' /etc/initramfs-tools/initramfs.conf && \
     echo 'IP=off' >> /etc/initramfs-tools/initramfs.conf && \
@@ -49,6 +51,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     sed -i 's/^tcp_nodelay=.*/tcp_nodelay=true/' /etc/xrdp/xrdp.ini && \
     adduser xrdp ssl-cert && \
     systemctl enable xrdp && \
+    sh /run/secrets/cocoon_install_agent && \
     echo 'root:cocoon' | chpasswd && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/apt/lists/partial /var/cache/apt/archives/partial

@@ -228,3 +228,21 @@ Attaches via `cocoon vm fs attach` and `cocoon vm device attach` are runtime-onl
 ## virtiofsd is a single-shot daemon
 
 Upstream virtiofsd serves exactly one vhost-user client and exits when that client disconnects. Consequence: after `cocoon vm fs detach`, the daemon is gone — a follow-up `cocoon vm fs attach` against the same socket path will hang or time out until a fresh `virtiofsd` instance is launched. The same applies after `cocoon vm stop` (CH closes the socket on shutdown). Scripts that cycle attach/detach should respawn virtiofsd between calls. This is a virtiofsd behavior, not a cocoon limitation.
+
+## Official OS images ship with default `root:cocoon` and `PermitRootLogin yes`
+
+Every Ubuntu image under `os-image/` enables `openssh-server` with `PermitRootLogin yes` and the default `root:cocoon` credentials baked in. This is convenient for development and matches the existing OCI-image behavior, but it is **not** safe for production exposure.
+
+Mitigations for production users:
+
+- Rotate the root password (`passwd root`) and/or disable password auth (`PasswordAuthentication no`) inside the guest before exposing it.
+- Add a non-root sudo user, then flip `PermitRootLogin` back to `no`.
+- Or fork the Dockerfile and adjust the `install-agent.sh` invocation to skip the SSH config step.
+
+Control-plane traffic from cocoon-managed hosts (vk-cocoon, `cocoon vm exec`) goes through cocoon-agent over vsock and never depends on SSH credentials.
+
+## Android cocoon-agent service may be blocked by SELinux
+
+`os-image/android/{14.0,15.0}` install the cocoon-agent binary at `/system/bin/cocoon-agent` and register it via `/system/etc/init/cocoon-agent.rc`. Android's SELinux policies don't ship with a domain for cocoon-agent, so the service may run in `init`'s domain or be denied outright depending on the redroid build.
+
+If `cocoon vm exec` against an Android VM returns `dial agent: ...`, check `logcat | grep -i avc` inside the guest. The fix is build-time — adjust the Android sepolicy to grant the new binary network/socket permissions — and is out of scope for the Dockerfile.

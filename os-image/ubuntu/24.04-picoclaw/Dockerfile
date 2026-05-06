@@ -1,11 +1,11 @@
 FROM ubuntu:24.04
-LABEL cocoon.ssh.username="root" cocoon.ssh.password="cocoon"
 
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
+    --mount=type=secret,id=cocoon_install_agent \
     --mount=type=secret,id=picoclaw_service \
     --mount=type=secret,id=config_json \
     --mount=type=secret,id=picoclaw_init \
@@ -15,7 +15,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     systemd systemd-sysv systemd-timesyncd systemd-resolved \
     udev kmod iproute2 iputils-ping curl wget arping tcpdump \
     software-properties-common htop ncdu nload net-tools \
-    openssh-server \
+    openssh-server ca-certificates \
     openbox \
     xserver-xorg-core dbus-x11 xrdp xorgxrdp \
     # Chinese language support
@@ -58,7 +58,7 @@ RUN --mount=type=secret,id=cocoon_overlay \
     chmod 0755 /etc/initramfs-tools/scripts/cocoon-overlay && \
     cp /run/secrets/cocoon_network /etc/initramfs-tools/scripts/init-bottom/cocoon-network && \
     chmod 0755 /etc/initramfs-tools/scripts/init-bottom/cocoon-network && \
-    printf "erofs\nlz4\nlz4_compress\nzstd\nzstd_compress\noverlay\next4\nvirtio_blk\nvirtio_pci\nvirtio_ring\nvirtio_net\nvirtio_gpu\n" >> /etc/initramfs-tools/modules && \
+    printf "erofs\nlz4\nlz4_compress\nzstd\nzstd_compress\noverlay\next4\nvirtio_blk\nvirtio_pci\nvirtio_ring\nvirtio_net\nvirtio_gpu\nvsock\nvmw_vsock_virtio_transport\n" >> /etc/initramfs-tools/modules && \
     sed -i 's/^COMPRESS=.*/COMPRESS=gzip/' /etc/initramfs-tools/initramfs.conf && \
     sed -i '/^IP=/d' /etc/initramfs-tools/initramfs.conf && \
     echo 'IP=off' >> /etc/initramfs-tools/initramfs.conf && \
@@ -77,10 +77,8 @@ RUN --mount=type=secret,id=cocoon_overlay \
     sed -i 's/^tcp_nodelay=.*/tcp_nodelay=true/' /etc/xrdp/xrdp.ini && \
     adduser xrdp ssl-cert && \
     systemctl enable xrdp && \
-    # SSH: enable root login
-    mkdir -p /run/sshd && \
-    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    systemctl enable ssh && \
+    # SSH + cocoon-agent (vsock exec): unified install script.
+    sh /run/secrets/cocoon_install_agent && \
     # Root password
     echo 'root:cocoon' | chpasswd && \
     # PicoClaw: config + service + init script (NOT enabled until picoclaw-init runs)
