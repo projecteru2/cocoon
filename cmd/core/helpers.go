@@ -417,11 +417,17 @@ func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.Sn
 	cfg := snapCfg.Config
 	cfg.Network = vm.Config.Network
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
-	return &types.VMConfig{
+	result := &types.VMConfig{
 		Config:   cfg,
 		Name:     vm.Config.Name,
 		OnDemand: onDemand,
-	}, nil
+	}
+	// Reject tampered / malformed snapshot envelopes (--from-dir --force) before
+	// the bad values reach FinalizeRestore and overwrite the VM record.
+	if err := result.Validate(); err != nil {
+		return nil, fmt.Errorf("snapshot config: %w", err)
+	}
+	return result, nil
 }
 
 func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {

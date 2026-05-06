@@ -11,9 +11,9 @@ After `cocoon vm clone`, the cloned VM resumes with the **original VM's IP addre
 
 **Mitigation**: run the post-clone guest setup commands printed by `cocoon vm clone` as soon as possible (see [Post-Clone Guest Setup](README.md#post-clone-guest-setup)). For cloudimg VMs this means re-running `cloud-init`; for OCI VMs this means `ip addr flush` + reconfigure with the new IP.
 
-## Clone and restore inherit all resources from the snapshot
+## Clone and restore resources are fixed at snapshot time
 
-Both `cocoon vm clone` and `cocoon vm restore` inherit CPU, memory, storage, and NIC count verbatim from the snapshot. Both hypervisors reconstruct the guest from the snapshot's binary device state, so changing any of these at clone/restore time would not be honored. Use `cocoon vm run` to create a fresh VM with different sizing.
+`cocoon vm clone` inherits CPU, memory, storage, and NIC count from the snapshot — none of them can be grown at clone time. `cocoon vm restore` is more restrictive: CPU, memory, and storage come from the snapshot (the persisted record is realigned to match), and NIC count must already match the target VM (mismatches are rejected, since restore reuses the existing network namespace). Both hypervisors reconstruct the guest from the snapshot's binary device state, so changing any of these would not be honored. Use `cocoon vm run` to create a fresh VM with different sizing.
 
 ## Restore requires a running VM
 

@@ -209,7 +209,9 @@ Applies to `cocoon vm clone`:
 | `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
 | `--bridge`  | empty                    | TAP-on-bridge mode (value is bridge device); mutually exclusive with `--network` |
 | `--no-direct-io` | `false` (inherit)  | Disable O_DIRECT on writable disks (inherit from snapshot if not set) |
+| `--on-demand` | `false`             | Use UFFD on-demand memory loading for faster clone (CH only; snapshot file must remain on disk) |
 | `--pull`  | `false`              | Auto-pull base image if not found locally (for cross-node clone)      |
+| `--from-dir` | empty                | Clone from a snapshot directory (must contain `snapshot.json`); mutually exclusive with positional `SNAPSHOT` |
 
 CPU, memory, storage, and NIC count all inherit from the snapshot — both
 hypervisors restore the guest from the snapshot's binary device state, so
