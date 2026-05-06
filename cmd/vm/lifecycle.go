@@ -24,6 +24,9 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// logHeadSigLen spans CH/FC's boot timestamp on line 1.
+const logHeadSigLen = 64
+
 // attachedDevices is the inspect-only view of runtime hot-plugged devices.
 // Cocoon never persists this structure; it is read from CH vm.info on demand.
 type attachedDevices struct {
@@ -240,9 +243,6 @@ func streamLog(ctx context.Context, path string, follow bool) error {
 		}
 	}
 }
-
-// logHeadSigLen is enough to span CH/FC's boot timestamp on line 1.
-const logHeadSigLen = 64
 
 func (h Handler) RM(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
