@@ -78,7 +78,7 @@ func TestVMIPsAndSort(t *testing.T) {
 		t.Fatalf("vmIPs() = %q, want %q", got, "10.0.0.2,10.0.0.3")
 	}
 
-	snap := takeSnapshot(vms[0])
+	snap := takeSnapshot(vms[0], "running")
 	if snap.id != "1" || snap.name != "earlier" || snap.image != "img-a" {
 		t.Fatalf("takeSnapshot() = %+v", snap)
 	}

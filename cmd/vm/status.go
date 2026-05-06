@@ -219,8 +219,10 @@ func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, fi
 		vms := listAndFilter(ctx, hypers, filters)
 		curr := make(map[string]entry, len(vms))
 		for _, vm := range vms {
-			vm.State = types.VMState(cmdcore.ReconcileState(vm))
-			curr[vm.ID] = entry{snap: takeSnapshot(vm), vm: *vm}
+			state := cmdcore.ReconcileState(vm)
+			vmCopy := *vm
+			vmCopy.State = types.VMState(state)
+			curr[vm.ID] = entry{snap: takeSnapshot(vm, state), vm: vmCopy}
 		}
 		if emitter.begin != nil {
 			emitter.begin()
@@ -246,11 +248,11 @@ func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, fi
 	})
 }
 
-func takeSnapshot(vm *types.VM) vmSnapshot {
+func takeSnapshot(vm *types.VM, state string) vmSnapshot {
 	return vmSnapshot{
 		id:     vm.ID,
 		name:   vm.Config.Name,
-		state:  cmdcore.ReconcileState(vm),
+		state:  state,
 		cpu:    vm.Config.CPU,
 		memory: vm.Config.Memory,
 		ip:     vmIPs(vm),
@@ -299,7 +301,7 @@ func matchesFilter(vm *types.VM, filters []string) bool {
 func snapshotAll(vms []*types.VM) []vmSnapshot {
 	result := make([]vmSnapshot, len(vms))
 	for i, vm := range vms {
-		result[i] = takeSnapshot(vm)
+		result[i] = takeSnapshot(vm, cmdcore.ReconcileState(vm))
 	}
 	return result
 }
