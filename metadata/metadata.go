@@ -111,6 +111,11 @@ ethernets:
     dhcp4: true
 {{- end}}
 {{- end}}
+  zfallback:
+    match:
+      name: "e*"
+    dhcp4: true
+    optional: true
 `))
 )
 
