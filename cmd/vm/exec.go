@@ -53,9 +53,6 @@ func (h Handler) Exec(cmd *cobra.Command, args []string) error {
 	if info.VsockSocket == "" {
 		return fmt.Errorf("exec: %w (recreate the VM to enable agent exec)", ErrVsockNotConfigured)
 	}
-	if info.Config.Windows {
-		return fmt.Errorf("exec: cocoon-agent is not yet available on Windows guests")
-	}
 
 	envPairs, _ := cmd.Flags().GetStringArray("env")
 	env, err := parseExecEnv(envPairs)
