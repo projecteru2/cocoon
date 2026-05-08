@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -60,7 +61,7 @@ func (h Handler) Exec(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	conn, err := dialHybridVsock(info.VsockSocket, hypervisor.VsockAgentPort)
+	conn, err := dialHybridVsock(ctx, info.VsockSocket, hypervisor.VsockAgentPort)
 	if err != nil {
 		return fmt.Errorf("exec: dial agent: %w (cocoon-agent may still be starting; retry shortly)", err)
 	}
@@ -94,11 +95,16 @@ func parseExecEnv(pairs []string) (map[string]string, error) {
 }
 
 // dialHybridVsock dials the host UDS and runs the CONNECT-port handshake (CH/FC share the dialect).
-func dialHybridVsock(socketPath string, port uint32) (io.ReadWriteCloser, error) {
-	conn, err := net.Dial("unix", socketPath)
+// CH accepts the unix conn before the agent inside the guest is listening, so the read for the
+// "OK " reply blocks indefinitely if the agent is mid-startup. Watch ctx so Ctrl+C / SIGTERM unblock.
+func dialHybridVsock(ctx context.Context, socketPath string, port uint32) (io.ReadWriteCloser, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return nil, err
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 	if _, werr := fmt.Fprintf(conn, "CONNECT %d\n", port); werr != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("write CONNECT: %w", werr)
@@ -106,6 +112,9 @@ func dialHybridVsock(socketPath string, port uint32) (io.ReadWriteCloser, error)
 	reply, err := readHybridVsockReply(conn)
 	if err != nil {
 		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("read CONNECT reply: %w", err)
 	}
 	if !strings.HasPrefix(reply, "OK ") {
