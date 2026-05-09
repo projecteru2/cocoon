@@ -16,7 +16,10 @@ FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG COCOON_AGENT_VERSION=0.1.0
+# Bumping COCOON_AGENT_VERSION must also update COCOON_AGENT_SHA256 — the
+# sha256sum -c step below fails the build when they drift.
+ARG COCOON_AGENT_VERSION=0.1.2
+ARG COCOON_AGENT_SHA256=9f7b4c553d21a08c5824d3b74f6cf2b1f89769bd003d0c09ac3d88dfafb6b323
 
 RUN --mount=type=secret,id=cocoon_overlay \
     --mount=type=secret,id=cocoon_network \
@@ -75,8 +78,12 @@ RUN --mount=type=secret,id=cocoon_overlay \
     cp /run/secrets/cocoon_disable_bt_rc /output/system/etc/init/cocoon-disable-bt.rc && \
     # --- cocoon-agent (vsock exec) — Android amd64 only ---
     cp /run/secrets/cocoon_agent_rc /output/system/etc/init/cocoon-agent.rc && \
-    curl -fsSL "https://github.com/cocoonstack/cocoon-agent/releases/download/v${COCOON_AGENT_VERSION}/cocoon-agent_${COCOON_AGENT_VERSION}_Linux_x86_64.tar.gz" \
-        | tar -xz -C /output/system/bin/ cocoon-agent && \
+    AGENT_TARBALL="cocoon-agent_${COCOON_AGENT_VERSION}_Linux_x86_64.tar.gz" && \
+    curl -fsSL "https://github.com/cocoonstack/cocoon-agent/releases/download/v${COCOON_AGENT_VERSION}/${AGENT_TARBALL}" \
+        -o "/tmp/${AGENT_TARBALL}" && \
+    echo "${COCOON_AGENT_SHA256}  /tmp/${AGENT_TARBALL}" | sha256sum -c - && \
+    tar -xz -C /output/system/bin/ -f "/tmp/${AGENT_TARBALL}" cocoon-agent && \
+    rm -f "/tmp/${AGENT_TARBALL}" && \
     chmod 0755 /output/system/bin/cocoon-agent && \
     rm -rf /var/lib/apt/lists/*
 

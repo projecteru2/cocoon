@@ -174,8 +174,9 @@ func statusRefreshLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filt
 		if isTTY {
 			fmt.Print("\033[H\033[2J") //nolint:errcheck
 		}
+		now := time.Now()
 		fmt.Printf("Every %s — press Ctrl+C to quit (%s)\n\n",
-			time.Now().Format(time.TimeOnly), time.Now().Format(time.DateOnly))
+			now.Format(time.TimeOnly), now.Format(time.DateOnly))
 		if len(vms) == 0 {
 			fmt.Println("No VMs found.")
 			return

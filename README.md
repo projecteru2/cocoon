@@ -50,7 +50,7 @@ Download pre-built binaries from [GitHub Releases](https://github.com/cocoonstac
 
 ```bash
 # Linux amd64
-curl -fsSL -o cocoon.tar.gz https://github.com/cocoonstack/cocoon/releases/download/v0.3.9/cocoon_0.3.9_Linux_x86_64.tar.gz
+curl -fsSL -o cocoon.tar.gz https://github.com/cocoonstack/cocoon/releases/download/v0.4.0/cocoon_0.4.0_Linux_x86_64.tar.gz
 tar -xzf cocoon.tar.gz
 install -m 0755 cocoon /usr/local/bin/
 
@@ -329,7 +329,7 @@ $ cocoon vm exec -e FOO=bar myvm -- sh -c 'echo $FOO'
 bar
 ```
 
-Requires cocoon-agent to be running inside the guest. All official `ghcr.io/cocoonstack/cocoon/ubuntu:*` and `ghcr.io/cocoonstack/cocoon/android:*` images now bake the binary and enable it on boot (systemd unit on Ubuntu, init.rc service on Android). Windows guests are not yet supported.
+Requires cocoon-agent to be running inside the guest. All official `ghcr.io/cocoonstack/cocoon/ubuntu:*` and `ghcr.io/cocoonstack/cocoon/android:*` images now bake the binary and enable it on boot (systemd unit on Ubuntu, init.rc service on Android). The official `ghcr.io/cocoonstack/windows/win11:*` images bake cocoon-agent v0.1.2 as a Windows service via SCM; DIY Windows images need to install the agent themselves.
 
 ### Logs Flags
 

@@ -164,13 +164,7 @@ func processTarReader(ctx context.Context, j tarImportJob, r io.Reader) error {
 
 	if utils.ValidFile(j.conf.BlobPath(digestHex)) {
 		logger.Debugf(ctx, "Layer %d: sha256:%s already cached", j.idx, digestHex[:12])
-		j.result.erofsPath = j.conf.BlobPath(digestHex)
-		if utils.ValidFile(j.conf.KernelPath(digestHex)) {
-			j.result.kernelPath = j.conf.KernelPath(digestHex)
-		}
-		if utils.ValidFile(j.conf.InitrdPath(digestHex)) {
-			j.result.initrdPath = j.conf.InitrdPath(digestHex)
-		}
+		applyCachedLayerPaths(j.conf, j.result, digestHex)
 	} else {
 		j.result.erofsPath = tmpErofsPath
 	}

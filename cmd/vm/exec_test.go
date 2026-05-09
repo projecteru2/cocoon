@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"context"
 	"net"
 	"os"
 	"strings"
@@ -125,7 +124,7 @@ func TestDialHybridVsock_ConnectHandshake(t *testing.T) {
 				_, _ = server.Write([]byte(tt.reply))
 			}()
 
-			conn, err := dialHybridVsock(context.Background(), sockPath, 1024)
+			conn, err := dialHybridVsock(t.Context(), sockPath, 1024)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("got err=%v, want contains %q", err, tt.wantErr)

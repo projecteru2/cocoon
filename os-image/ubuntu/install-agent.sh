@@ -7,11 +7,11 @@
 # `systemctl enable` is a no-op when the symlinks are already in place.
 set -eu
 
-AGENT_VERSION="${COCOON_AGENT_VERSION:-0.1.0}"
+AGENT_VERSION="${COCOON_AGENT_VERSION:-0.1.2}"
 ARCH="${TARGETARCH:-$(dpkg --print-architecture)}"
 case "$ARCH" in
-    amd64) AGENT_ARCH="x86_64" ;;
-    arm64) AGENT_ARCH="arm64" ;;
+    amd64) AGENT_ARCH="x86_64"; AGENT_SHA256="9f7b4c553d21a08c5824d3b74f6cf2b1f89769bd003d0c09ac3d88dfafb6b323" ;;
+    arm64) AGENT_ARCH="arm64";  AGENT_SHA256="7d56c543e5e3a136fb6f6b9ca6e9dd4a6aa0389b7932e5c423f26beb0bc547a8" ;;
     *) echo "install-agent: unsupported arch '$ARCH'" >&2; exit 1 ;;
 esac
 
@@ -21,9 +21,15 @@ sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 systemctl enable ssh
 
 # 2. cocoon-agent binary: pinned-version tarball from upstream releases.
+# Per-arch SHA256 — bumping AGENT_VERSION without updating both checksums
+# fails the sha256sum -c check instead of silently shipping a wrong binary.
 TARBALL="cocoon-agent_${AGENT_VERSION}_Linux_${AGENT_ARCH}.tar.gz"
 URL="https://github.com/cocoonstack/cocoon-agent/releases/download/v${AGENT_VERSION}/${TARBALL}"
-curl -fsSL "$URL" | tar -xz -C /usr/local/bin/ cocoon-agent
+TMP_TARBALL="$(mktemp)"
+trap 'rm -f "$TMP_TARBALL"' EXIT
+curl -fsSL "$URL" -o "$TMP_TARBALL"
+echo "$AGENT_SHA256  $TMP_TARBALL" | sha256sum -c -
+tar -xz -C /usr/local/bin/ -f "$TMP_TARBALL" cocoon-agent
 chmod 0755 /usr/local/bin/cocoon-agent
 
 # 3. systemd unit. Mirrors upstream packaging/cocoon-agent.service so the

@@ -92,16 +92,21 @@ func processLayer(ctx context.Context, j layerJob) error {
 func handleCachedLayer(ctx context.Context, j layerJob, digestHex string) {
 	logger := log.WithFunc("oci.handleCachedLayer")
 	logger.Debugf(ctx, "Layer %d: sha256:%s already cached", j.idx, digestHex[:12])
-	j.result.erofsPath = j.conf.BlobPath(digestHex)
-
-	if utils.ValidFile(j.conf.KernelPath(digestHex)) {
-		j.result.kernelPath = j.conf.KernelPath(digestHex)
-	}
-	if utils.ValidFile(j.conf.InitrdPath(digestHex)) {
-		j.result.initrdPath = j.conf.InitrdPath(digestHex)
-	}
-
+	applyCachedLayerPaths(j.conf, j.result, digestHex)
 	selfHealBootFiles(ctx, j, digestHex)
-
 	j.tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: j.idx, Total: j.total, Digest: digestHex[:12]})
+}
+
+// applyCachedLayerPaths fills result with the cached blob/kernel/initrd
+// paths for digestHex. Caller must have confirmed the erofs blob is
+// cached at conf.BlobPath(digestHex); kernel/initrd are picked up only
+// when their files exist locally (older imports may lack one or both).
+func applyCachedLayerPaths(conf *Config, result *pullLayerResult, digestHex string) {
+	result.erofsPath = conf.BlobPath(digestHex)
+	if utils.ValidFile(conf.KernelPath(digestHex)) {
+		result.kernelPath = conf.KernelPath(digestHex)
+	}
+	if utils.ValidFile(conf.InitrdPath(digestHex)) {
+		result.initrdPath = conf.InitrdPath(digestHex)
+	}
 }
