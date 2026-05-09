@@ -503,7 +503,7 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 		fmt.Println("Windows clone: NICs hot-swapped with new MAC addresses.")
 		fmt.Println("Run inside the guest if no IPv4 (DHCP):")
 		fmt.Println()
-		fmt.Println(`  powershell -NoProfile -Command "Get-PnpDevice -Class Net -PresentOnly | ForEach-Object { Disable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false; Start-Sleep 2; Enable-PnpDevice -InstanceId $_.InstanceId -Confirm:$false }"`)
+		fmt.Println(`  powershell -nop -c '$x=Get-PnpDevice -Class Net -PresentOnly;$x|Disable-PnpDevice -Confirm:$false;$x|Enable-PnpDevice -Confirm:$false'`)
 		fmt.Println()
 		fmt.Println("Static IP: run inside the guest after the rebind above, e.g.:")
 		fmt.Println()
