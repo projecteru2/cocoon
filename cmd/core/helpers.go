@@ -248,6 +248,10 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 		// Pull by digest reference when available — ensures we get the exact
 		// version recorded at snapshot time, not whatever the tag points to now.
 		pullRef := digestPullRef(vmCfg.Image, vmCfg.ImageDigest, vmCfg.ImageType)
+		if shapeErr := validateRefShape(pullRef, vmCfg.ImageType); shapeErr != nil {
+			logger.Warnf(ctx, "skipping auto-pull of %s: %v — pre-pull manually if missing", pullRef, shapeErr)
+			return
+		}
 		logger.Infof(ctx, "base image not found locally, pulling %s ...", pullRef)
 		// Pinned digest with no local hit: force past cloudimg's URL-keyed cache.
 		needForce := vmCfg.ImageDigest != ""
@@ -489,6 +493,25 @@ func FormatSize(bytes int64) string {
 
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// validateRefShape catches malformed base-image refs before they hit a backend
+// that would surface a misleading downstream error. cloudimg fetches over HTTP
+// (ref must start with http:// or https://); OCI pulls via registry protocol
+// (ref must parse via name.ParseReference). A bare OCI ref leaking into the
+// cloudimg path would otherwise surface as `unsupported protocol scheme ""`.
+func validateRefShape(ref, imageType string) error {
+	switch imageType {
+	case types.ImageTypeCloudImg:
+		if !IsURL(ref) {
+			return fmt.Errorf("cloudimg ref %q is not an http(s) URL (imported or bare OCI ref?)", ref)
+		}
+	case types.ImageTypeOCI:
+		if _, err := name.ParseReference(ref); err != nil {
+			return fmt.Errorf("oci ref %q is not a valid OCI reference: %w", ref, err)
+		}
+	}
+	return nil
 }
 
 // digestPullRef pins OCI pulls by digest; returns image as-is for others.
