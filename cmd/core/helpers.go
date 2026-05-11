@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -248,6 +249,10 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 		// Pull by digest reference when available — ensures we get the exact
 		// version recorded at snapshot time, not whatever the tag points to now.
 		pullRef := digestPullRef(vmCfg.Image, vmCfg.ImageDigest, vmCfg.ImageType)
+		if shapeErr := validateRefShape(pullRef, vmCfg.ImageType); shapeErr != nil {
+			logger.Warnf(ctx, "skipping auto-pull of %s: %v — pre-pull manually if missing", pullRef, shapeErr)
+			return
+		}
 		logger.Infof(ctx, "base image not found locally, pulling %s ...", pullRef)
 		// Pinned digest with no local hit: force past cloudimg's URL-keyed cache.
 		needForce := vmCfg.ImageDigest != ""
@@ -489,6 +494,28 @@ func FormatSize(bytes int64) string {
 
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// validateRefShape catches malformed base-image refs before they hit a backend
+// that would return a misleading downstream error. Each backend expects a
+// different ref form: cloudimg fetches over HTTP so the ref must be a URL
+// with scheme; OCI pulls via container registry protocol so the ref must be
+// parseable by name.ParseReference (registry/repo:tag or repo@digest).
+// A bare OCI form leaking into the cloudimg path (the issue 38 failure mode)
+// would otherwise surface as `unsupported protocol scheme ""` from http.Get.
+func validateRefShape(ref, imageType string) error {
+	switch imageType {
+	case types.ImageTypeCloudImg:
+		u, err := url.Parse(ref)
+		if err != nil || u.Scheme == "" {
+			return fmt.Errorf("cloudimg ref %q is not an http(s) URL (imported or bare OCI ref?)", ref)
+		}
+	case types.ImageTypeOCI:
+		if _, err := name.ParseReference(ref); err != nil {
+			return fmt.Errorf("oci ref %q is not a valid OCI reference: %w", ref, err)
+		}
+	}
+	return nil
 }
 
 // digestPullRef pins OCI pulls by digest; returns image as-is for others.

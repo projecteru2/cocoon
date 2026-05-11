@@ -98,6 +98,32 @@ func TestEnsureImage_ForceWhenDigestPinned(t *testing.T) {
 	}
 }
 
+// Issue 38 regression: a cloudimg vmCfg.Image without an http(s) scheme
+// must not reach Pull — that would surface as `unsupported protocol scheme`
+// from http.Get. The shape guard short-circuits with an actionable warning.
+func TestEnsureImage_SkipsBadShape(t *testing.T) {
+	tests := []struct {
+		name      string
+		image     string
+		imageType string
+	}{
+		{"cloudimg bare OCI ref", "simular/win10:22h2-20260510", types.ImageTypeCloudImg},
+		{"cloudimg local name", "win11", types.ImageTypeCloudImg},
+		{"oci malformed ref", "::bad::", types.ImageTypeOCI},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeImageBackend{typ: tt.imageType}
+			EnsureImage(t.Context(), []imagebackend.Images{f}, &types.VMConfig{
+				Config: types.Config{Image: tt.image, ImageType: tt.imageType},
+			})
+			if len(f.pullRefs) != 0 {
+				t.Errorf("Pull called %d time(s) with %v, want 0 (shape should have failed)", len(f.pullRefs), f.pullRefs)
+			}
+		})
+	}
+}
+
 func TestEnsureImage_SkipsPullWhenDigestLocal(t *testing.T) {
 	const digest = "sha256:adafd938488daa114be898848eb24b9b0afffc21ac18f8b11f3f0057644b11e1"
 	f := &fakeImageBackend{
