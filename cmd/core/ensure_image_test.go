@@ -10,16 +10,11 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// fakeImageBackend records Pull invocations so the test can assert how
-// EnsureImage decided to call it.
 type fakeImageBackend struct {
-	typ string
-
-	inspectByRef    map[string]*types.Image // ref → image (nil if not local)
-	pullRefs        []string                // ordered Pull arg history
-	pullForce       []bool
-	pullErr         error
-	postPullInspect map[string]*types.Image // ref → image (second Inspect after Pull)
+	typ          string
+	inspectByRef map[string]*types.Image
+	pullRefs     []string
+	pullForce    []bool
 }
 
 func (f *fakeImageBackend) Type() string { return f.typ }
@@ -27,15 +22,10 @@ func (f *fakeImageBackend) Type() string { return f.typ }
 func (f *fakeImageBackend) Pull(_ context.Context, ref string, force bool, _ progress.Tracker) error {
 	f.pullRefs = append(f.pullRefs, ref)
 	f.pullForce = append(f.pullForce, force)
-	return f.pullErr
+	return nil
 }
 
 func (f *fakeImageBackend) Inspect(_ context.Context, ref string) (*types.Image, error) {
-	// First call uses inspectByRef; once Pull has been called, switch to
-	// postPullInspect so the test can simulate "blob now landed locally".
-	if len(f.pullRefs) > 0 && f.postPullInspect != nil {
-		return f.postPullInspect[ref], nil
-	}
 	return f.inspectByRef[ref], nil
 }
 
@@ -52,11 +42,8 @@ func (f *fakeImageBackend) Config(context.Context, []*types.VMConfig) ([][]*type
 	return nil, nil, nil
 }
 
-// TestEnsureImage_ForceWhenDigestPinned is the regression guard for issue
-// 37: when vmCfg.ImageDigest is set and the digest isn't local, EnsureImage
-// must pass force=true to Pull so the cloudimg URL-level short-circuit
-// (which keys on URL, not digest) re-fetches the blob instead of accepting
-// whatever stale content is cached under the same URL.
+// Regression guard for issue 37: pinned digest with no local hit must force-pull
+// to bypass cloudimg's URL-keyed cache.
 func TestEnsureImage_ForceWhenDigestPinned(t *testing.T) {
 	const (
 		url    = "https://epoch.example/dl/simular/win11"
@@ -70,7 +57,7 @@ func TestEnsureImage_ForceWhenDigestPinned(t *testing.T) {
 		wantForce   bool
 	}{
 		{
-			name: "digest pinned → force=true",
+			name: "digest pinned -> force=true",
 			vmCfg: &types.VMConfig{
 				Config: types.Config{
 					Image:       url,
@@ -82,7 +69,7 @@ func TestEnsureImage_ForceWhenDigestPinned(t *testing.T) {
 			wantForce:   true,
 		},
 		{
-			name: "no digest → force=false",
+			name: "no digest -> force=false",
 			vmCfg: &types.VMConfig{
 				Config: types.Config{
 					Image:     url,
@@ -111,9 +98,6 @@ func TestEnsureImage_ForceWhenDigestPinned(t *testing.T) {
 	}
 }
 
-// TestEnsureImage_SkipsPullWhenDigestLocal: the happy path. If Inspect by
-// digest hits, EnsureImage returns without calling Pull at all — the
-// expensive force-pull only fires when we've proven the digest isn't local.
 func TestEnsureImage_SkipsPullWhenDigestLocal(t *testing.T) {
 	const digest = "sha256:adafd938488daa114be898848eb24b9b0afffc21ac18f8b11f3f0057644b11e1"
 	f := &fakeImageBackend{
@@ -130,6 +114,6 @@ func TestEnsureImage_SkipsPullWhenDigestLocal(t *testing.T) {
 		},
 	})
 	if len(f.pullRefs) != 0 {
-		t.Errorf("Pull was called %d time(s) with %v, want 0 (digest is local)", len(f.pullRefs), f.pullRefs)
+		t.Errorf("Pull called %d time(s), want 0", len(f.pullRefs))
 	}
 }
