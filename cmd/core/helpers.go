@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -497,17 +496,14 @@ func IsURL(ref string) bool {
 }
 
 // validateRefShape catches malformed base-image refs before they hit a backend
-// that would return a misleading downstream error. Each backend expects a
-// different ref form: cloudimg fetches over HTTP so the ref must be a URL
-// with scheme; OCI pulls via container registry protocol so the ref must be
-// parseable by name.ParseReference (registry/repo:tag or repo@digest).
-// A bare OCI form leaking into the cloudimg path (the issue 38 failure mode)
-// would otherwise surface as `unsupported protocol scheme ""` from http.Get.
+// that would surface a misleading downstream error. cloudimg fetches over HTTP
+// (ref must start with http:// or https://); OCI pulls via registry protocol
+// (ref must parse via name.ParseReference). A bare OCI ref leaking into the
+// cloudimg path would otherwise surface as `unsupported protocol scheme ""`.
 func validateRefShape(ref, imageType string) error {
 	switch imageType {
 	case types.ImageTypeCloudImg:
-		u, err := url.Parse(ref)
-		if err != nil || u.Scheme == "" {
+		if !IsURL(ref) {
 			return fmt.Errorf("cloudimg ref %q is not an http(s) URL (imported or bare OCI ref?)", ref)
 		}
 	case types.ImageTypeOCI:
