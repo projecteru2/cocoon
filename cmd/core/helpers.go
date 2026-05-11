@@ -249,7 +249,14 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 		// version recorded at snapshot time, not whatever the tag points to now.
 		pullRef := digestPullRef(vmCfg.Image, vmCfg.ImageDigest, vmCfg.ImageType)
 		logger.Infof(ctx, "base image not found locally, pulling %s ...", pullRef)
-		if pullErr := b.Pull(ctx, pullRef, false, progress.Nop); pullErr != nil {
+		// Force when ImageDigest is pinned: we already proved at Inspect that
+		// the digest isn't local, so the URL-level short-circuit in
+		// images/cloudimg/pull.go would skip re-fetching even though the
+		// cached blob is the wrong content. That short-circuit is correct
+		// only for "any cached blob is fine" — pinned-digest is the opposite
+		// policy, matching `cocoon image pull --force`.
+		needForce := vmCfg.ImageDigest != ""
+		if pullErr := b.Pull(ctx, pullRef, needForce, progress.Nop); pullErr != nil {
 			logger.Warnf(ctx, "auto-pull %s failed (imported image?): %v — clone may fail if base layers are missing", pullRef, pullErr)
 			return
 		}
