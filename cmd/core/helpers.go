@@ -249,7 +249,9 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 		// version recorded at snapshot time, not whatever the tag points to now.
 		pullRef := digestPullRef(vmCfg.Image, vmCfg.ImageDigest, vmCfg.ImageType)
 		logger.Infof(ctx, "base image not found locally, pulling %s ...", pullRef)
-		if pullErr := b.Pull(ctx, pullRef, false, progress.Nop); pullErr != nil {
+		// Pinned digest with no local hit: force past cloudimg's URL-keyed cache.
+		needForce := vmCfg.ImageDigest != ""
+		if pullErr := b.Pull(ctx, pullRef, needForce, progress.Nop); pullErr != nil {
 			logger.Warnf(ctx, "auto-pull %s failed (imported image?): %v — clone may fail if base layers are missing", pullRef, pullErr)
 			return
 		}
