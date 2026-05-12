@@ -206,6 +206,7 @@ Applies to `cocoon vm clone`:
 | Flag        | Default                  | Description                                             |
 | ----------- | ------------------------ | ------------------------------------------------------- |
 | `--name`    | `cocoon-clone-<id>`      | VM name                                                 |
+| `--nics`    | inherit from snapshot    | Override NIC count at clone time; lets a 0-NIC snapshot clone with networking (CH hot-swaps NICs after restore) |
 | `--queue-size` | `0` (inherit)         | Virtio-net ring depth per queue (0 = inherit from snapshot) |
 | `--disk-queue-size` | `0` (inherit)    | Virtio-blk ring depth per device (0 = inherit from snapshot; CH only) |
 | `--network` | empty (inherit)          | CNI conflist name (empty = inherit from source VM)       |
@@ -215,10 +216,23 @@ Applies to `cocoon vm clone`:
 | `--pull`  | `false`              | Auto-pull base image if not found locally (for cross-node clone)      |
 | `--from-dir` | empty                | Clone from a snapshot directory (must contain `snapshot.json`); mutually exclusive with positional `SNAPSHOT` |
 
-CPU, memory, storage, and NIC count all inherit from the snapshot — both
-hypervisors restore the guest from the snapshot's binary device state, so
-those values are fixed at snapshot time. Use `cocoon vm run` to create a
-fresh VM with different resources.
+CPU, memory, and storage all inherit from the snapshot — both hypervisors
+restore the guest from the snapshot's binary device state, so those values
+are fixed at snapshot time. NIC count inherits by default but `--nics N`
+overrides it (CH only) by hot-swapping the snapshot's NICs for a fresh set
+right after restore. Use `cocoon vm run` to create a fresh VM with different
+CPU/memory/storage.
+
+**Network backend** is decided per clone (the snapshot does not persist a
+bridge device). Precedence:
+
+1. `--bridge X` → bridge backend with bridge device `X`.
+2. `--network Y` (no `--bridge`) → CNI backend with conflist `Y`.
+3. neither → CNI backend, conflist inherited from the snapshot's recorded
+   `vmCfg.Network` (empty = CNI default).
+
+A bridge-backed source snapshot cloned without `--bridge` silently defaults
+to CNI. Pass `--bridge X` at clone time to keep bridge mode.
 
 ### Restore Flags
 
@@ -535,7 +549,7 @@ cocoon vm net my-vm --nics 1
 
 Cocoon manages **host-side** plumbing only. CH's `vm.remove-device` marks the slot for ejection but the actual eject only happens when the guest cooperates via ACPI (B0EJ write). The host TAP / veth / CNI lease are torn down immediately after the API call regardless. Quiesce in-guest NIC state (driver unbind, NetworkManager removal, Windows NDIS halt) **before** reducing the count, or the in-guest driver will reference plumbing that no longer exists.
 
-A VM started with zero NICs cannot be resized up (the VM record carries no provider hint). Start with at least one NIC if you plan to resize.
+A VM started with zero NICs cannot be resized up — CH was launched in the host netns (no `NetworkConfigs` to derive a per-VM netns from), so later plumbing can't reach it. To recover networking on a 0-NIC snapshot, clone with `cocoon vm clone --nics 1 --network <conflist>` (or `--bridge <dev>`): the clone starts with NICs from the start, putting CH in the right netns from boot.
 
 ## Windows Support
 
