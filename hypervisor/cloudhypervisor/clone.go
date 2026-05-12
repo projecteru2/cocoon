@@ -310,7 +310,6 @@ func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageCo
 // adds fresh ones. Must run between vm.restore and vm.resume (VM paused).
 func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkConfigs []*types.NetworkConfig) error {
 	logger := log.WithFunc("cloudhypervisor.hotSwapNets")
-	removedIDs := make([]string, 0, len(oldNets))
 	for _, oldNet := range oldNets {
 		if oldNet.ID == "" {
 			continue
@@ -318,23 +317,7 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 		if err := removeDeviceVM(ctx, hc, oldNet.ID); err != nil {
 			return fmt.Errorf("remove net device %s: %w", oldNet.ID, err)
 		}
-		removedIDs = append(removedIDs, oldNet.ID)
 		logger.Infof(ctx, "removed snapshot NIC %s (old MAC %s)", oldNet.ID, oldNet.MAC)
-	}
-	if len(removedIDs) > 0 {
-		info, err := getVMInfo(ctx, hc)
-		if err != nil {
-			return fmt.Errorf("verify post-remove vm.info: %w", err)
-		}
-		live := make(map[string]struct{}, len(info.Config.Nets))
-		for _, n := range info.Config.Nets {
-			live[n.ID] = struct{}{}
-		}
-		for _, id := range removedIDs {
-			if _, still := live[id]; still {
-				logger.Warnf(ctx, "NIC %s still in vm.info after vm.remove-device — eject pending in CH", id)
-			}
-		}
 	}
 	for i, nc := range networkConfigs {
 		newNet := networkConfigToNet(nc)
