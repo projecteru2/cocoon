@@ -83,6 +83,9 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 	}
 	for i := current - 1; i >= target; i-- {
 		nc := ncs[i]
+		if nc == nil {
+			return res, fmt.Errorf("nic %d: nil network config", i)
+		}
 		chID := macToID[strings.ToLower(nc.MAC)]
 		if chID == "" {
 			return res, fmt.Errorf("nic %d MAC %s: no live device", i, nc.MAC)
