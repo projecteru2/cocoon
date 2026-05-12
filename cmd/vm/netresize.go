@@ -34,14 +34,17 @@ func (h Handler) NetResize(cmd *cobra.Command, args []string) error {
 	if done, jsonErr := cmdcore.MaybeOutputJSON(cmd, res); done {
 		return jsonErr
 	}
-	log.WithFunc("cmd.vm.net").Infof(ctx, "resized %s: before=%d after=%d added=%d removed=%d",
+	logger := log.WithFunc("cmd.vm.net")
+	logger.Infof(ctx, "resized %s: before=%d after=%d added=%d removed=%d",
 		args[0], res.Before, res.After, len(res.Added), len(res.Removed))
+	for _, w := range res.Warnings {
+		logger.Warnf(ctx, "%s: %s", args[0], w)
+	}
 	return nil
 }
 
-// plumbingForVM picks the network provider matching the VM's existing NICs.
-// VMConfig has no bridge hint, so a zero-NIC VM can't be resized up without
-// losing the original provider choice.
+// plumbingForVM picks the provider matching the VM's existing NICs; zero NICs
+// is fatal because VMConfig carries no bridge hint to recover the choice.
 func plumbingForVM(conf *config.Config, configs []*types.NetworkConfig) (network.Network, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("vm has zero NICs; resize up is not supported (start the VM with at least one NIC)")
