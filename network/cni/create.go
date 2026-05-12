@@ -175,10 +175,7 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 		pickedIDs = append(pickedIDs, rec.ID)
 	}
 	_, err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
-	if delErr := c.deleteRecords(ctx, pickedIDs); delErr != nil && err == nil {
-		err = delErr
-	}
-	return err
+	return errors.Join(err, c.deleteRecords(ctx, pickedIDs))
 }
 
 func (c *CNI) cniDel(ctx context.Context, confList *libcni.NetworkConfigList, vmID, nsPath, ifName string) error {
