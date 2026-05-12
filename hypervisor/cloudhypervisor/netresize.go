@@ -41,6 +41,7 @@ func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec net
 
 func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vmID string, vmCfg *types.VMConfig, plumbing netresize.Plumbing, from, target int, res netresize.Result) (netresize.Result, error) {
 	logger := log.WithFunc("cloudhypervisor.NetResize.add")
+	res.Added = make([]netresize.NIC, 0, target-from)
 	for i := from; i < target; i++ {
 		ncs, err := plumbing.Add(ctx, vmID, vmCfg, network.AddSpec{Index: i})
 		if err != nil {
@@ -75,6 +76,7 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 
 func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client, info *chVMInfoResponse, vmID string, ncs []*types.NetworkConfig, plumbing netresize.Plumbing, current, target int, res netresize.Result) (netresize.Result, error) {
 	logger := log.WithFunc("cloudhypervisor.NetResize.remove")
+	res.Removed = make([]netresize.NIC, 0, current-target)
 	macToID := make(map[string]string, len(info.Config.Nets))
 	for _, n := range info.Config.Nets {
 		macToID[strings.ToLower(n.MAC)] = n.ID

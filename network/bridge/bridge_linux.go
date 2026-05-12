@@ -79,7 +79,7 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 		return nil, fmt.Errorf("find bridge: %w", err)
 	}
 
-	var added []int
+	added := make([]int, 0, len(specs))
 	defer func() {
 		if retErr == nil || len(added) == 0 {
 			return
