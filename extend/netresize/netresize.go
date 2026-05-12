@@ -10,6 +10,7 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
+// ErrUnsupportedBackend signals the resolved hypervisor cannot resize NICs.
 var ErrUnsupportedBackend = errors.New("backend does not support net resize")
 
 // Spec is one resize request.
@@ -17,6 +18,7 @@ type Spec struct {
 	Target int
 }
 
+// NIC is one NIC summary surfaced through Result.Added / Result.Removed.
 type NIC struct {
 	Index int    `json:"index"`
 	TAP   string `json:"tap"`
@@ -39,10 +41,12 @@ type Plumbing interface {
 	Remove(ctx context.Context, vmID string, indices ...int) error
 }
 
+// Resizer resizes a running VM's NIC count.
 type Resizer interface {
 	NetResize(ctx context.Context, vmRef string, spec Spec, plumbing Plumbing) (Result, error)
 }
 
+// Normalize validates the spec.
 func (s *Spec) Normalize() error {
 	if s.Target < 0 {
 		return fmt.Errorf("--nics must be non-negative, got %d", s.Target)

@@ -14,6 +14,7 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
+// NetResize brings the VM's NIC count to spec.Target on a running CH VM.
 func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec netresize.Spec, plumbing netresize.Plumbing) (netresize.Result, error) {
 	if err := spec.Normalize(); err != nil {
 		return netresize.Result{}, err
@@ -107,9 +108,9 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 
 func (ch *CloudHypervisor) appendNetworkConfig(ctx context.Context, vmID string, nc *types.NetworkConfig) error {
 	return ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[vmID]
-		if r == nil {
-			return hypervisor.ErrNotFound
+		r, err := idx.GetRecord(vmID)
+		if err != nil {
+			return err
 		}
 		r.NetworkConfigs = append(r.NetworkConfigs, nc)
 		return nil
@@ -118,9 +119,9 @@ func (ch *CloudHypervisor) appendNetworkConfig(ctx context.Context, vmID string,
 
 func (ch *CloudHypervisor) truncateNetworkConfigs(ctx context.Context, vmID string, length int) error {
 	return ch.DB.Update(ctx, func(idx *hypervisor.VMIndex) error {
-		r := idx.VMs[vmID]
-		if r == nil {
-			return hypervisor.ErrNotFound
+		r, err := idx.GetRecord(vmID)
+		if err != nil {
+			return err
 		}
 		if length < len(r.NetworkConfigs) {
 			r.NetworkConfigs = r.NetworkConfigs[:length]

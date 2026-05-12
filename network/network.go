@@ -19,6 +19,7 @@ type AddSpec struct {
 	Existing *types.NetworkConfig
 }
 
+// Network is the per-VM host-side networking provider (CNI, bridge, ...).
 type Network interface {
 	Type() string
 	Verify(ctx context.Context, vmID string) error
@@ -30,6 +31,7 @@ type Network interface {
 	RegisterGC(*gc.Orchestrator)
 }
 
+// AddRange builds AddSpecs for a contiguous block of fresh NIC indices.
 func AddRange(from, count int) []AddSpec {
 	out := make([]AddSpec, count)
 	for i := range out {
@@ -38,6 +40,7 @@ func AddRange(from, count int) []AddSpec {
 	return out
 }
 
+// AddRecover builds AddSpecs for re-creating existing NICs (post-reboot recovery).
 func AddRecover(existing []*types.NetworkConfig) []AddSpec {
 	out := make([]AddSpec, len(existing))
 	for i, e := range existing {
