@@ -98,7 +98,7 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 			return res, fmt.Errorf("persist remove nic %d: %w", i, err)
 		}
 		if plumbingErr != nil {
-			msg := fmt.Sprintf("nic %d (%s) host plumbing leaked, stop+restart will reclaim: %v", i, chID, plumbingErr)
+			msg := fmt.Sprintf("nic %d (%s) host plumbing leaked, cocoon vm rm or gc will reclaim: %v", i, chID, plumbingErr)
 			logger.Warn(ctx, msg)
 			res.Warnings = append(res.Warnings, msg)
 		}
