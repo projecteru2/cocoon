@@ -129,30 +129,29 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	}
 	// Run even when records is empty: a VM resized to 0 NICs still owns its netns.
 	nsPath := netnsPath(vmID)
-	ids, _ := c.tearDownNICs(ctx, vmID, nsPath, records, false, true)
+	_ = c.tearDownNICs(ctx, vmID, nsPath, records, false, true)
 	nsName := netnsName(vmID)
 	if err := deleteNetns(ctx, nsName); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove netns %s: %w", nsPath, err)
 	}
-	return c.deleteRecords(ctx, ids)
+	allIDs := make([]string, 0, len(records))
+	for _, rec := range records {
+		allIDs = append(allIDs, rec.ID)
+	}
+	return c.deleteRecords(ctx, allIDs)
 }
 
 // tearDownNICs attempts CNI DEL (+ optional TAP delete) for every record.
-// Returns ids of fully-clean records and the first error; bestEffort=false
-// stops after the first failed record (post-cleanup attempt).
-func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) ([]string, error) {
+// Returns the first error; bestEffort=false stops after the first failed
+// record (post-cleanup attempt). Callers own DB-record sweep separately.
+func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) error {
 	logger := log.WithFunc("cni.tearDownNICs")
 	if c.cniConf == nil {
 		if !bestEffort {
-			return nil, fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
+			return fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
 		}
-		ids := make([]string, 0, len(records))
-		for _, rec := range records {
-			ids = append(ids, rec.ID)
-		}
-		return ids, nil
+		return nil
 	}
-	ids := make([]string, 0, len(records))
 	for _, rec := range records {
 		var recErr error
 		cl, err := c.confListByName(rec.Type)
@@ -179,13 +178,11 @@ func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []n
 				logger.Warnf(ctx, "delete tap %s in netns %s: %v", tapNameForVM(vmID, idx), nsPath, delErr)
 			}
 		}
-		if recErr == nil {
-			ids = append(ids, rec.ID)
-		} else if !bestEffort {
-			return ids, recErr
+		if recErr != nil && !bestEffort {
+			return recErr
 		}
 	}
-	return ids, nil
+	return nil
 }
 
 func (c *CNI) deleteRecords(ctx context.Context, ids []string) error {
