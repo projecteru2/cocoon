@@ -170,10 +170,12 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 		picked = append(picked, rec)
 	}
 	ids, err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
-	if err != nil {
-		return err
+	// Always sweep fully-torn-down records, even when tearDownNICs aborted on
+	// a later NIC; otherwise the cleaned ones leak DB rows until vm delete.
+	if delErr := c.deleteRecords(ctx, ids); delErr != nil && err == nil {
+		err = delErr
 	}
-	return c.deleteRecords(ctx, ids)
+	return err
 }
 
 func (c *CNI) cniDel(ctx context.Context, confList *libcni.NetworkConfigList, vmID, nsPath, ifName string) error {
