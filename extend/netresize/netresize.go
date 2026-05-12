@@ -25,8 +25,7 @@ type NIC struct {
 	MAC   string `json:"mac"`
 }
 
-// Result reports the before/after count and NICs touched. Warnings surface
-// non-fatal divergence (e.g. host plumbing leak after a successful CH eject).
+// Result reports the before/after count, NICs touched, and non-fatal Warnings.
 type Result struct {
 	Before   int      `json:"before"`
 	After    int      `json:"after"`

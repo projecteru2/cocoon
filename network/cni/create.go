@@ -145,9 +145,7 @@ func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs
 }
 
 // Remove tears down NIC plumbing for the given indices; preserves the netns.
-// DB records for picked indices are always swept so a later resize-up at the
-// same index does not see a stale eth<idx> entry; CNI/TAP failures still
-// propagate as the returned error.
+// Always sweeps DB records for picked indices so resize-up to the same index isn't stale; CNI/TAP errors still propagate.
 func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 	if len(indices) == 0 {
 		return nil

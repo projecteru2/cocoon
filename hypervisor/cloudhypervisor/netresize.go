@@ -15,8 +15,7 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// ejectWaitTimeout caps how long we block on guest B0EJ between vm.remove-device
-// and the host plumbing teardown. Linux acks in < 1 s; Windows can take a few.
+// ejectWaitTimeout bounds the wait for guest B0EJ; Linux acks < 1 s, Windows can take a few.
 const ejectWaitTimeout = 10 * time.Second
 
 // NetResize brings the VM's NIC count to spec.Target on a running CH VM.
@@ -64,8 +63,7 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 			return res, fmt.Errorf("vm.add-net nic %d: %w", i, err)
 		}
 		if err := ch.appendNetworkConfig(ctx, vmID, nc); err != nil {
-			// Symmetric with netResizeRemove: wait for guest B0EJ before tearing
-			// down host plumbing so we don't yank a TAP CH's ioeventfd still owns.
+			// Wait for B0EJ before host teardown (symmetric with netResizeRemove).
 			if rmErr := removeDeviceVM(ctx, hc, chID); rmErr != nil {
 				logger.Warnf(ctx, "rollback vm.remove-device %s after persist failure: %v", chID, rmErr)
 			} else if wErr := waitDeviceEjected(ctx, hc, chID, ejectWaitTimeout); wErr != nil {

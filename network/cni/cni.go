@@ -141,9 +141,7 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	return c.deleteRecords(ctx, allIDs)
 }
 
-// tearDownNICs attempts CNI DEL (+ optional TAP delete) for every record.
-// Returns the first error; bestEffort=false stops after the first failed
-// record (post-cleanup attempt). Callers own DB-record sweep separately.
+// tearDownNICs runs CNI DEL (+ optional TAP delete) per record; bestEffort=false stops at first failure. Caller sweeps DB.
 func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) error {
 	logger := log.WithFunc("cni.tearDownNICs")
 	if c.cniConf == nil {

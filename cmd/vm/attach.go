@@ -85,8 +85,7 @@ func (h Handler) DeviceDetach(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolveAttacher resolves args[0] to a hypervisor implementing A; returns the
-// hypervisor too so callers can issue further generic ops without re-finding.
+// resolveAttacher resolves args[0] to a hypervisor implementing A; also returns conf+hyper for further ops.
 func resolveAttacher[A any](h Handler, cmd *cobra.Command, args []string, op string, errUnsupported error) (context.Context, *config.Config, hypervisor.Hypervisor, A, error) {
 	var zero A
 	ctx, conf, err := h.Init(cmd)

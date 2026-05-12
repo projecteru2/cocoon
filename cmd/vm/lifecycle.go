@@ -392,8 +392,7 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 	}
 }
 
-// providerForVM picks the network provider from persisted NetworkConfig;
-// cniProvider may be nil (lazy-init); bridgeCache must be non-nil.
+// providerForVM picks the network provider from persisted NetworkConfig; cniProvider may be nil (lazy-init), bridgeCache must be non-nil.
 func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache map[string]network.Network, configs []*types.NetworkConfig) (network.Network, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("no network configs")

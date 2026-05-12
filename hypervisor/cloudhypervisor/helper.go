@@ -197,8 +197,7 @@ func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 	return vmPutJSON(ctx, hc, "vm.add-net", "add-net request", net, http.StatusOK, http.StatusNoContent)
 }
 
-// addCocoonNIC posts vm.add-net with the deterministic cocoon-net-<mac> id
-// shared by resize-up and clone hot-swap; returns the id for rollback.
+// addCocoonNIC posts vm.add-net with the deterministic cocoon-net-<mac> id; returns id for rollback.
 func addCocoonNIC(ctx context.Context, hc *http.Client, nc *types.NetworkConfig) (string, error) {
 	if nc == nil {
 		return "", fmt.Errorf("addCocoonNIC: nil network config")
