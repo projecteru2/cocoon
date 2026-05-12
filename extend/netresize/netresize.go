@@ -1,6 +1,4 @@
 // Package netresize is the runtime interface for resizing a VM's NIC count.
-// Cocoon never touches the guest — the user must quiesce in-guest NIC state
-// (driver unbind / NetworkManager / NDIS) before reducing the count.
 package netresize
 
 import (

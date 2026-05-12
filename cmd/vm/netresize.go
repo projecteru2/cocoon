@@ -40,17 +40,11 @@ func (h Handler) NetResize(cmd *cobra.Command, args []string) error {
 }
 
 // plumbingForVM picks the network provider matching the VM's existing NICs.
-// Requires at least one NIC: VMConfig has no bridge hint, so a zero-NIC VM
-// can't be resized up without losing the original provider choice.
+// VMConfig has no bridge hint, so a zero-NIC VM can't be resized up without
+// losing the original provider choice.
 func plumbingForVM(conf *config.Config, configs []*types.NetworkConfig) (network.Network, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("vm has zero NICs; resize up is not supported (start the VM with at least one NIC)")
 	}
-	if configs[0].Backend == types.BackendBridge {
-		if configs[0].BridgeDev == "" {
-			return nil, fmt.Errorf("bridge backend without bridge device")
-		}
-		return cmdcore.InitBridgeNetwork(conf, configs[0].BridgeDev)
-	}
-	return cmdcore.InitNetwork(conf)
+	return providerForVM(conf, nil, map[string]network.Network{}, configs)
 }

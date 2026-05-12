@@ -321,6 +321,7 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 	}
 	for i, nc := range networkConfigs {
 		newNet := networkConfigToNet(nc)
+		newNet.ID = cocoonNetID(nc.MAC)
 		if err := addNetVM(ctx, hc, newNet); err != nil {
 			return fmt.Errorf("add net device %d/%d (MAC %s, TAP %s): %w",
 				i+1, len(networkConfigs), nc.MAC, nc.TAP, err)

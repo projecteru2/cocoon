@@ -393,6 +393,8 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 }
 
 // providerForVM selects network provider from persisted NetworkConfig.
+// cniProvider may be nil — lazy-inited from conf when configs need CNI.
+// bridgeCache must be non-nil; resolved entries are inserted for reuse.
 func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache map[string]network.Network, configs []*types.NetworkConfig) (network.Network, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("no network configs")
@@ -414,10 +416,10 @@ func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache
 		return p, nil
 	}
 	// "cni" or empty (backward compat).
-	if cniProvider == nil {
-		return nil, fmt.Errorf("cni provider not available")
+	if cniProvider != nil {
+		return cniProvider, nil
 	}
-	return cniProvider, nil
+	return cmdcore.InitNetwork(conf)
 }
 
 func batchRoutedCmd(ctx context.Context, cmd *cobra.Command, name, pastTense string, routed map[hypervisor.Hypervisor][]string, fn func(hypervisor.Hypervisor, []string) ([]string, error)) error {
