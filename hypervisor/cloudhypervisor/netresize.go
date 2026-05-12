@@ -99,7 +99,7 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 			return res, fmt.Errorf("persist remove nic %d: %w", i, err)
 		}
 		if plumbingErr != nil {
-			logger.Warnf(ctx, "host plumbing leaked for vm %s nic %d (gc will reclaim): %v", vmID, i, plumbingErr)
+			logger.Warnf(ctx, "host plumbing leaked for vm %s nic %d (stop+restart will reclaim): %v", vmID, i, plumbingErr)
 		}
 		res.Removed = append(res.Removed, netresize.NIC{Index: i, TAP: nc.TAP, MAC: nc.MAC})
 		res.After = i
