@@ -142,17 +142,25 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 }
 
 // tearDownNICs runs CNI DEL (and optionally TAP delete) for each record.
-// bestEffort=true logs errors and continues; false returns on the first.
-// Returns the record IDs successfully torn down so the caller can sweep them
-// from the index in one Update.
+// bestEffort=true logs errors and always appends the id (caller still sweeps
+// the DB; the netns deletion that follows reclaims kernel-side state anyway).
+// bestEffort=false returns on the first CNI/TAP failure so the caller can
+// surface "remove" intent failures without dropping live DB records.
+// Returns the record IDs eligible for index removal.
 func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) ([]string, error) {
-	if c.cniConf == nil {
-		if bestEffort {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
-	}
 	logger := log.WithFunc("cni.tearDownNICs")
+	if c.cniConf == nil {
+		if !bestEffort {
+			return nil, fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
+		}
+		// No CNI configured: nothing to DEL, but the DB records must still
+		// be reclaimable. Return every id so the caller can sweep them.
+		ids := make([]string, 0, len(records))
+		for _, rec := range records {
+			ids = append(ids, rec.ID)
+		}
+		return ids, nil
+	}
 	ids := make([]string, 0, len(records))
 	for _, rec := range records {
 		cl, err := c.confListByName(rec.Type)
@@ -164,14 +172,20 @@ func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []n
 			continue
 		}
 		if err := c.cniDel(ctx, cl, vmID, nsPath, rec.IfName); err != nil {
+			if !bestEffort {
+				return ids, fmt.Errorf("cni del %s/%s: %w", vmID, rec.IfName, err)
+			}
 			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
 		}
 		if deleteTAP {
-			var i int
-			if _, err := fmt.Sscanf(rec.IfName, "eth%d", &i); err == nil {
-				if err := deleteTAPInNetns(nsPath, tapNameForVM(vmID, i)); err != nil && !bestEffort {
-					return ids, fmt.Errorf("delete tap %s: %w", tapNameForVM(vmID, i), err)
+			var idx int
+			if _, scanErr := fmt.Sscanf(rec.IfName, "eth%d", &idx); scanErr != nil {
+				logger.Warnf(ctx, "parse ifname %q for %s: %v (skip tap delete)", rec.IfName, vmID, scanErr)
+			} else if delErr := deleteTAPInNetns(nsPath, tapNameForVM(vmID, idx)); delErr != nil {
+				if !bestEffort {
+					return ids, fmt.Errorf("delete tap %s: %w", tapNameForVM(vmID, idx), delErr)
 				}
+				logger.Warnf(ctx, "delete tap %s in netns %s: %v", tapNameForVM(vmID, idx), nsPath, delErr)
 			}
 		}
 		ids = append(ids, rec.ID)

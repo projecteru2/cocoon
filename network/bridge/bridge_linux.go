@@ -68,7 +68,7 @@ func (b *Bridge) Verify(_ context.Context, vmID string) error {
 }
 
 // Add allocates TAP devices on the bridge for the given specs.
-func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) ([]*types.NetworkConfig, error) {
+func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) (configs []*types.NetworkConfig, retErr error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
@@ -79,7 +79,15 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 		return nil, fmt.Errorf("find bridge: %w", err)
 	}
 
-	configs := make([]*types.NetworkConfig, 0, len(specs))
+	var added []int
+	defer func() {
+		if retErr == nil || len(added) == 0 {
+			return
+		}
+		_ = tearDownTAPs(vmID, added, true)
+	}()
+
+	configs = make([]*types.NetworkConfig, 0, len(specs))
 	for _, spec := range specs {
 		name := tapName(vmID, spec.Index)
 		mac := generateMAC()
@@ -90,6 +98,7 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 		if cErr := createTAP(name, queues); cErr != nil {
 			return nil, fmt.Errorf("create tap %s: %w", name, cErr)
 		}
+		added = append(added, spec.Index)
 
 		tap, lErr := netlink.LinkByName(name)
 		if lErr != nil {
@@ -97,7 +106,6 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 		}
 
 		if mErr := netlink.LinkSetMaster(tap, br); mErr != nil {
-			_ = netlink.LinkDel(tap)
 			return nil, fmt.Errorf("add %s to %s: %w", name, b.bridgeDev, mErr)
 		}
 
@@ -108,7 +116,6 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 		_ = network.TuneTAP(tap)
 
 		if uErr := netlink.LinkSetUp(tap); uErr != nil {
-			_ = netlink.LinkDel(tap)
 			return nil, fmt.Errorf("set %s up: %w", name, uErr)
 		}
 
