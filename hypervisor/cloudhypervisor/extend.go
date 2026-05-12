@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cocoonstack/cocoon/extend/fs"
+	"github.com/cocoonstack/cocoon/extend/netresize"
 	"github.com/cocoonstack/cocoon/extend/vfio"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
@@ -17,10 +18,11 @@ import (
 )
 
 var (
-	_ fs.Attacher   = (*CloudHypervisor)(nil)
-	_ fs.Lister     = (*CloudHypervisor)(nil)
-	_ vfio.Attacher = (*CloudHypervisor)(nil)
-	_ vfio.Lister   = (*CloudHypervisor)(nil)
+	_ fs.Attacher       = (*CloudHypervisor)(nil)
+	_ fs.Lister         = (*CloudHypervisor)(nil)
+	_ vfio.Attacher     = (*CloudHypervisor)(nil)
+	_ vfio.Lister       = (*CloudHypervisor)(nil)
+	_ netresize.Resizer = (*CloudHypervisor)(nil)
 )
 
 // FsAttach hot-plugs a vhost-user-fs device onto a running CH VM.
