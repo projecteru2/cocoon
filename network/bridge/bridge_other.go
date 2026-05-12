@@ -9,6 +9,7 @@ import (
 
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/gc"
+	"github.com/cocoonstack/cocoon/network"
 	"github.com/cocoonstack/cocoon/types"
 )
 
@@ -28,10 +29,13 @@ func (b *Bridge) Type() string { return "bridge" }
 // Verify is not supported.
 func (b *Bridge) Verify(_ context.Context, _ string) error { return errUnsupported }
 
-// Config is not supported.
-func (b *Bridge) Config(_ context.Context, _ string, _ int, _ *types.VMConfig, _ ...*types.NetworkConfig) ([]*types.NetworkConfig, error) {
+// Add is not supported.
+func (b *Bridge) Add(_ context.Context, _ string, _ *types.VMConfig, _ ...network.AddSpec) ([]*types.NetworkConfig, error) {
 	return nil, errUnsupported
 }
+
+// Remove is not supported.
+func (b *Bridge) Remove(_ context.Context, _ string, _ ...int) error { return errUnsupported }
 
 // Delete is not supported.
 func (b *Bridge) Delete(_ context.Context, _ []string) ([]string, error) { return nil, errUnsupported }

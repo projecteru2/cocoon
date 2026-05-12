@@ -67,53 +67,49 @@ func (b *Bridge) Verify(_ context.Context, vmID string) error {
 	return nil
 }
 
-// Config creates TAP devices and adds them to the bridge.
-func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig, existing ...*types.NetworkConfig) ([]*types.NetworkConfig, error) {
-	logger := log.WithFunc("bridge.Config")
+// Add allocates TAP devices on the bridge for the given specs.
+func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) ([]*types.NetworkConfig, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	logger := log.WithFunc("bridge.Add")
 
 	br, err := netlink.LinkByIndex(b.bridgeIdx)
 	if err != nil {
 		return nil, fmt.Errorf("find bridge: %w", err)
 	}
 
-	var configs []*types.NetworkConfig
-	for i := range numNICs {
-		name := tapName(vmID, i)
-
-		var mac string
-		if i < len(existing) && existing[i] != nil {
-			mac = existing[i].MAC
-		} else {
-			mac = generateMAC()
+	configs := make([]*types.NetworkConfig, 0, len(specs))
+	for _, spec := range specs {
+		name := tapName(vmID, spec.Index)
+		mac := generateMAC()
+		if spec.Existing != nil {
+			mac = spec.Existing.MAC
 		}
-
 		queues := network.NetNumQueues(vmCfg.CPU)
-		if err := createTAP(name, queues); err != nil {
-			return nil, fmt.Errorf("create tap %s: %w", name, err)
+		if cErr := createTAP(name, queues); cErr != nil {
+			return nil, fmt.Errorf("create tap %s: %w", name, cErr)
 		}
 
-		tap, err := netlink.LinkByName(name)
-		if err != nil {
-			return nil, fmt.Errorf("find tap %s: %w", name, err)
+		tap, lErr := netlink.LinkByName(name)
+		if lErr != nil {
+			return nil, fmt.Errorf("find tap %s: %w", name, lErr)
 		}
 
-		if err := netlink.LinkSetMaster(tap, br); err != nil {
+		if mErr := netlink.LinkSetMaster(tap, br); mErr != nil {
 			_ = netlink.LinkDel(tap)
-			return nil, fmt.Errorf("add %s to %s: %w", name, b.bridgeDev, err)
+			return nil, fmt.Errorf("add %s to %s: %w", name, b.bridgeDev, mErr)
 		}
 
-		// Disable FDB source MAC learning per-packet overhead.
 		_ = netlink.LinkSetLearning(tap, false)
-
 		if mtu := br.Attrs().MTU; mtu > 0 {
 			_ = netlink.LinkSetMTU(tap, mtu)
 		}
-
 		_ = network.TuneTAP(tap)
 
-		if err := netlink.LinkSetUp(tap); err != nil {
+		if uErr := netlink.LinkSetUp(tap); uErr != nil {
 			_ = netlink.LinkDel(tap)
-			return nil, fmt.Errorf("set %s up: %w", name, err)
+			return nil, fmt.Errorf("set %s up: %w", name, uErr)
 		}
 
 		configs = append(configs, &types.NetworkConfig{
@@ -124,9 +120,24 @@ func (b *Bridge) Config(ctx context.Context, vmID string, numNICs int, vmCfg *ty
 			Backend:   typ,
 			BridgeDev: b.bridgeDev,
 		})
-		logger.Debugf(ctx, "NIC %d: tap=%s mac=%s bridge=%s", i, name, mac, b.bridgeDev)
+		logger.Debugf(ctx, "NIC %d: tap=%s mac=%s bridge=%s", spec.Index, name, mac, b.bridgeDev)
 	}
 	return configs, nil
+}
+
+// Remove deletes the TAP devices for the given indices.
+func (b *Bridge) Remove(_ context.Context, vmID string, indices ...int) error {
+	for _, i := range indices {
+		name := tapName(vmID, i)
+		link, err := netlink.LinkByName(name)
+		if err != nil {
+			return fmt.Errorf("find tap %s: %w", name, err)
+		}
+		if err := netlink.LinkDel(link); err != nil {
+			return fmt.Errorf("delete tap %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // Delete removes TAP devices for the given VMs.

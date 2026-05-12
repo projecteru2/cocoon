@@ -18,3 +18,7 @@ func deleteNetns(_ context.Context, _ string) error {
 func setupTCRedirect(_, _, _ string, _ int, _ string) (string, error) {
 	return "", errNotSupported
 }
+
+func deleteTAPInNetns(_, _ string) error {
+	return errNotSupported
+}

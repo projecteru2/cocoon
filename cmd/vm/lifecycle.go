@@ -386,7 +386,7 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 			continue
 		}
 		logger.Warnf(ctx, "network missing for VM %s, recovering", vm.ID)
-		if _, recoverErr := netProvider.Config(ctx, vm.ID, len(vm.NetworkConfigs), &vm.Config, vm.NetworkConfigs...); recoverErr != nil {
+		if _, recoverErr := netProvider.Add(ctx, vm.ID, &vm.Config, network.AddRecover(vm.NetworkConfigs)...); recoverErr != nil {
 			logger.Warnf(ctx, "recover network for VM %s: %v (start will fail)", vm.ID, recoverErr)
 		}
 	}

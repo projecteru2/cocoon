@@ -52,6 +52,17 @@ func deleteNetns(ctx context.Context, name string) error {
 	})
 }
 
+// deleteTAPInNetns deletes a named TAP device inside target netns.
+func deleteTAPInNetns(nsPath, tapName string) error {
+	return cns.WithNetNSPath(nsPath, func(_ cns.NetNS) error {
+		link, err := netlink.LinkByName(tapName)
+		if err != nil {
+			return fmt.Errorf("find %s: %w", tapName, err)
+		}
+		return netlink.LinkDel(link)
+	})
+}
+
 // setupTCRedirect wires ifName <-> tapName inside target netns, returns MAC.
 func setupTCRedirect(nsPath, ifName, tapName string, queues int, overrideMAC string) (string, error) {
 	var mac string

@@ -180,12 +180,7 @@ func (c *CNI) delNICs(ctx context.Context, vmID, nsPath string, records []networ
 			logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, err)
 			continue
 		}
-		rt := &libcni.RuntimeConf{
-			ContainerID: vmID,
-			NetNS:       nsPath,
-			IfName:      rec.IfName,
-		}
-		if err := c.cniConf.DelNetworkList(ctx, cl, rt); err != nil {
+		if err := c.cniDel(ctx, cl, vmID, nsPath, rec.IfName); err != nil {
 			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
 		}
 	}
