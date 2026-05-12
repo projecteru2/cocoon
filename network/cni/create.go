@@ -40,14 +40,21 @@ func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs
 		return nil, fmt.Errorf("ensure netns %s: %w", nsName, err)
 	}
 
-	addedIFs := make([]string, 0, len(specs))
+	addedIdx := make([]int, 0, len(specs))
 	defer func() {
 		if retErr == nil {
 			return
 		}
-		for _, ifn := range addedIFs {
+		for _, i := range addedIdx {
+			ifn := fmt.Sprintf("eth%d", i)
 			if delErr := c.cniDel(ctx, confList, vmID, nsPath, ifn); delErr != nil {
 				logger.Warnf(ctx, "rollback CNI DEL %s/%s: %v", vmID, ifn, delErr)
+			}
+			// setupTCRedirect creates the TAP; it would leak if the netns persists.
+			if !createdNetns {
+				if delErr := deleteTAPInNetns(nsPath, tapNameForVM(vmID, i)); delErr != nil {
+					logger.Warnf(ctx, "rollback tap delete %s: %v", tapNameForVM(vmID, i), delErr)
+				}
 			}
 		}
 		if createdNetns {
@@ -79,7 +86,7 @@ func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs
 		if addErr != nil {
 			return nil, fmt.Errorf("cni add %s/%s: %w", vmID, ifName, addErr)
 		}
-		addedIFs = append(addedIFs, ifName)
+		addedIdx = append(addedIdx, spec.Index)
 
 		netInfo, parseErr := extractNetworkInfo(cniResult)
 		if parseErr != nil {
@@ -169,7 +176,6 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 	return c.deleteRecords(ctx, ids)
 }
 
-// cniDel runs CNI DEL for one NIC; shared by Add (recovery + rollback) and Remove.
 func (c *CNI) cniDel(ctx context.Context, confList *libcni.NetworkConfigList, vmID, nsPath, ifName string) error {
 	rt := &libcni.RuntimeConf{ContainerID: vmID, NetNS: nsPath, IfName: ifName}
 	return c.cniConf.DelNetworkList(ctx, confList, rt)
@@ -179,9 +185,7 @@ func tapNameForVM(vmID string, nic int) string {
 	return fmt.Sprintf("tap%s-%d", network.VMIDPrefix(vmID), nic)
 }
 
-// ensureNetns creates the netns when /var/run/netns/<name> is absent.
-// The bool reports whether this call did the creation, so rollback only
-// tears down a netns we just made.
+// ensureNetns creates the netns if missing; bool reports whether this call did the creation.
 func ensureNetns(name, nsPath string) (bool, error) {
 	if _, err := os.Stat(nsPath); err == nil {
 		return false, nil
