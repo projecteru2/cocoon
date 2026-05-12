@@ -15,8 +15,9 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// ejectWaitTimeout caps how long we block on guest B0EJ between vm.remove-device and the host plumbing teardown.
-const ejectWaitTimeout = 5 * time.Second
+// ejectWaitTimeout caps how long we block on guest B0EJ between vm.remove-device
+// and the host plumbing teardown. Linux acks in < 1 s; Windows can take a few.
+const ejectWaitTimeout = 10 * time.Second
 
 // NetResize brings the VM's NIC count to spec.Target on a running CH VM.
 func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec netresize.Spec, plumbing netresize.Plumbing) (netresize.Result, error) {
@@ -63,9 +64,12 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 			return res, fmt.Errorf("vm.add-net nic %d: %w", i, err)
 		}
 		if err := ch.appendNetworkConfig(ctx, vmID, nc); err != nil {
-			// without rollback the deterministic id collides on the next resize.
+			// Symmetric with netResizeRemove: wait for guest B0EJ before tearing
+			// down host plumbing so we don't yank a TAP CH's ioeventfd still owns.
 			if rmErr := removeDeviceVM(ctx, hc, chID); rmErr != nil {
 				logger.Warnf(ctx, "rollback vm.remove-device %s after persist failure: %v", chID, rmErr)
+			} else if wErr := waitDeviceEjected(ctx, hc, chID, ejectWaitTimeout); wErr != nil {
+				logger.Warnf(ctx, "rollback wait eject %s after persist failure: %v", chID, wErr)
 			}
 			if rmErr := plumbing.Remove(ctx, vmID, i); rmErr != nil {
 				logger.Warnf(ctx, "rollback host plumbing for nic %d: %v", i, rmErr)
