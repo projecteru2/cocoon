@@ -242,6 +242,19 @@ Mitigations for production users:
 
 Control-plane traffic from cocoon-managed hosts (vk-cocoon, `cocoon vm exec`) goes through cocoon-agent over vsock and never depends on SSH credentials.
 
+## NIC hot-remove leaves the PCI slot pending on Cloud Hypervisor
+
+`cocoon vm net --nics N` tears down host TAP/veth/CNI plumbing immediately after `vm.remove-device` returns. CH only frees the PCI slot (and unregisters the device's ioeventfds) when the guest writes to the ACPI hot-plug controller (B0EJ) in response to the SCI raised by `remove-device`. If the guest is stopped, paused, or its NIC driver is wedged, the slot stays `Allocated` until the guest cooperates.
+
+Cocoon does not wait for B0EJ — there is no reliable signal from the CH HTTP API. The user accepts:
+
+- The guest may continue to reference a NIC whose host plumbing is gone, hanging the in-guest driver.
+- The pending eject may surface later as `Cannot register ioevent: File exists` when CH next tries to reuse that slot (e.g. a subsequent hot-add).
+
+Quiesce the guest NIC (ip link set down + NetworkManager remove on Linux; Disable-PnpDevice + driver unbind on Windows) before reducing the count. Or pass `--keep-host-on-remove` to defer the host teardown.
+
+Firecracker is not supported: FC has no NIC hot-plug / hot-unplug API.
+
 ## Android cocoon-agent service may be blocked by SELinux
 
 `os-image/android/{14.0,15.0}` install the cocoon-agent binary at `/system/bin/cocoon-agent` and register it via `/system/etc/init/cocoon-agent.rc`. Android's SELinux policies don't ship with a domain for cocoon-agent, so the service may run in `init`'s domain or be denied outright depending on the redroid build.

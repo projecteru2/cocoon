@@ -149,6 +149,7 @@ cocoon
 │   ├── device
 │   │   ├── attach [flags] VM     Attach a VFIO PCI device (CH only)
 │   │   └── detach [flags] VM     Detach a VFIO PCI device by --id
+│   ├── net [flags] VM             Resize NIC count on a running VM (CH only)
 │   └── debug [flags] IMAGE        Generate hypervisor launch command (dry run)
 ├── snapshot
 │   ├── save [flags] VM            Create a snapshot from a running VM
@@ -519,6 +520,25 @@ cocoon vm device detach my-vm --id mygpu
 ```
 
 `cocoon vm inspect VM` includes an `attached_devices` field for running VMs that surfaces every attached vhost-user-fs share and VFIO device, read live from CH `vm.info`. The field is omitted for stopped VMs.
+
+## NIC Hot-Resize (Cloud Hypervisor only)
+
+`cocoon vm net --nics N VM` brings the running VM's NIC count to `N`. Adds allocate new TAP/CNI/bridge plumbing on the host and hot-plug a fresh NIC into the guest; removes pop NICs from the tail (LIFO) via `vm.remove-device` and tear down the host plumbing.
+
+```bash
+# Add a second NIC (or any number).
+cocoon vm net my-vm --nics 2
+
+# Remove a NIC (LIFO from the tail).
+cocoon vm net my-vm --nics 1
+
+# Keep host plumbing in place after vm.remove-device.
+cocoon vm net my-vm --nics 1 --keep-host-on-remove
+```
+
+Cocoon manages **host-side** plumbing only. CH's `vm.remove-device` marks the slot for ejection but the actual eject only happens when the guest cooperates via ACPI (B0EJ write). The host TAP / veth / CNI lease are torn down immediately after the API call regardless. Quiesce in-guest NIC state (driver unbind, NetworkManager removal, Windows NDIS halt) **before** reducing the count, or the in-guest driver will reference plumbing that no longer exists. Use `--keep-host-on-remove` if you want to defer host teardown.
+
+A VM started with zero NICs cannot be resized up (the VM record carries no provider hint). Start with at least one NIC if you plan to resize.
 
 ## Windows Support
 
