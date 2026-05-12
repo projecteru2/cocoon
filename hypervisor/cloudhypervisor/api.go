@@ -119,4 +119,5 @@ type chVMInfoConfig struct {
 	Memory  chMemory      `json:"memory"`
 	Fs      []chFs        `json:"fs,omitempty"`
 	Devices []chDevice    `json:"devices,omitempty"`
+	Nets    []chNet       `json:"net,omitempty"`
 }
