@@ -19,15 +19,11 @@ func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec net
 	if err := spec.Normalize(); err != nil {
 		return netresize.Result{}, err
 	}
-	hc, info, err := ch.inspectRunning(ctx, vmRef)
+	hc, vmID, rec, err := ch.runningVMClientWithRecord(ctx, vmRef)
 	if err != nil {
 		return netresize.Result{}, err
 	}
-	vmID, err := ch.ResolveRef(ctx, vmRef)
-	if err != nil {
-		return netresize.Result{}, err
-	}
-	rec, err := ch.LoadRecord(ctx, vmID)
+	info, err := getVMInfo(ctx, hc)
 	if err != nil {
 		return netresize.Result{}, err
 	}
@@ -63,6 +59,14 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 			return res, fmt.Errorf("vm.add-net nic %d: %w", i, err)
 		}
 		if err := ch.appendNetworkConfig(ctx, vmID, nc); err != nil {
+			// CH already accepted the device; without rollback, the next
+			// resize would mis-count or collide on the deterministic id.
+			if rmErr := removeDeviceVM(ctx, hc, chN.ID); rmErr != nil {
+				logger.Warnf(ctx, "rollback vm.remove-device %s after persist failure: %v", chN.ID, rmErr)
+			}
+			if rmErr := plumbing.Remove(ctx, vmID, i); rmErr != nil {
+				logger.Warnf(ctx, "rollback host plumbing for nic %d: %v", i, rmErr)
+			}
 			return res, fmt.Errorf("persist nic %d: %w", i, err)
 		}
 		res.Added = append(res.Added, netresize.NIC{Index: i, TAP: nc.TAP, MAC: nc.MAC})
@@ -72,6 +76,7 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 }
 
 func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client, info *chVMInfoResponse, vmID string, ncs []*types.NetworkConfig, plumbing netresize.Plumbing, current, target int, res netresize.Result) (netresize.Result, error) {
+	logger := log.WithFunc("cloudhypervisor.NetResize.remove")
 	macToID := make(map[string]string, len(info.Config.Nets))
 	for _, n := range info.Config.Nets {
 		macToID[strings.ToLower(n.MAC)] = n.ID
@@ -85,11 +90,16 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 		if err := removeDeviceVM(ctx, hc, chID); err != nil {
 			return res, fmt.Errorf("vm.remove-device nic %d (%s): %w", i, chID, err)
 		}
-		if err := plumbing.Remove(ctx, vmID, i); err != nil {
-			return res, fmt.Errorf("nic %d host plumbing: %w", i, err)
-		}
+		// CH accepted the eject; cocoon must drop the record even if host
+		// plumbing teardown leaks. Skipping truncate would block convergence
+		// — the next resize would re-read the stale NIC and fail MAC lookup.
+		plumbingErr := plumbing.Remove(ctx, vmID, i)
 		if err := ch.truncateNetworkConfigs(ctx, vmID, i); err != nil {
+			logger.Errorf(ctx, err, "persistence diverged from CH for vm %s nic %d (%s): live device removed, cocoon record retained", vmID, i, chID)
 			return res, fmt.Errorf("persist remove nic %d: %w", i, err)
+		}
+		if plumbingErr != nil {
+			logger.Warnf(ctx, "host plumbing leaked for vm %s nic %d (gc will reclaim): %v", vmID, i, plumbingErr)
 		}
 		res.Removed = append(res.Removed, netresize.NIC{Index: i, TAP: nc.TAP, MAC: nc.MAC})
 		res.After = i
