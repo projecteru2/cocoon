@@ -1,5 +1,7 @@
 package cloudhypervisor
 
+import "encoding/json"
+
 type chVMConfig struct {
 	// Optional — pointer + omitempty (nil → omitted from JSON).
 	Payload *chPayload     `json:"payload,omitempty"`
@@ -110,7 +112,8 @@ type chPciDeviceInfo struct {
 }
 
 type chVMInfoResponse struct {
-	Config chVMInfoConfig `json:"config"`
+	Config     chVMInfoConfig             `json:"config"`
+	DeviceTree map[string]json.RawMessage `json:"device_tree,omitempty"`
 }
 
 type chVMInfoConfig struct {

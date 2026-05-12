@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/projecteru2/core/log"
 
@@ -13,6 +14,10 @@ import (
 	"github.com/cocoonstack/cocoon/network"
 	"github.com/cocoonstack/cocoon/types"
 )
+
+// ejectWaitTimeout caps how long we block on guest B0EJ between vm.remove-device
+// and the host plumbing teardown. Linux acks in < 1 s; Windows can take a few.
+const ejectWaitTimeout = 15 * time.Second
 
 // NetResize brings the VM's NIC count to spec.Target on a running CH VM.
 func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec netresize.Spec, plumbing netresize.Plumbing) (netresize.Result, error) {
@@ -92,6 +97,11 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 		}
 		if err := removeDeviceVM(ctx, hc, chID); err != nil {
 			return res, fmt.Errorf("vm.remove-device nic %d (%s): %w", i, chID, err)
+		}
+		// CH only flags pending eject — wait for the guest to ACK via B0EJ so
+		// the device_tree entry is gone before pause/snapshot iterate it.
+		if err := waitDeviceEjected(ctx, hc, chID, ejectWaitTimeout); err != nil {
+			return res, fmt.Errorf("wait eject nic %d (%s): %w", i, chID, err)
 		}
 		// CH eject is irrevocable; truncate even if plumbing leaks, else the
 		// next resize re-reads the stale NIC and fails MAC lookup.

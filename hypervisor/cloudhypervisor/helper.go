@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/projecteru2/core/log"
 
@@ -178,6 +179,22 @@ func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
 // the original success.
 func removeDeviceVM(ctx context.Context, hc *http.Client, deviceID string) error {
 	return vmPutJSON(ctx, hc, "vm.remove-device", "remove-device request", map[string]string{"id": deviceID})
+}
+
+// waitDeviceEjected blocks until id is gone from CH's device_tree. CH's
+// vm.remove-device only flags pending eject and mutates vm_config; the actual
+// device_tree removal happens when the guest writes B0EJ via ACPI/SCI. Pause
+// / snapshot iterate device_tree, so they error out if called before the
+// guest acks. Linux acks within < 1 s; Windows can take several seconds.
+func waitDeviceEjected(ctx context.Context, hc *http.Client, deviceID string, timeout time.Duration) error {
+	return utils.WaitFor(ctx, timeout, 100*time.Millisecond, func() (bool, error) {
+		info, err := getVMInfo(ctx, hc)
+		if err != nil {
+			return false, err
+		}
+		_, present := info.DeviceTree[deviceID]
+		return !present, nil
+	})
 }
 
 func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
