@@ -185,24 +185,6 @@ func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []n
 	return ids, nil
 }
 
-// delNICs is the lockless CNI DEL loop for gc.Collect; store-aware paths use tearDownNICs.
-func (c *CNI) delNICs(ctx context.Context, vmID, nsPath string, records []networkRecord) {
-	if c.cniConf == nil {
-		return
-	}
-	logger := log.WithFunc("cni.delNICs")
-	for _, rec := range records {
-		cl, err := c.confListByName(rec.Type)
-		if err != nil {
-			logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, err)
-			continue
-		}
-		if err := c.cniDel(ctx, cl, vmID, nsPath, rec.IfName); err != nil {
-			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
-		}
-	}
-}
-
 func (c *CNI) deleteRecords(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

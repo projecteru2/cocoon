@@ -76,7 +76,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 				}
 
 				// 2. CNI DEL per NIC — best-effort IPAM release.
-				c.delNICs(ctx, vmID, netnsPath(vmID), records)
+				_, _ = c.tearDownNICs(ctx, vmID, netnsPath(vmID), records, false, true)
 
 				// 3. Remove the named netns (with retry for async kernel fd cleanup).
 				nsName := netnsName(vmID)
