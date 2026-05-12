@@ -142,12 +142,6 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 	if len(indices) == 0 {
 		return nil
 	}
-	if c.cniConf == nil {
-		return fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
-	}
-	nsPath := netnsPath(vmID)
-	logger := log.WithFunc("cni.Remove")
-
 	var records []networkRecord
 	if err := c.store.With(ctx, func(idx *networkIndex) error {
 		records = idx.byVMID(vmID)
@@ -159,33 +153,20 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 	for _, r := range records {
 		byIfName[r.IfName] = r
 	}
-
-	idsToDelete := make([]string, 0, len(indices))
+	picked := make([]networkRecord, 0, len(indices))
 	for _, i := range indices {
 		ifName := fmt.Sprintf("eth%d", i)
 		rec, ok := byIfName[ifName]
 		if !ok {
 			return fmt.Errorf("nic %d (%s): no record", i, ifName)
 		}
-		confList, err := c.confListByName(rec.Type)
-		if err != nil {
-			return fmt.Errorf("nic %d: %w", i, err)
-		}
-		if delErr := c.cniDel(ctx, confList, vmID, nsPath, ifName); delErr != nil {
-			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, ifName, delErr)
-		}
-		if err := deleteTAPInNetns(nsPath, tapNameForVM(vmID, i)); err != nil {
-			return fmt.Errorf("delete tap %s: %w", tapNameForVM(vmID, i), err)
-		}
-		idsToDelete = append(idsToDelete, rec.ID)
+		picked = append(picked, rec)
 	}
-
-	return c.store.Update(ctx, func(idx *networkIndex) error {
-		for _, id := range idsToDelete {
-			delete(idx.Networks, id)
-		}
-		return nil
-	})
+	ids, err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
+	if err != nil {
+		return err
+	}
+	return c.deleteRecords(ctx, ids)
 }
 
 // cniDel runs CNI DEL for one NIC; shared by Add (recovery + rollback) and Remove.

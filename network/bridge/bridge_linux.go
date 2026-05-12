@@ -127,17 +127,7 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 
 // Remove deletes the TAP devices for the given indices.
 func (b *Bridge) Remove(_ context.Context, vmID string, indices ...int) error {
-	for _, i := range indices {
-		name := tapName(vmID, i)
-		link, err := netlink.LinkByName(name)
-		if err != nil {
-			return fmt.Errorf("find tap %s: %w", name, err)
-		}
-		if err := netlink.LinkDel(link); err != nil {
-			return fmt.Errorf("delete tap %s: %w", name, err)
-		}
-	}
-	return nil
+	return tearDownTAPs(vmID, indices, false)
 }
 
 // Delete removes TAP devices for the given VMs.
@@ -160,23 +150,42 @@ func (b *Bridge) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, GCModule(b.conf.RootDir))
 }
 
-// CleanupTAPs removes bridge TAP devices for the given VM IDs.
-// It does not require a Bridge instance and is safe to call
-// even when no bridge TAPs exist (no-op per VM).
+// CleanupTAPs probes and removes bridge TAP devices for the given VM IDs.
+// No-op per VM if none exist; safe without a Bridge instance.
 func CleanupTAPs(vmIDs []string) []string {
-	var cleaned []string
+	cleaned := make([]string, 0, len(vmIDs))
 	for _, vmID := range vmIDs {
+		var indices []int
 		for i := 0; ; i++ {
-			name := tapName(vmID, i)
-			l, err := netlink.LinkByName(name)
-			if err != nil {
-				break // no more TAPs for this VM
+			if _, err := netlink.LinkByName(tapName(vmID, i)); err != nil {
+				break
 			}
-			_ = netlink.LinkDel(l)
+			indices = append(indices, i)
 		}
+		_ = tearDownTAPs(vmID, indices, true)
 		cleaned = append(cleaned, vmID)
 	}
 	return cleaned
+}
+
+func tearDownTAPs(vmID string, indices []int, bestEffort bool) error {
+	for _, i := range indices {
+		name := tapName(vmID, i)
+		link, err := netlink.LinkByName(name)
+		if err != nil {
+			if bestEffort {
+				continue
+			}
+			return fmt.Errorf("find tap %s: %w", name, err)
+		}
+		if err := netlink.LinkDel(link); err != nil {
+			if bestEffort {
+				continue
+			}
+			return fmt.Errorf("delete tap %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func createTAP(name string, numQueues int) error {
