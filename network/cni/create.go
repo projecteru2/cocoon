@@ -100,7 +100,7 @@ func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs
 			MAC:       mac,
 			NumQueues: network.NetNumQueues(vmCfg.CPU),
 			QueueSize: network.ResolveQueueSize(vmCfg.QueueSize),
-			Backend:   typ,
+			Backend:   types.BackendCNI,
 			NetnsPath: nsPath,
 			Network:   netInfo,
 		}

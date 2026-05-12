@@ -1,5 +1,11 @@
 package types
 
+// Network backend identifiers stored in NetworkConfig.Backend.
+const (
+	BackendCNI    = "cni"
+	BackendBridge = "bridge"
+)
+
 // NetworkConfig describes a single NIC attached to a VM.
 type NetworkConfig struct {
 	TAP       string `json:"tap"`

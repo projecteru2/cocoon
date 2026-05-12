@@ -28,6 +28,7 @@ type Actions interface {
 	FsDetach(cmd *cobra.Command, args []string) error
 	DeviceAttach(cmd *cobra.Command, args []string) error
 	DeviceDetach(cmd *cobra.Command, args []string) error
+	NetResize(cmd *cobra.Command, args []string) error
 }
 
 // Command builds the "vm" parent command with all subcommands.
@@ -188,8 +189,23 @@ func Command(h Actions) *cobra.Command {
 		statusCmd,
 		buildFsCommand(h),
 		buildDeviceCommand(h),
+		buildNetCommand(h),
 	)
 	return vmCmd
+}
+
+func buildNetCommand(h Actions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "net VM",
+		Short: "Resize a running VM's NIC count (CH only); quiesce in-guest NIC state before reducing",
+		Args:  cobra.ExactArgs(1),
+		RunE:  h.NetResize,
+	}
+	cmd.Flags().Int("nics", -1, "target NIC count (required, >= 0)")
+	cmd.Flags().Bool("keep-host-on-remove", false, "skip host TAP/veth teardown after vm.remove-device")
+	_ = cmd.MarkFlagRequired("nics")
+	cmdcore.AddOutputFlag(cmd)
+	return cmd
 }
 
 func buildFsCommand(h Actions) *cobra.Command {

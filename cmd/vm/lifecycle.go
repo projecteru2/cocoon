@@ -399,7 +399,7 @@ func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache
 	}
 	// All NICs on a VM share the same backend.
 	cfg := configs[0]
-	if cfg.Backend == "bridge" {
+	if cfg.Backend == types.BackendBridge {
 		if cfg.BridgeDev == "" {
 			return nil, fmt.Errorf("bridge backend but no bridge device persisted")
 		}

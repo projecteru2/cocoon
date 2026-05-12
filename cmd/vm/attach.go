@@ -9,13 +9,14 @@ import (
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
+	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/extend/fs"
 	"github.com/cocoonstack/cocoon/extend/vfio"
 	"github.com/cocoonstack/cocoon/hypervisor"
 )
 
 func (h Handler) FsAttach(cmd *cobra.Command, args []string) error {
-	ctx, a, err := resolveAttacher[fs.Attacher](h, cmd, args, "fs attach", fs.ErrUnsupportedBackend)
+	ctx, _, _, a, err := resolveAttacher[fs.Attacher](h, cmd, args, "fs attach", fs.ErrUnsupportedBackend)
 	if err != nil {
 		return err
 	}
@@ -35,7 +36,7 @@ func (h Handler) FsAttach(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) FsDetach(cmd *cobra.Command, args []string) error {
-	ctx, a, err := resolveAttacher[fs.Attacher](h, cmd, args, "fs detach", fs.ErrUnsupportedBackend)
+	ctx, _, _, a, err := resolveAttacher[fs.Attacher](h, cmd, args, "fs detach", fs.ErrUnsupportedBackend)
 	if err != nil {
 		return err
 	}
@@ -51,7 +52,7 @@ func (h Handler) FsDetach(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) DeviceAttach(cmd *cobra.Command, args []string) error {
-	ctx, a, err := resolveAttacher[vfio.Attacher](h, cmd, args, "device attach", vfio.ErrUnsupportedBackend)
+	ctx, _, _, a, err := resolveAttacher[vfio.Attacher](h, cmd, args, "device attach", vfio.ErrUnsupportedBackend)
 	if err != nil {
 		return err
 	}
@@ -69,7 +70,7 @@ func (h Handler) DeviceAttach(cmd *cobra.Command, args []string) error {
 }
 
 func (h Handler) DeviceDetach(cmd *cobra.Command, args []string) error {
-	ctx, a, err := resolveAttacher[vfio.Attacher](h, cmd, args, "device detach", vfio.ErrUnsupportedBackend)
+	ctx, _, _, a, err := resolveAttacher[vfio.Attacher](h, cmd, args, "device detach", vfio.ErrUnsupportedBackend)
 	if err != nil {
 		return err
 	}
@@ -85,23 +86,24 @@ func (h Handler) DeviceDetach(cmd *cobra.Command, args []string) error {
 }
 
 // resolveAttacher resolves args[0] to a hypervisor implementing A
-// (fs.Attacher / vfio.Attacher). op ("fs attach", "device detach") prefixes
-// both error wraps so callers see the operation, not just the type-assert.
-func resolveAttacher[A any](h Handler, cmd *cobra.Command, args []string, op string, errUnsupported error) (context.Context, A, error) {
+// (fs.Attacher / vfio.Attacher / netresize.Resizer). op prefixes both error
+// wraps so callers see the operation. Returns the resolved hypervisor too
+// so callers can issue further generic ops (e.g. Inspect) without re-finding.
+func resolveAttacher[A any](h Handler, cmd *cobra.Command, args []string, op string, errUnsupported error) (context.Context, *config.Config, hypervisor.Hypervisor, A, error) {
 	var zero A
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {
-		return ctx, zero, err
+		return ctx, nil, nil, zero, err
 	}
 	hyper, err := cmdcore.FindHypervisor(ctx, conf, args[0])
 	if err != nil {
-		return ctx, zero, fmt.Errorf("%s: %w", op, err)
+		return ctx, conf, nil, zero, fmt.Errorf("%s: %w", op, err)
 	}
 	a, ok := hyper.(A)
 	if !ok {
-		return ctx, zero, fmt.Errorf("%s: backend %s: %w", op, hyper.Type(), errUnsupported)
+		return ctx, conf, hyper, zero, fmt.Errorf("%s: backend %s: %w", op, hyper.Type(), errUnsupported)
 	}
-	return ctx, a, nil
+	return ctx, conf, hyper, a, nil
 }
 
 // classifyAttachErr surfaces ErrNotRunning more clearly than the generic wrap.
