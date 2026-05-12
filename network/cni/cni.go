@@ -127,8 +127,7 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	}); err != nil {
 		return fmt.Errorf("read network index: %w", err)
 	}
-	// Run unconditionally — a VM resized to 0 NICs has no records but still
-	// owns its netns (Remove preserves it by design).
+	// Run even when records is empty: a VM resized to 0 NICs still owns its netns.
 	nsPath := netnsPath(vmID)
 	ids, _ := c.tearDownNICs(ctx, vmID, nsPath, records, false, true)
 	nsName := netnsName(vmID)

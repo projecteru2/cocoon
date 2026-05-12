@@ -170,8 +170,7 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 		picked = append(picked, rec)
 	}
 	ids, err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
-	// Always sweep fully-torn-down records, even when tearDownNICs aborted on
-	// a later NIC; otherwise the cleaned ones leak DB rows until vm delete.
+	// Sweep partially-torn-down records even on abort, else they leak DB rows.
 	if delErr := c.deleteRecords(ctx, ids); delErr != nil && err == nil {
 		err = delErr
 	}
