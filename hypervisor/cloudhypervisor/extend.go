@@ -220,8 +220,7 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 	return hc, err
 }
 
-// runningVMClientWithRecord is runningVMClient + (vmID, *VMRecord) so callers
-// that need the persisted record (e.g. netresize) avoid a second resolve+load.
+// runningVMClientWithRecord is runningVMClient + the resolved vmID and record.
 func (ch *CloudHypervisor) runningVMClientWithRecord(ctx context.Context, vmRef string) (*http.Client, string, hypervisor.VMRecord, error) {
 	vmID, err := ch.ResolveRef(ctx, vmRef)
 	if err != nil {

@@ -38,10 +38,8 @@ type CNI struct {
 	cniConf     *libcni.CNIConfig
 }
 
-// New creates a CNI network provider.
-// CNI conflist loading is best-effort at creation time; if no conflist is
-// available (e.g. no network needed), Delete/Inspect/List still work.
-// Config() will fail if the conflist is not loaded.
+// New creates a CNI provider; conflist loading is best-effort so Delete/Inspect/List
+// still work when none are available — Add fails in that case.
 func New(conf *config.Config) (*CNI, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -141,20 +139,15 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	return c.deleteRecords(ctx, ids)
 }
 
-// tearDownNICs runs CNI DEL (and optionally TAP delete) for each record.
-// bestEffort=true logs errors and always appends the id (caller still sweeps
-// the DB; the netns deletion that follows reclaims kernel-side state anyway).
-// bestEffort=false returns on the first CNI/TAP failure so the caller can
-// surface "remove" intent failures without dropping live DB records.
-// Returns the record IDs eligible for index removal.
+// tearDownNICs runs CNI DEL (+ optional TAP delete) per record. bestEffort
+// logs and continues; otherwise the first CNI/TAP failure aborts and only
+// fully-torn-down records are returned for DB sweep.
 func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) ([]string, error) {
 	logger := log.WithFunc("cni.tearDownNICs")
 	if c.cniConf == nil {
 		if !bestEffort {
 			return nil, fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
 		}
-		// No CNI configured: nothing to DEL, but the DB records must still
-		// be reclaimable. Return every id so the caller can sweep them.
 		ids := make([]string, 0, len(records))
 		for _, rec := range records {
 			ids = append(ids, rec.ID)
@@ -193,9 +186,7 @@ func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []n
 	return ids, nil
 }
 
-// delNICs is the per-record CNI DEL loop without store access; used by the
-// lockless gc.Collect path. The store-aware Delete/Remove paths go through
-// tearDownNICs.
+// delNICs is the lockless CNI DEL loop for gc.Collect; store-aware paths use tearDownNICs.
 func (c *CNI) delNICs(ctx context.Context, vmID, nsPath string, records []networkRecord) {
 	if c.cniConf == nil {
 		return
