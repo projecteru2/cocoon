@@ -15,9 +15,8 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// ejectWaitTimeout caps how long we block on guest B0EJ between vm.remove-device
-// and the host plumbing teardown. Linux acks in < 1 s; Windows can take a few.
-const ejectWaitTimeout = 15 * time.Second
+// ejectWaitTimeout caps how long we block on guest B0EJ between vm.remove-device and the host plumbing teardown.
+const ejectWaitTimeout = 5 * time.Second
 
 // NetResize brings the VM's NIC count to spec.Target on a running CH VM.
 func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec netresize.Spec, plumbing netresize.Plumbing) (netresize.Result, error) {
@@ -98,13 +97,9 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 		if err := removeDeviceVM(ctx, hc, chID); err != nil {
 			return res, fmt.Errorf("vm.remove-device nic %d (%s): %w", i, chID, err)
 		}
-		// CH only flags pending eject — wait for the guest to ACK via B0EJ so
-		// the device_tree entry is gone before pause/snapshot iterate it.
 		if err := waitDeviceEjected(ctx, hc, chID, ejectWaitTimeout); err != nil {
 			return res, fmt.Errorf("wait eject nic %d (%s): %w", i, chID, err)
 		}
-		// CH eject is irrevocable; truncate even if plumbing leaks, else the
-		// next resize re-reads the stale NIC and fails MAC lookup.
 		plumbingErr := plumbing.Remove(ctx, vmID, i)
 		if err := ch.truncateNetworkConfigs(ctx, vmID, i); err != nil {
 			logger.Errorf(ctx, err, "persistence diverged from CH for vm %s nic %d (%s): live device removed, cocoon record retained", vmID, i, chID)

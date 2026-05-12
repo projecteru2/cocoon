@@ -255,6 +255,10 @@ Quiesce the guest NIC (ip link set down + NetworkManager remove on Linux; Disabl
 
 Firecracker is not supported: FC has no NIC hot-plug / hot-unplug API.
 
+## NIC hot-remove during clone hot-swap cannot wait for guest B0EJ
+
+Plain `cocoon vm net --nics N` polls CH's `device_tree` after `vm.remove-device` until the guest ACKs B0EJ via ACPI/SCI (typically < 1 s on Linux, a few seconds on Windows). The clone path's `hotSwapNets` runs while the VM is paused, so the guest cannot process SCI — eject stays pending until resume. The clone path therefore returns without waiting and adds the fresh NICs against half-removed device-tree state. This is the long-standing CH limitation cocoon was designed around; the new wait only applies to the running-VM resize.
+
 ## Android cocoon-agent service may be blocked by SELinux
 
 `os-image/android/{14.0,15.0}` install the cocoon-agent binary at `/system/bin/cocoon-agent` and register it via `/system/etc/init/cocoon-agent.rc`. Android's SELinux policies don't ship with a domain for cocoon-agent, so the service may run in `init`'s domain or be denied outright depending on the redroid build.
