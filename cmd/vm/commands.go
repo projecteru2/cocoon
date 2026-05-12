@@ -293,6 +293,7 @@ func addVMFlags(cmd *cobra.Command) {
 
 func addCloneFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "VM name (default: cocoon-clone-<id>)")
+	cmd.Flags().Int("nics", 0, "override NIC count (omit to inherit from snapshot)")
 	cmd.Flags().Int("queue-size", 0, "virtio-net ring depth per queue (0 = inherit from snapshot)")       //nolint:mnd
 	cmd.Flags().Int("disk-queue-size", 0, "virtio-blk ring depth per device (0 = inherit from snapshot)") //nolint:mnd
 	cmd.Flags().String("network", "", "CNI conflist name (empty = inherit from source VM)")

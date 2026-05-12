@@ -351,7 +351,11 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	}
 
 	bridgeDev, _ := cmd.Flags().GetString("bridge")
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, cfg.NICs, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
+	nics := cfg.NICs
+	if cmd.Flags().Changed("nics") {
+		nics, _ = cmd.Flags().GetInt("nics")
+	}
+	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
 	if err != nil {
 		return nil, "", nil, nil, err
 	}
