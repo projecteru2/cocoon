@@ -137,9 +137,9 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	return c.deleteRecords(ctx, ids)
 }
 
-// tearDownNICs runs CNI DEL (+ optional TAP delete) per record. bestEffort
-// logs and continues; otherwise the first CNI/TAP failure aborts and only
-// fully-torn-down records are returned for DB sweep.
+// tearDownNICs attempts CNI DEL (+ optional TAP delete) for every record.
+// Returns ids of fully-clean records and the first error; bestEffort=false
+// stops after the first failed record (post-cleanup attempt).
 func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) ([]string, error) {
 	logger := log.WithFunc("cni.tearDownNICs")
 	if c.cniConf == nil {
@@ -154,32 +154,36 @@ func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []n
 	}
 	ids := make([]string, 0, len(records))
 	for _, rec := range records {
+		var recErr error
 		cl, err := c.confListByName(rec.Type)
 		if err != nil {
-			if !bestEffort {
-				return ids, err
-			}
+			recErr = err
 			logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, err)
-			continue
 		}
-		if err := c.cniDel(ctx, cl, vmID, nsPath, rec.IfName); err != nil {
-			if !bestEffort {
-				return ids, fmt.Errorf("cni del %s/%s: %w", vmID, rec.IfName, err)
+		if cl != nil {
+			if err := c.cniDel(ctx, cl, vmID, nsPath, rec.IfName); err != nil {
+				if recErr == nil {
+					recErr = fmt.Errorf("cni del %s/%s: %w", vmID, rec.IfName, err)
+				}
+				logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
 			}
-			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
 		}
 		if deleteTAP {
 			var idx int
 			if _, scanErr := fmt.Sscanf(rec.IfName, "eth%d", &idx); scanErr != nil {
 				logger.Warnf(ctx, "parse ifname %q for %s: %v (skip tap delete)", rec.IfName, vmID, scanErr)
 			} else if delErr := deleteTAPInNetns(nsPath, tapNameForVM(vmID, idx)); delErr != nil {
-				if !bestEffort {
-					return ids, fmt.Errorf("delete tap %s: %w", tapNameForVM(vmID, idx), delErr)
+				if recErr == nil {
+					recErr = fmt.Errorf("delete tap %s: %w", tapNameForVM(vmID, idx), delErr)
 				}
 				logger.Warnf(ctx, "delete tap %s in netns %s: %v", tapNameForVM(vmID, idx), nsPath, delErr)
 			}
 		}
-		ids = append(ids, rec.ID)
+		if recErr == nil {
+			ids = append(ids, rec.ID)
+		} else if !bestEffort {
+			return ids, recErr
+		}
 	}
 	return ids, nil
 }

@@ -145,6 +145,9 @@ func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs
 }
 
 // Remove tears down NIC plumbing for the given indices; preserves the netns.
+// DB records for picked indices are always swept so a later resize-up at the
+// same index does not see a stale eth<idx> entry; CNI/TAP failures still
+// propagate as the returned error.
 func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 	if len(indices) == 0 {
 		return nil
@@ -161,6 +164,7 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 		byIfName[r.IfName] = r
 	}
 	picked := make([]networkRecord, 0, len(indices))
+	pickedIDs := make([]string, 0, len(indices))
 	for _, i := range indices {
 		ifName := fmt.Sprintf("eth%d", i)
 		rec, ok := byIfName[ifName]
@@ -168,10 +172,10 @@ func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
 			return fmt.Errorf("nic %d (%s): no record", i, ifName)
 		}
 		picked = append(picked, rec)
+		pickedIDs = append(pickedIDs, rec.ID)
 	}
-	ids, err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
-	// Sweep partially-torn-down records even on abort, else they leak DB rows.
-	if delErr := c.deleteRecords(ctx, ids); delErr != nil && err == nil {
+	_, err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
+	if delErr := c.deleteRecords(ctx, pickedIDs); delErr != nil && err == nil {
 		err = delErr
 	}
 	return err
