@@ -51,3 +51,6 @@ tmp/*
 
 .claude/*
 cocoon-test
+
+# Local scratch / test scripts (not for upstream)
+/scratch/

@@ -2,7 +2,10 @@ package cni
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 
 	"github.com/containernetworking/cni/libcni"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -14,91 +17,104 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Config creates the netns, runs CNI ADD, and wires each NIC to a tap via TC.
-func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types.VMConfig, existing ...*types.NetworkConfig) (configs []*types.NetworkConfig, retErr error) {
+// Add creates the netns (if absent) and allocates each NIC's CNI plumbing.
+func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) (configs []*types.NetworkConfig, retErr error) {
 	if c.cniConf == nil {
 		return nil, fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
+	}
+	if len(specs) == 0 {
+		return nil, nil
 	}
 	confList, err := c.confListByName(vmCfg.Network)
 	if err != nil {
 		return nil, err
 	}
 	vmCfg.Network = confList.Name
-	logger := log.WithFunc("cni.Config")
+	logger := log.WithFunc("cni.Add")
 
 	nsName := netnsName(vmID)
 	nsPath := netnsPath(vmID)
 
-	if err := createNetns(nsName); err != nil {
-		return nil, fmt.Errorf("create netns %s: %w", nsName, err)
+	createdNetns, err := ensureNetns(nsName, nsPath)
+	if err != nil {
+		return nil, fmt.Errorf("ensure netns %s: %w", nsName, err)
 	}
 
-	var addedIFs []string
+	addedIdx := make([]int, 0, len(specs))
 	defer func() {
 		if retErr == nil {
 			return
 		}
-		for _, ifn := range addedIFs {
-			rt := &libcni.RuntimeConf{
-				ContainerID: vmID,
-				NetNS:       nsPath,
-				IfName:      ifn,
-			}
-			if delErr := c.cniConf.DelNetworkList(ctx, confList, rt); delErr != nil {
+		for _, i := range addedIdx {
+			ifn := fmt.Sprintf("eth%d", i)
+			if delErr := c.cniDel(ctx, confList, vmID, nsPath, ifn); delErr != nil {
 				logger.Warnf(ctx, "rollback CNI DEL %s/%s: %v", vmID, ifn, delErr)
 			}
+			// setupTCRedirect creates the TAP; it would leak if the netns persists.
+			if !createdNetns {
+				if delErr := deleteTAPInNetns(nsPath, tapNameForVM(vmID, i)); delErr != nil {
+					logger.Warnf(ctx, "rollback tap delete %s: %v", tapNameForVM(vmID, i), delErr)
+				}
+			}
 		}
-		_ = deleteNetns(ctx, nsName)
+		if createdNetns {
+			_ = deleteNetns(ctx, nsName)
+		}
 	}()
 
-	for i := range numNICs {
-		ifName := fmt.Sprintf("eth%d", i)
-		tapName := tapNameForVM(vmID, i)
+	type freshNIC struct {
+		index int
+		cfg   *types.NetworkConfig
+	}
+	configs = make([]*types.NetworkConfig, 0, len(specs))
+	fresh := make([]freshNIC, 0, len(specs))
+	for _, spec := range specs {
+		ifName := fmt.Sprintf("eth%d", spec.Index)
+		tapName := tapNameForVM(vmID, spec.Index)
 
-		rt := &libcni.RuntimeConf{
-			ContainerID: vmID,
-			NetNS:       nsPath,
-			IfName:      ifName,
-		}
-
-		if i < len(existing) && existing[i] != nil {
-			if delErr := c.cniConf.DelNetworkList(ctx, confList, rt); delErr != nil {
+		rt := &libcni.RuntimeConf{ContainerID: vmID, NetNS: nsPath, IfName: ifName}
+		if spec.Existing != nil {
+			if delErr := c.cniDel(ctx, confList, vmID, nsPath, ifName); delErr != nil {
 				logger.Warnf(ctx, "pre-recovery CNI DEL %s/%s: %v (continuing)", vmID, ifName, delErr)
 			}
-			if existing[i].Network != nil && existing[i].Network.IP != "" {
-				rt.Args = [][2]string{{"IgnoreUnknown", "1"}, {"IP", existing[i].Network.IP}}
+			if spec.Existing.Network != nil && spec.Existing.Network.IP != "" {
+				rt.Args = [][2]string{{"IgnoreUnknown", "1"}, {"IP", spec.Existing.Network.IP}}
 			}
 		}
 
-		cniResult, err := c.cniConf.AddNetworkList(ctx, confList, rt)
-		if err != nil {
-			return nil, fmt.Errorf("cni add %s/%s: %w", vmID, ifName, err)
+		cniResult, addErr := c.cniConf.AddNetworkList(ctx, confList, rt)
+		if addErr != nil {
+			return nil, fmt.Errorf("cni add %s/%s: %w", vmID, ifName, addErr)
 		}
-		addedIFs = append(addedIFs, ifName)
+		addedIdx = append(addedIdx, spec.Index)
 
-		netInfo, err := extractNetworkInfo(cniResult)
-		if err != nil {
-			return nil, fmt.Errorf("parse CNI result: %w", err)
+		netInfo, parseErr := extractNetworkInfo(cniResult)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse CNI result: %w", parseErr)
 		}
 
 		var overrideMAC string
-		if i < len(existing) && existing[i] != nil {
-			overrideMAC = existing[i].MAC
+		if spec.Existing != nil {
+			overrideMAC = spec.Existing.MAC
 		}
 		mac, setupErr := setupTCRedirect(nsPath, ifName, tapName, network.NetNumQueues(vmCfg.CPU), overrideMAC)
 		if setupErr != nil {
 			return nil, fmt.Errorf("setup tc-redirect %s: %w", vmID, setupErr)
 		}
 
-		configs = append(configs, &types.NetworkConfig{
+		cfg := &types.NetworkConfig{
 			TAP:       tapName,
 			MAC:       mac,
 			NumQueues: network.NetNumQueues(vmCfg.CPU),
 			QueueSize: network.ResolveQueueSize(vmCfg.QueueSize),
-			Backend:   typ,
+			Backend:   types.BackendCNI,
 			NetnsPath: nsPath,
 			Network:   netInfo,
-		})
+		}
+		configs = append(configs, cfg)
+		if spec.Existing == nil {
+			fresh = append(fresh, freshNIC{index: spec.Index, cfg: cfg})
+		}
 
 		var logIP, logGW string
 		if netInfo != nil {
@@ -106,34 +122,80 @@ func (c *CNI) Config(ctx context.Context, vmID string, numNICs int, vmCfg *types
 			logGW = netInfo.Gateway
 		}
 		logger.Debugf(ctx, "NIC %d: %s ip=%s gw=%s tap=%s mac=%s",
-			i, ifName, logIP, logGW, tapName, mac)
-	}
-
-	if len(existing) > 0 {
-		return configs, nil
+			spec.Index, ifName, logIP, logGW, tapName, mac)
 	}
 
 	return configs, c.store.Update(ctx, func(idx *networkIndex) error {
-		for i, cfg := range configs {
+		for _, f := range fresh {
 			netID := utils.GenerateID()
 			var net types.Network
-			if cfg.Network != nil {
-				net = *cfg.Network
+			if f.cfg.Network != nil {
+				net = *f.cfg.Network
 			}
 			idx.Networks[netID] = &networkRecord{
 				ID:      netID,
 				Type:    confList.Name,
 				Network: net,
 				VMID:    vmID,
-				IfName:  fmt.Sprintf("eth%d", i),
+				IfName:  fmt.Sprintf("eth%d", f.index),
 			}
 		}
 		return nil
 	})
 }
 
+// Remove tears down NIC plumbing for the given indices; preserves the netns.
+// Always sweeps DB records for picked indices so resize-up to the same index isn't stale; CNI/TAP errors still propagate.
+func (c *CNI) Remove(ctx context.Context, vmID string, indices ...int) error {
+	if len(indices) == 0 {
+		return nil
+	}
+	var records []networkRecord
+	if err := c.store.With(ctx, func(idx *networkIndex) error {
+		records = idx.byVMID(vmID)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("read network index: %w", err)
+	}
+	byIfName := make(map[string]networkRecord, len(records))
+	for _, r := range records {
+		byIfName[r.IfName] = r
+	}
+	picked := make([]networkRecord, 0, len(indices))
+	pickedIDs := make([]string, 0, len(indices))
+	for _, i := range indices {
+		ifName := fmt.Sprintf("eth%d", i)
+		rec, ok := byIfName[ifName]
+		if !ok {
+			return fmt.Errorf("nic %d (%s): no record", i, ifName)
+		}
+		picked = append(picked, rec)
+		pickedIDs = append(pickedIDs, rec.ID)
+	}
+	err := c.tearDownNICs(ctx, vmID, netnsPath(vmID), picked, true, false)
+	return errors.Join(err, c.deleteRecords(ctx, pickedIDs))
+}
+
+func (c *CNI) cniDel(ctx context.Context, confList *libcni.NetworkConfigList, vmID, nsPath, ifName string) error {
+	rt := &libcni.RuntimeConf{ContainerID: vmID, NetNS: nsPath, IfName: ifName}
+	return c.cniConf.DelNetworkList(ctx, confList, rt)
+}
+
 func tapNameForVM(vmID string, nic int) string {
 	return fmt.Sprintf("tap%s-%d", network.VMIDPrefix(vmID), nic)
+}
+
+// ensureNetns creates the netns if missing; bool reports whether this call did the creation.
+func ensureNetns(name, nsPath string) (bool, error) {
+	if _, err := os.Stat(nsPath); err == nil {
+		return false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	if err := createNetns(name); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // extractNetworkInfo converts a CNI ADD result into types.Network.

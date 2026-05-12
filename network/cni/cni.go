@@ -38,10 +38,8 @@ type CNI struct {
 	cniConf     *libcni.CNIConfig
 }
 
-// New creates a CNI network provider.
-// CNI conflist loading is best-effort at creation time; if no conflist is
-// available (e.g. no network needed), Delete/Inspect/List still work.
-// Config() will fail if the conflist is not loaded.
+// New creates a CNI provider; conflist loading is best-effort so Delete/Inspect/List
+// still work when none are available — Add fails in that case.
 func New(conf *config.Config) (*CNI, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -113,13 +111,7 @@ func (c *CNI) List(ctx context.Context) ([]*types.Network, error) {
 	})
 }
 
-// Delete removes all network resources for the given VM IDs:
-//  1. CNI DEL for each NIC (releases IP from IPAM, removes veth pair).
-//  2. Remove the named netns (kernel cleans up bridge + tap automatically).
-//  3. Remove network records from the DB.
-//
-// Best-effort: failing to clean one VM does not block others.
-// Returns the VM IDs that were fully cleaned.
+// Delete tears down all NICs for each VM and removes the netns. Best-effort.
 func (c *CNI) Delete(ctx context.Context, vmIDs []string) ([]string, error) {
 	result := utils.ForEach(ctx, vmIDs, func(ctx context.Context, vmID string) error {
 		return c.deleteVM(ctx, vmID)
@@ -127,9 +119,7 @@ func (c *CNI) Delete(ctx context.Context, vmIDs []string) ([]string, error) {
 	return result.Succeeded, result.Err()
 }
 
-// deleteVM cleans up all network resources for a single VM.
 func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
-	// Collect value-copies of records for this VM.
 	var records []networkRecord
 	if err := c.store.With(ctx, func(idx *networkIndex) error {
 		records = idx.byVMID(vmID)
@@ -137,58 +127,72 @@ func (c *CNI) deleteVM(ctx context.Context, vmID string) error {
 	}); err != nil {
 		return fmt.Errorf("read network index: %w", err)
 	}
-
-	// Nothing to clean — VM had no network or was already cleaned.
-	if len(records) == 0 {
-		return nil
-	}
-
+	// Run even when records is empty: a VM resized to 0 NICs still owns its netns.
 	nsPath := netnsPath(vmID)
-
-	// CNI DEL for each NIC — releases IPs from IPAM and removes veth pairs.
-	// Best-effort: log failures but continue. Netns deletion cleans up
-	// devices anyway; CNI DEL is primarily for IPAM bookkeeping.
-	c.delNICs(ctx, vmID, nsPath, records)
-
-	// deleteNetns retries briefly to handle async fd cleanup after process kill.
+	_ = c.tearDownNICs(ctx, vmID, nsPath, records, false, true)
 	nsName := netnsName(vmID)
 	if err := deleteNetns(ctx, nsName); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove netns %s: %w", nsPath, err)
 	}
+	allIDs := make([]string, 0, len(records))
+	for _, rec := range records {
+		allIDs = append(allIDs, rec.ID)
+	}
+	return c.deleteRecords(ctx, allIDs)
+}
 
-	return c.store.Update(ctx, func(idx *networkIndex) error {
-		for id, rec := range idx.Networks {
-			if rec != nil && rec.VMID == vmID {
-				delete(idx.Networks, id)
+// tearDownNICs runs CNI DEL (+ optional TAP delete) per record; bestEffort=false stops at first failure. Caller sweeps DB.
+func (c *CNI) tearDownNICs(ctx context.Context, vmID, nsPath string, records []networkRecord, deleteTAP, bestEffort bool) error {
+	logger := log.WithFunc("cni.tearDownNICs")
+	if c.cniConf == nil {
+		if !bestEffort {
+			return fmt.Errorf("%w: no conflist found in %s", network.ErrNotConfigured, c.conf.CNIConfDir)
+		}
+		return nil
+	}
+	for _, rec := range records {
+		var recErr error
+		cl, err := c.confListByName(rec.Type)
+		if err != nil {
+			recErr = err
+			logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, err)
+		}
+		if cl != nil {
+			if err := c.cniDel(ctx, cl, vmID, nsPath, rec.IfName); err != nil {
+				if recErr == nil {
+					recErr = fmt.Errorf("cni del %s/%s: %w", vmID, rec.IfName, err)
+				}
+				logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
 			}
+		}
+		if deleteTAP {
+			var idx int
+			if _, scanErr := fmt.Sscanf(rec.IfName, "eth%d", &idx); scanErr != nil {
+				logger.Warnf(ctx, "parse ifname %q for %s: %v (skip tap delete)", rec.IfName, vmID, scanErr)
+			} else if delErr := deleteTAPInNetns(nsPath, tapNameForVM(vmID, idx)); delErr != nil {
+				if recErr == nil {
+					recErr = fmt.Errorf("delete tap %s: %w", tapNameForVM(vmID, idx), delErr)
+				}
+				logger.Warnf(ctx, "delete tap %s in netns %s: %v", tapNameForVM(vmID, idx), nsPath, delErr)
+			}
+		}
+		if recErr != nil && !bestEffort {
+			return recErr
+		}
+	}
+	return nil
+}
+
+func (c *CNI) deleteRecords(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return c.store.Update(ctx, func(idx *networkIndex) error {
+		for _, id := range ids {
+			delete(idx.Networks, id)
 		}
 		return nil
 	})
-}
-
-// delNICs performs best-effort CNI DEL for each NIC record.
-// Failures are logged but never returned — netns deletion cleans up
-// devices anyway; CNI DEL is primarily for IPAM bookkeeping.
-func (c *CNI) delNICs(ctx context.Context, vmID, nsPath string, records []networkRecord) {
-	if c.cniConf == nil {
-		return
-	}
-	logger := log.WithFunc("cni.delNICs")
-	for _, rec := range records {
-		cl, err := c.confListByName(rec.Type)
-		if err != nil {
-			logger.Warnf(ctx, "conflist %q not found for CNI DEL %s/%s: %v", rec.Type, vmID, rec.IfName, err)
-			continue
-		}
-		rt := &libcni.RuntimeConf{
-			ContainerID: vmID,
-			NetNS:       nsPath,
-			IfName:      rec.IfName,
-		}
-		if err := c.cniConf.DelNetworkList(ctx, cl, rt); err != nil {
-			logger.Warnf(ctx, "CNI DEL %s/%s: %v", vmID, rec.IfName, err)
-		}
-	}
 }
 
 // confListByName resolves a conflist by name.

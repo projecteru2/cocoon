@@ -17,6 +17,8 @@ const (
 	// defaultDiskQueueSize is the virtio-blk queue depth per device.
 	defaultDiskQueueSize = 512
 	cidataFile           = "cidata.img"
+
+	cocoonNetIDPrefix = "cocoon-net-"
 )
 
 // kvBuilder accumulates key=value CLI fragments.
@@ -177,6 +179,11 @@ func networkConfigToNet(nc *types.NetworkConfig) chNet {
 		OffloadUFO:  true,
 		OffloadCsum: true,
 	}
+}
+
+// cocoonNetID is the deterministic CH device id for a cocoon-managed NIC.
+func cocoonNetID(mac string) string {
+	return cocoonNetIDPrefix + strings.ReplaceAll(mac, ":", "")
 }
 
 func storageConfigToDisk(storageConfig *types.StorageConfig, cpuCount, diskQueueSize int, noDirectIO bool) chDisk {

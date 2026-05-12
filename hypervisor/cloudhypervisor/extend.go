@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cocoonstack/cocoon/extend/fs"
+	"github.com/cocoonstack/cocoon/extend/netresize"
 	"github.com/cocoonstack/cocoon/extend/vfio"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/types"
@@ -17,10 +18,11 @@ import (
 )
 
 var (
-	_ fs.Attacher   = (*CloudHypervisor)(nil)
-	_ fs.Lister     = (*CloudHypervisor)(nil)
-	_ vfio.Attacher = (*CloudHypervisor)(nil)
-	_ vfio.Lister   = (*CloudHypervisor)(nil)
+	_ fs.Attacher       = (*CloudHypervisor)(nil)
+	_ fs.Lister         = (*CloudHypervisor)(nil)
+	_ vfio.Attacher     = (*CloudHypervisor)(nil)
+	_ vfio.Lister       = (*CloudHypervisor)(nil)
+	_ netresize.Resizer = (*CloudHypervisor)(nil)
 )
 
 // FsAttach hot-plugs a vhost-user-fs device onto a running CH VM.
@@ -214,26 +216,32 @@ func (ch *CloudHypervisor) detachWith(
 // alive (PID file + cmdline match — same gate as Backend.WithRunningVM),
 // and returns an http.Client connected to its CH API socket.
 func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*http.Client, error) {
+	hc, _, _, err := ch.runningVMClientWithRecord(ctx, vmRef)
+	return hc, err
+}
+
+// runningVMClientWithRecord is runningVMClient + the resolved vmID and record.
+func (ch *CloudHypervisor) runningVMClientWithRecord(ctx context.Context, vmRef string) (*http.Client, string, hypervisor.VMRecord, error) {
 	vmID, err := ch.ResolveRef(ctx, vmRef)
 	if err != nil {
-		return nil, err
+		return nil, "", hypervisor.VMRecord{}, err
 	}
 	rec, err := ch.LoadRecord(ctx, vmID)
 	if err != nil {
-		return nil, err
+		return nil, "", hypervisor.VMRecord{}, err
 	}
 	if rec.State != types.VMStateRunning {
-		return nil, fmt.Errorf("vm %s is %s: %w", vmID, rec.State, hypervisor.ErrNotRunning)
+		return nil, "", hypervisor.VMRecord{}, fmt.Errorf("vm %s is %s: %w", vmID, rec.State, hypervisor.ErrNotRunning)
 	}
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 	pid, pidErr := utils.ReadPIDFile(ch.PIDFilePath(rec.RunDir))
 	if pidErr != nil {
-		return nil, fmt.Errorf("vm %s read pidfile: %w: %w", vmID, pidErr, hypervisor.ErrNotRunning)
+		return nil, "", hypervisor.VMRecord{}, fmt.Errorf("vm %s read pidfile: %w: %w", vmID, pidErr, hypervisor.ErrNotRunning)
 	}
 	if !utils.VerifyProcessCmdline(pid, ch.conf.BinaryName(), sockPath) {
-		return nil, fmt.Errorf("vm %s pid %d not %s: %w", vmID, pid, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
+		return nil, "", hypervisor.VMRecord{}, fmt.Errorf("vm %s pid %d not %s: %w", vmID, pid, ch.conf.BinaryName(), hypervisor.ErrNotRunning)
 	}
-	return utils.NewSocketHTTPClient(sockPath), nil
+	return utils.NewSocketHTTPClient(sockPath), vmID, rec, nil
 }
 
 // listWith is the shared skeleton for inspect-time enumeration.

@@ -386,20 +386,20 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 			continue
 		}
 		logger.Warnf(ctx, "network missing for VM %s, recovering", vm.ID)
-		if _, recoverErr := netProvider.Config(ctx, vm.ID, len(vm.NetworkConfigs), &vm.Config, vm.NetworkConfigs...); recoverErr != nil {
+		if _, recoverErr := netProvider.Add(ctx, vm.ID, &vm.Config, network.AddRecover(vm.NetworkConfigs)...); recoverErr != nil {
 			logger.Warnf(ctx, "recover network for VM %s: %v (start will fail)", vm.ID, recoverErr)
 		}
 	}
 }
 
-// providerForVM selects network provider from persisted NetworkConfig.
+// providerForVM picks the network provider from persisted NetworkConfig; cniProvider may be nil (lazy-init), bridgeCache must be non-nil.
 func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache map[string]network.Network, configs []*types.NetworkConfig) (network.Network, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("no network configs")
 	}
 	// All NICs on a VM share the same backend.
 	cfg := configs[0]
-	if cfg.Backend == "bridge" {
+	if cfg.Backend == types.BackendBridge {
 		if cfg.BridgeDev == "" {
 			return nil, fmt.Errorf("bridge backend but no bridge device persisted")
 		}
@@ -414,10 +414,10 @@ func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache
 		return p, nil
 	}
 	// "cni" or empty (backward compat).
-	if cniProvider == nil {
-		return nil, fmt.Errorf("cni provider not available")
+	if cniProvider != nil {
+		return cniProvider, nil
 	}
-	return cniProvider, nil
+	return cmdcore.InitNetwork(conf)
 }
 
 func batchRoutedCmd(ctx context.Context, cmd *cobra.Command, name, pastTense string, routed map[hypervisor.Hypervisor][]string, fn func(hypervisor.Hypervisor, []string) ([]string, error)) error {

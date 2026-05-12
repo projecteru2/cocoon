@@ -480,7 +480,7 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	// The network layer derives TAP queues from vmCfg.CPU.
 	origCPU := vmCfg.CPU
 	vmCfg.CPU = queues
-	configs, err := netProvider.Config(ctx, vmID, nics, vmCfg)
+	configs, err := netProvider.Add(ctx, vmID, vmCfg, network.AddRange(0, nics)...)
 	vmCfg.CPU = origCPU
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure network: %w", err)

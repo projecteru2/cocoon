@@ -320,8 +320,7 @@ func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkC
 		logger.Infof(ctx, "removed snapshot NIC %s (old MAC %s)", oldNet.ID, oldNet.MAC)
 	}
 	for i, nc := range networkConfigs {
-		newNet := networkConfigToNet(nc)
-		if err := addNetVM(ctx, hc, newNet); err != nil {
+		if _, err := addCocoonNIC(ctx, hc, nc); err != nil {
 			return fmt.Errorf("add net device %d/%d (MAC %s, TAP %s): %w",
 				i+1, len(networkConfigs), nc.MAC, nc.TAP, err)
 		}

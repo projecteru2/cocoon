@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/projecteru2/core/log"
 
@@ -180,8 +181,33 @@ func removeDeviceVM(ctx context.Context, hc *http.Client, deviceID string) error
 	return vmPutJSON(ctx, hc, "vm.remove-device", "remove-device request", map[string]string{"id": deviceID})
 }
 
+// waitDeviceEjected blocks until id is gone from CH's device_tree.
+func waitDeviceEjected(ctx context.Context, hc *http.Client, deviceID string, timeout time.Duration) error {
+	return utils.WaitFor(ctx, timeout, 100*time.Millisecond, func() (bool, error) {
+		info, err := getVMInfo(ctx, hc)
+		if err != nil {
+			return false, err
+		}
+		_, present := info.DeviceTree[deviceID]
+		return !present, nil
+	})
+}
+
 func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 	return vmPutJSON(ctx, hc, "vm.add-net", "add-net request", net, http.StatusOK, http.StatusNoContent)
+}
+
+// addCocoonNIC posts vm.add-net with the deterministic cocoon-net-<mac> id; returns id for rollback.
+func addCocoonNIC(ctx context.Context, hc *http.Client, nc *types.NetworkConfig) (string, error) {
+	if nc == nil {
+		return "", fmt.Errorf("addCocoonNIC: nil network config")
+	}
+	chN := networkConfigToNet(nc)
+	chN.ID = cocoonNetID(nc.MAC)
+	if err := addNetVM(ctx, hc, chN); err != nil {
+		return "", err
+	}
+	return chN.ID, nil
 }
 
 // getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
