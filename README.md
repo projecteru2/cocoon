@@ -523,7 +523,7 @@ cocoon vm device detach my-vm --id mygpu
 
 ## NIC Hot-Resize (Cloud Hypervisor only)
 
-`cocoon vm net --nics N VM` brings the running VM's NIC count to `N`. Adds allocate new TAP/CNI/bridge plumbing on the host and hot-plug a fresh NIC into the guest; removes pop NICs from the tail (LIFO) via `vm.remove-device` and tear down the host plumbing.
+`cocoon vm net --nics N VM` brings the running VM's NIC count to `N`. To add NICs, cocoon allocates new host TAP/CNI/bridge plumbing and hot-plugs a fresh NIC into the guest. To remove NICs, it pops from the tail (LIFO) via `vm.remove-device` and tears down the host plumbing.
 
 ```bash
 # Add a second NIC (or any number).
