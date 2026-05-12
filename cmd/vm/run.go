@@ -353,6 +353,9 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	bridgeDev, _ := cmd.Flags().GetString("bridge")
 	nics := cfg.NICs
 	if cmd.Flags().Changed("nics") {
+		if conf.UseFirecracker {
+			return nil, "", nil, nil, fmt.Errorf("--nics override on clone is Cloud Hypervisor only (FC network_overrides retargets existing NICs, not resize)")
+		}
 		nics, _ = cmd.Flags().GetInt("nics")
 	}
 	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)

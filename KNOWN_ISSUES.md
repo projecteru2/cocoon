@@ -13,7 +13,7 @@ After `cocoon vm clone`, the cloned VM resumes with the **original VM's IP addre
 
 ## Clone and restore resources are fixed at snapshot time
 
-`cocoon vm clone` inherits CPU, memory, storage, and NIC count from the snapshot — none of them can be grown at clone time. `cocoon vm restore` is more restrictive: CPU, memory, and storage come from the snapshot (the persisted record is realigned to match), and NIC count must already match the target VM (mismatches are rejected, since restore reuses the existing network namespace). Both hypervisors reconstruct the guest from the snapshot's binary device state, so changing any of these would not be honored. Use `cocoon vm run` to create a fresh VM with different sizing.
+`cocoon vm clone` inherits CPU, memory, and storage from the snapshot — none of these can be grown at clone time on either backend. NIC count inherits by default; Cloud Hypervisor clones may override it with `--nics N` (cocoon hot-swaps the snapshot's NICs for a fresh set after restore). Firecracker clones must keep the snapshot's NIC topology — FC's `network_overrides` only retargets existing interfaces, so `--nics` is rejected on FC. `cocoon vm restore` is more restrictive: CPU, memory, and storage come from the snapshot (the persisted record is realigned to match), and NIC count must already match the target VM (mismatches are rejected, since restore reuses the existing network namespace). Use `cocoon vm run` to create a fresh VM with different sizing.
 
 ## Restore requires a running VM
 
@@ -244,9 +244,9 @@ Control-plane traffic from cocoon-managed hosts (vk-cocoon, `cocoon vm exec`) go
 
 ## NIC hot-remove leaves the PCI slot pending on Cloud Hypervisor
 
-`cocoon vm net --nics N` tears down host TAP/veth/CNI plumbing immediately after `vm.remove-device` returns. CH only frees the PCI slot (and unregisters the device's ioeventfds) when the guest writes to the ACPI hot-plug controller (B0EJ) in response to the SCI raised by `remove-device`. If the guest is stopped, paused, or its NIC driver is wedged, the slot stays `Allocated` until the guest cooperates.
+`cocoon vm net --nics N` waits for CH's `device_tree` to drop the removed device (polled via `vm.info` until the entry disappears, max 10 s) before tearing down host plumbing. CH only frees the PCI slot — and unregisters the device's ioeventfds — when the guest writes to the ACPI hot-plug controller (B0EJ) in response to the SCI raised by `remove-device`. If the guest never ACKs (driver wedged, paused, NDIS halted), the wait times out, the cocoon record is left intact, and the command returns an error so the user can quiesce the guest and retry.
 
-Cocoon does not wait for B0EJ — there is no reliable signal from the CH HTTP API. The user accepts:
+If the host plumbing teardown itself fails after a successful eject, cocoon truncates the record anyway and surfaces a warning — the orphan TAP / veth / CNI lease is cleaned up by `cocoon vm rm` or the next gc cycle. The user still has to consider:
 
 - The guest may continue to reference a NIC whose host plumbing is gone, hanging the in-guest driver.
 - The pending eject may surface later as `Cannot register ioevent: File exists` when CH next tries to reuse that slot (e.g. a subsequent hot-add).

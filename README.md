@@ -702,11 +702,11 @@ A snapshot contains the full VM state:
 - **Memory**: complete RAM contents (memory-ranges)
 - **Disks**: COW disk (raw or qcow2), cidata disk (cloudimg)
 - **Config**: Cloud Hypervisor config.json and device state (state.json)
-- **Metadata**: image reference, hypervisor type, network/queue settings, and resource topology (CPU, memory, storage, NIC count) — recorded for inspection and reuse at clone/restore but not overridable on those paths
+- **Metadata**: image reference, hypervisor type, network/queue settings, and resource topology (CPU, memory, storage, NIC count) — CPU/memory/storage are fixed at snapshot time on every backend; NIC count inherits by default and can be overridden at clone time via `--nics N` (Cloud Hypervisor only — see Clone Constraints)
 
 ### Clone Constraints
 
-All resources (CPU, memory, storage, NIC count) are fixed at snapshot time. Both hypervisors reconstruct the guest from the snapshot's binary device state, so growing any of them at clone time would not be honored. Clone always uses the snapshot's resource topology; create a fresh VM with `cocoon vm run` if different sizing is needed.
+CPU, memory, and storage are fixed at snapshot time on both backends: the guest is reconstructed from the snapshot's binary device state, so growing them at clone time would not be honored. NIC count inherits by default; Cloud Hypervisor clones can override it via `--nics N` (cocoon hot-swaps the snapshot's NICs for a fresh set right after restore). Firecracker clones must keep the snapshot's NIC topology — `--nics` is rejected because FC's `network_overrides` only retargets existing interfaces, it cannot add or drop them. Create a fresh VM with `cocoon vm run` if a different CPU/memory/storage shape is needed.
 
 ### Post-Clone Guest Setup
 
