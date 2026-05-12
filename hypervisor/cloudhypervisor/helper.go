@@ -184,6 +184,18 @@ func addNetVM(ctx context.Context, hc *http.Client, net chNet) error {
 	return vmPutJSON(ctx, hc, "vm.add-net", "add-net request", net, http.StatusOK, http.StatusNoContent)
 }
 
+// addCocoonNIC posts vm.add-net with the deterministic cocoon-net-<mac> id so
+// resize-up and clone hot-swap converge on the same id convention. Returns the
+// id for caller-side rollback.
+func addCocoonNIC(ctx context.Context, hc *http.Client, nc *types.NetworkConfig) (string, error) {
+	chN := networkConfigToNet(nc)
+	chN.ID = cocoonNetID(nc.MAC)
+	if err := addNetVM(ctx, hc, chN); err != nil {
+		return "", err
+	}
+	return chN.ID, nil
+}
+
 // getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
 // before hot-add and to surface attached devices through inspect.
 func getVMInfo(ctx context.Context, hc *http.Client) (*chVMInfoResponse, error) {

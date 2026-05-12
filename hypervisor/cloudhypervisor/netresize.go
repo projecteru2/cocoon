@@ -49,9 +49,8 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 			return res, fmt.Errorf("nic %d: plumbing returned %d configs", i, len(ncs))
 		}
 		nc := ncs[0]
-		chN := networkConfigToNet(nc)
-		chN.ID = cocoonNetID(nc.MAC)
-		if err := addNetVM(ctx, hc, chN); err != nil {
+		chID, err := addCocoonNIC(ctx, hc, nc)
+		if err != nil {
 			if rmErr := plumbing.Remove(ctx, vmID, i); rmErr != nil {
 				logger.Warnf(ctx, "rollback host plumbing for nic %d: %v", i, rmErr)
 			}
@@ -59,8 +58,8 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 		}
 		if err := ch.appendNetworkConfig(ctx, vmID, nc); err != nil {
 			// without rollback the deterministic id collides on the next resize.
-			if rmErr := removeDeviceVM(ctx, hc, chN.ID); rmErr != nil {
-				logger.Warnf(ctx, "rollback vm.remove-device %s after persist failure: %v", chN.ID, rmErr)
+			if rmErr := removeDeviceVM(ctx, hc, chID); rmErr != nil {
+				logger.Warnf(ctx, "rollback vm.remove-device %s after persist failure: %v", chID, rmErr)
 			}
 			if rmErr := plumbing.Remove(ctx, vmID, i); rmErr != nil {
 				logger.Warnf(ctx, "rollback host plumbing for nic %d: %v", i, rmErr)
