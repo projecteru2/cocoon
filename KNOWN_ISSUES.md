@@ -251,7 +251,7 @@ Cocoon does not wait for B0EJ — there is no reliable signal from the CH HTTP A
 - The guest may continue to reference a NIC whose host plumbing is gone, hanging the in-guest driver.
 - The pending eject may surface later as `Cannot register ioevent: File exists` when CH next tries to reuse that slot (e.g. a subsequent hot-add).
 
-Quiesce the guest NIC (ip link set down + NetworkManager remove on Linux; Disable-PnpDevice + driver unbind on Windows) before reducing the count. Or pass `--keep-host-on-remove` to defer the host teardown.
+Quiesce the guest NIC (ip link set down + NetworkManager remove on Linux; Disable-PnpDevice + driver unbind on Windows) before reducing the count.
 
 Firecracker is not supported: FC has no NIC hot-plug / hot-unplug API.
 

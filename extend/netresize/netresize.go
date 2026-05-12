@@ -16,8 +16,7 @@ var ErrUnsupportedBackend = errors.New("backend does not support net resize")
 
 // Spec is one resize request.
 type Spec struct {
-	Target           int
-	KeepHostOnRemove bool
+	Target int
 }
 
 // NIC is one NIC's summary, returned in Result.Added / Result.Removed.

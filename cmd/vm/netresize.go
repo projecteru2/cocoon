@@ -27,8 +27,7 @@ func (h Handler) NetResize(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vm net: %w", err)
 	}
 	target, _ := cmd.Flags().GetInt("nics")
-	keepHost, _ := cmd.Flags().GetBool("keep-host-on-remove")
-	res, err := resizer.NetResize(ctx, args[0], netresize.Spec{Target: target, KeepHostOnRemove: keepHost}, plumbing)
+	res, err := resizer.NetResize(ctx, args[0], netresize.Spec{Target: target}, plumbing)
 	if err != nil {
 		return classifyAttachErr(err)
 	}

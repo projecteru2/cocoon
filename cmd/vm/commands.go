@@ -202,7 +202,6 @@ func buildNetCommand(h Actions) *cobra.Command {
 		RunE:  h.NetResize,
 	}
 	cmd.Flags().Int("nics", -1, "target NIC count (required, >= 0)")
-	cmd.Flags().Bool("keep-host-on-remove", false, "skip host TAP/veth teardown after vm.remove-device")
 	_ = cmd.MarkFlagRequired("nics")
 	cmdcore.AddOutputFlag(cmd)
 	return cmd

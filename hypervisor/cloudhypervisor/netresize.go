@@ -39,7 +39,7 @@ func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec net
 	case spec.Target > current:
 		return ch.netResizeAdd(ctx, hc, vmID, &rec.Config, plumbing, current, spec.Target, res)
 	default:
-		return ch.netResizeRemove(ctx, hc, info, vmID, rec.NetworkConfigs, plumbing, current, spec.Target, spec.KeepHostOnRemove, res)
+		return ch.netResizeRemove(ctx, hc, info, vmID, rec.NetworkConfigs, plumbing, current, spec.Target, res)
 	}
 }
 
@@ -71,7 +71,7 @@ func (ch *CloudHypervisor) netResizeAdd(ctx context.Context, hc *http.Client, vm
 	return res, nil
 }
 
-func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client, info *chVMInfoResponse, vmID string, ncs []*types.NetworkConfig, plumbing netresize.Plumbing, current, target int, keepHost bool, res netresize.Result) (netresize.Result, error) {
+func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client, info *chVMInfoResponse, vmID string, ncs []*types.NetworkConfig, plumbing netresize.Plumbing, current, target int, res netresize.Result) (netresize.Result, error) {
 	macToID := make(map[string]string, len(info.Config.Nets))
 	for _, n := range info.Config.Nets {
 		macToID[strings.ToLower(n.MAC)] = n.ID
@@ -85,10 +85,8 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 		if err := removeDeviceVM(ctx, hc, chID); err != nil {
 			return res, fmt.Errorf("vm.remove-device nic %d (%s): %w", i, chID, err)
 		}
-		if !keepHost {
-			if err := plumbing.Remove(ctx, vmID, i); err != nil {
-				return res, fmt.Errorf("nic %d host plumbing: %w", i, err)
-			}
+		if err := plumbing.Remove(ctx, vmID, i); err != nil {
+			return res, fmt.Errorf("nic %d host plumbing: %w", i, err)
 		}
 		if err := ch.truncateNetworkConfigs(ctx, vmID, i); err != nil {
 			return res, fmt.Errorf("persist remove nic %d: %w", i, err)
