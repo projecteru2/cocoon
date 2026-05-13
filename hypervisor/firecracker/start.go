@@ -38,7 +38,7 @@ func (fc *Firecracker) startOne(ctx context.Context, id string) error {
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 
-	pid, err := fc.launchProcess(ctx, rec, sockPath)
+	pid, err := fc.launchProcess(ctx, rec, sockPath, rec.ResolvedNetnsPath())
 	if err != nil {
 		fc.MarkError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
@@ -137,7 +137,7 @@ func (fc *Firecracker) configureVM(ctx context.Context, hc *http.Client, rec *hy
 }
 
 // launchProcess starts firecracker, sets up PTY+console relay, waits for socket.
-func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, sockPath string) (int, error) {
+func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, sockPath, netnsPath string) (int, error) {
 	fcLog := fc.LogFilePath(rec.LogDir)
 	// FC opens log O_WRONLY|O_APPEND without O_CREATE — touch first.
 	if f, createErr := os.Create(fcLog); createErr == nil { //nolint:gosec
@@ -166,7 +166,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 		Cmd:       fcCmd,
 		PIDPath:   fc.PIDFilePath(rec.RunDir),
 		SockPath:  sockPath,
-		NetnsPath: rec.ResolvedNetnsPath(),
+		NetnsPath: netnsPath,
 		OnFail:    func() { _ = master.Close() },
 	})
 	if err != nil {

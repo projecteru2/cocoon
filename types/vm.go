@@ -36,7 +36,7 @@ type VMConfig struct {
 	DataDisks []DataDiskSpec `json:"-"` // populated from --data-disk; consumed by Create
 }
 
-// NetSetup is what initNetwork hands the hypervisor: backend identity + netns + NICs.
+// NetSetup is the network handoff from initNetwork to the hypervisor.
 type NetSetup struct {
 	Backend   string
 	NetnsPath string
@@ -60,7 +60,7 @@ type VM struct {
 	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
 	StorageConfigs []*StorageConfig `json:"storage_configs,omitempty"`
 
-	// Host networking at VM level so 0-NIC VMs still carry backend + netns.
+	// VM-level so 0-NIC VMs still carry backend + netns.
 	NetBackend   string `json:"net_backend,omitempty"`
 	NetnsPath    string `json:"netns_path,omitempty"`
 	NetBridgeDev string `json:"net_bridge_dev,omitempty"`
@@ -112,8 +112,11 @@ func (cfg *VMConfig) Validate() error {
 	return nil
 }
 
-// ResolvedNetnsPath returns the netns where CH runs (NIC[0] fallback for old records).
+// ResolvedNetnsPath returns NetnsPath, with NIC[0] fallback.
 func (v *VM) ResolvedNetnsPath() string {
+	if v == nil {
+		return ""
+	}
 	if v.NetnsPath != "" {
 		return v.NetnsPath
 	}
@@ -123,8 +126,11 @@ func (v *VM) ResolvedNetnsPath() string {
 	return ""
 }
 
-// ResolvedNetBackend returns the host network backend (NIC[0] fallback for old records).
+// ResolvedNetBackend returns NetBackend, with NIC[0] fallback.
 func (v *VM) ResolvedNetBackend() string {
+	if v == nil {
+		return ""
+	}
 	if v.NetBackend != "" {
 		return v.NetBackend
 	}
@@ -137,8 +143,11 @@ func (v *VM) ResolvedNetBackend() string {
 	return ""
 }
 
-// ResolvedNetBridgeDev returns the bridge device (NIC[0] fallback for old records).
+// ResolvedNetBridgeDev returns NetBridgeDev, with NIC[0] fallback.
 func (v *VM) ResolvedNetBridgeDev() string {
+	if v == nil {
+		return ""
+	}
 	if v.NetBridgeDev != "" {
 		return v.NetBridgeDev
 	}
@@ -146,4 +155,21 @@ func (v *VM) ResolvedNetBridgeDev() string {
 		return v.NetworkConfigs[0].BridgeDev
 	}
 	return ""
+}
+
+// IsBridge reports whether the VM uses the bridge backend.
+func (v *VM) IsBridge() bool { return v.ResolvedNetBackend() == BackendBridge }
+
+// IsCNI reports whether the VM uses the CNI backend.
+func (v *VM) IsCNI() bool { return v.ResolvedNetBackend() == BackendCNI }
+
+// ApplyNetSetup copies network fields from net into v.
+func (v *VM) ApplyNetSetup(net NetSetup) {
+	if v == nil {
+		return
+	}
+	v.NetworkConfigs = net.NICs
+	v.NetBackend = net.Backend
+	v.NetnsPath = net.NetnsPath
+	v.NetBridgeDev = net.BridgeDev
 }

@@ -139,7 +139,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		return jsonErr
 	}
 	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
-	printPostCloneHints(vm, netSetup.NICs)
+	printPostCloneHints(vm)
 	return nil
 }
 
@@ -305,7 +305,7 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 		return cmdcore.OutputJSON(vm)
 	}
 	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
-	printPostCloneHints(vm, netSetup.NICs)
+	printPostCloneHints(vm)
 	return nil
 }
 
@@ -482,19 +482,19 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	}
 	nsPath, err := netProvider.Prepare(ctx, vmID, vmCfg)
 	if err != nil {
+		rollbackNetwork(ctx, netProvider, vmID)
 		return nil, types.NetSetup{}, fmt.Errorf("prepare network: %w", err)
 	}
-	// CNI with no conflist + no NICs degenerates to host-netns mode; record an
-	// empty backend so a later resize doesn't pick CNI and miss the netns.
-	if nics <= 0 && netProvider.Type() == types.BackendCNI && nsPath == "" {
+	backend := netProvider.Type()
+	// CNI no-conflist + 0 NICs runs in host netns; empty backend so resize won't mispick CNI.
+	if nics <= 0 && backend == types.BackendCNI && nsPath == "" {
 		return netProvider, types.NetSetup{}, nil
 	}
-	setup := types.NetSetup{Backend: netProvider.Type(), NetnsPath: nsPath, BridgeDev: bridgeDev}
+	setup := types.NetSetup{Backend: backend, NetnsPath: nsPath, BridgeDev: bridgeDev}
 	if nics <= 0 {
 		return netProvider, setup, nil
 	}
-	// Override CPU for TAP queue count — FC uses single-queue, CH uses per-vCPU queues.
-	// The network layer derives TAP queues from vmCfg.CPU.
+	// Override CPU for TAP queue count (FC=1, CH=per-vCPU); network reads vmCfg.CPU.
 	origCPU := vmCfg.CPU
 	vmCfg.CPU = queues
 	configs, err := netProvider.Add(ctx, vmID, vmCfg, network.AddRange(0, nics)...)
@@ -516,7 +516,7 @@ func rollbackNetwork(ctx context.Context, netProvider network.Network, vmID stri
 	}
 }
 
-func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
+func printPostCloneHints(vm *types.VM) {
 	if vm.Config.Windows {
 		fmt.Println()
 		fmt.Println("Windows clone: NICs hot-swapped with new MAC addresses.")
@@ -542,7 +542,7 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	// FC clone: guest MAC is baked in vmstate (source VM's MAC).
 	// Must change guest MAC before networkd config takes effect.
 	if vm.Hypervisor == string(config.HypervisorFirecracker) {
-		printFCMACHints(networkConfigs)
+		printFCMACHints(vm.NetworkConfigs)
 	}
 
 	fmt.Println()
@@ -552,7 +552,7 @@ func printPostCloneHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
 	if isCloudimg {
 		printCloudimgNetworkHints()
 	} else {
-		printOCINetworkHints(vm, networkConfigs)
+		printOCINetworkHints(vm)
 	}
 	fmt.Println()
 }
@@ -575,14 +575,14 @@ func printCloudimgNetworkHints() {
 	fmt.Println("  cloud-init modules --mode=config && systemctl restart systemd-networkd")
 }
 
-func printOCINetworkHints(vm *types.VM, networkConfigs []*types.NetworkConfig) {
+func printOCINetworkHints(vm *types.VM) {
 	fmt.Println()
 	fmt.Printf("  # Set hostname\n")
 	fmt.Printf("  hostnamectl set-hostname %s\n", vm.Config.Name)
 
 	var staticNICs []nicHint
 	var dhcpMACs []string
-	for _, nc := range networkConfigs {
+	for _, nc := range vm.NetworkConfigs {
 		if nc == nil || nc.MAC == "" {
 			continue
 		}

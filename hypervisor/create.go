@@ -109,10 +109,10 @@ func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec
 
 	info := &types.VM{
 		ID: id, Hypervisor: b.Typ, State: types.VMStateCreated,
-		Config: *spec.VMCfg, StorageConfigs: preparedStorage, NetworkConfigs: spec.Net.NICs,
-		NetBackend: spec.Net.Backend, NetnsPath: spec.Net.NetnsPath, NetBridgeDev: spec.Net.BridgeDev,
+		Config: *spec.VMCfg, StorageConfigs: preparedStorage,
 		CreatedAt: now, UpdatedAt: now,
 	}
+	info.ApplyNetSetup(spec.Net)
 	if err = b.FinalizeCreate(ctx, id, info, bootCopy, blobIDs); err != nil {
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}

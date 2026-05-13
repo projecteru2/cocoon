@@ -84,16 +84,10 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 
 		var launchErr error
 		pid, launchErr = fc.launchProcess(ctx, &hypervisor.VMRecord{
-			VM: types.VM{
-				ID:             vmID,
-				NetworkConfigs: networkConfigs,
-				NetBackend:     net.Backend,
-				NetnsPath:      net.NetnsPath,
-				NetBridgeDev:   net.BridgeDev,
-			},
+			VM:     types.VM{ID: vmID},
 			RunDir: runDir,
 			LogDir: logDir,
-		}, sockPath)
+		}, sockPath, net.NetnsPath)
 		if launchErr != nil {
 			return fmt.Errorf("launch FC: %w", launchErr)
 		}
@@ -106,10 +100,10 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 
 	info := &types.VM{
 		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
-		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
-		NetBackend: net.Backend, NetnsPath: net.NetnsPath, NetBridgeDev: net.BridgeDev,
+		Config: *vmCfg, StorageConfigs: storageConfigs,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
+	info.ApplyNetSetup(net)
 	if err := fc.FinalizeClone(ctx, vmID, info, bootCfg, blobIDs); err != nil {
 		fc.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)

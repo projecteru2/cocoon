@@ -107,15 +107,9 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	ch.saveCmdline(ctx, &hypervisor.VMRecord{RunDir: runDir}, args)
 
 	pid, err := ch.launchProcess(ctx, &hypervisor.VMRecord{
-		VM: types.VM{
-			NetworkConfigs: networkConfigs,
-			NetBackend:     net.Backend,
-			NetnsPath:      net.NetnsPath,
-			NetBridgeDev:   net.BridgeDev,
-		},
 		RunDir: runDir,
 		LogDir: logDir,
-	}, sockPath, args)
+	}, sockPath, args, net.NetnsPath)
 	if err != nil {
 		ch.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("launch CH: %w", err)
@@ -134,10 +128,10 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 
 	info := &types.VM{
 		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
-		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
-		NetBackend: net.Backend, NetnsPath: net.NetnsPath, NetBridgeDev: net.BridgeDev,
+		Config: *vmCfg, StorageConfigs: storageConfigs,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
+	info.ApplyNetSetup(net)
 	if err := ch.FinalizeClone(ctx, vmID, info, bootCfg, nil); err != nil {
 		ch.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)

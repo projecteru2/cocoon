@@ -373,11 +373,15 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 
 	for _, ref := range refs {
 		vm := byID[ref]
-		if vm == nil || vm.ResolvedNetBackend() == "" {
+		if vm == nil {
 			continue
 		}
-		// Bridge mode has nothing per-VM to recover when NICs=0 (no TAP, no netns).
-		if vm.ResolvedNetBackend() == types.BackendBridge && len(vm.NetworkConfigs) == 0 {
+		backend := vm.ResolvedNetBackend()
+		if backend == "" {
+			continue
+		}
+		// Bridge 0-NIC: no TAP, no netns — nothing to recover.
+		if backend == types.BackendBridge && len(vm.NetworkConfigs) == 0 {
 			continue
 		}
 		netProvider, provErr := providerForVM(conf, cniProvider, bridgeProviders, vm)
@@ -402,13 +406,12 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 	}
 }
 
-// providerForVM picks the network provider from persisted VM state;
-// cniProvider may be nil (lazy-init), bridgeCache must be non-nil.
+// providerForVM picks the provider from VM state. cniProvider may be nil; bridgeCache must be non-nil.
 func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache map[string]network.Network, vm *types.VM) (network.Network, error) {
 	if vm == nil {
 		return nil, fmt.Errorf("no VM record")
 	}
-	if vm.ResolvedNetBackend() == types.BackendBridge {
+	if vm.IsBridge() {
 		dev := vm.ResolvedNetBridgeDev()
 		if dev == "" {
 			return nil, fmt.Errorf("bridge backend but no bridge device persisted")

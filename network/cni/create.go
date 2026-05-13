@@ -17,7 +17,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Prepare creates the per-VM netns idempotently; returns "" when no CNI conflist is configured.
+// Prepare creates the per-VM netns; returns "" with no conflist.
 func (c *CNI) Prepare(_ context.Context, vmID string, _ *types.VMConfig) (string, error) {
 	if c.cniConf == nil {
 		return "", nil

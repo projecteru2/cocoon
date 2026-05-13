@@ -67,7 +67,7 @@ func (b *Bridge) Verify(_ context.Context, vmID string) error {
 	return nil
 }
 
-// Prepare is a no-op: bridge mode keeps CH in the host netns.
+// Prepare is a no-op for bridge mode.
 func (b *Bridge) Prepare(_ context.Context, _ string, _ *types.VMConfig) (string, error) {
 	return "", nil
 }

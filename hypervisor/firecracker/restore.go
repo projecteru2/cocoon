@@ -62,7 +62,7 @@ func (fc *Firecracker) restoreAfterExtract(ctx context.Context, vmID string, vmC
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
 
-	pid, launchErr := fc.launchProcess(ctx, rec, sockPath)
+	pid, launchErr := fc.launchProcess(ctx, rec, sockPath, rec.ResolvedNetnsPath())
 	if launchErr != nil {
 		return nil, fmt.Errorf("launch FC: %w", launchErr)
 	}
