@@ -71,10 +71,7 @@ func (h BaseHandler) Conf() (*config.Config, error) {
 	return conf, nil
 }
 
-// CommandContext returns ctx from cmd or Background as fallback. The fallback
-// is unreachable in normal cobra flow (the root command always sets a ctx
-// via signal.NotifyContext); it exists so unit tests can call the helper
-// with a bare *cobra.Command and not panic.
+// CommandContext returns cmd.Context() or Background (test-only fallback).
 func CommandContext(cmd *cobra.Command) context.Context {
 	if cmd != nil && cmd.Context() != nil {
 		return cmd.Context()

@@ -17,13 +17,7 @@ const (
 var (
 	validName     = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
 	validUsername = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	// shellUnsafe matches characters that could cause shell or YAML
-	// injection in cloud-init runcmd. The metadata template at
-	// metadata/metadata.go embeds the password inside a single-quoted
-	// YAML scalar and passes it to `sh -c 'echo '...' | chpasswd'` —
-	// so a single-quote escapes the YAML scalar, a double-quote can
-	// break shell quoting in downstream renderings, and control chars
-	// (including \r and \n) terminate the YAML line.
+	// shellUnsafe rejects chars that break the chpasswd YAML scalar in cidata.
 	shellUnsafe = regexp.MustCompile("[`$;|&(){}\\\\<>!'\"\\x00-\\x1f\\x7f]")
 )
 

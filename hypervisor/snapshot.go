@@ -20,9 +20,7 @@ const SnapshotMetaFile = "cocoon.json"
 type SnapshotMeta struct {
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
-	// CPU and Memory are only populated by Firecracker, where the snapshot
-	// strips the FC config; CH leaves both zero and reads from rec.Config
-	// instead (CH's config.json round-trips CPU/Memory natively).
+	// CPU/Memory populated by FC only; CH reads them from config.json on restore.
 	CPU    int   `json:"cpu,omitempty"`
 	Memory int64 `json:"memory,omitempty"`
 }
