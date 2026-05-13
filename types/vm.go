@@ -17,9 +17,8 @@ const (
 var (
 	validName     = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
 	validUsername = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	// shellUnsafe matches characters that could cause shell injection in
-	// cloud-init runcmd (backticks, $, semicolons, pipes, etc.).
-	shellUnsafe = regexp.MustCompile("[`$;|&(){}\\\\<>!]")
+	// shellUnsafe rejects chars that break the chpasswd YAML scalar in cidata.
+	shellUnsafe = regexp.MustCompile("[`$;|&(){}\\\\<>!'\"\\x00-\\x1f\\x7f]")
 )
 
 // VMState represents the lifecycle state of a VM.
@@ -104,7 +103,7 @@ func (cfg *VMConfig) Validate() error {
 		return fmt.Errorf("--user %q is invalid: must be a lowercase Linux username (letters, digits, underscores, hyphens)", cfg.User)
 	}
 	if cfg.Password != "" && shellUnsafe.MatchString(cfg.Password) {
-		return fmt.Errorf("--password contains unsafe shell characters (backtick, $, ;, |, &, etc.)")
+		return fmt.Errorf("--password contains unsafe shell or YAML characters")
 	}
 	return nil
 }

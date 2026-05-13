@@ -47,6 +47,7 @@ func qemuExpandImage(ctx context.Context, path string, targetSize int64, directB
 	if targetSize <= virtualSize {
 		return nil
 	}
+	// shell out: qemu-img is the authoritative qcow2 tool (see utils/qemuimg.go).
 	if err := utils.RunQemuImg(ctx, "resize", path, strconv.FormatInt(targetSize, 10)); err != nil {
 		return fmt.Errorf("resize %s: %w", path, err)
 	}

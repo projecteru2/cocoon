@@ -323,7 +323,7 @@ func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, st
 		return fromDir, "", nil
 	}
 	if len(args) <= baseArgs {
-		return "", "", fmt.Errorf("SNAPSHOT is required (or use --from-dir)")
+		return "", "", fmt.Errorf("snapshot is required (or use --from-dir)")
 	}
 	return "", args[baseArgs], nil
 }

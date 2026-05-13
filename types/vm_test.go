@@ -143,6 +143,36 @@ func TestValidate(t *testing.T) {
 			wantErr: "--password",
 		},
 		{
+			name:    "password with single quote",
+			modify:  func(c *VMConfig) { c.Password = "pass'injected" },
+			wantErr: "--password",
+		},
+		{
+			name:    "password with double quote",
+			modify:  func(c *VMConfig) { c.Password = `pass"injected` },
+			wantErr: "--password",
+		},
+		{
+			name:    "password with newline",
+			modify:  func(c *VMConfig) { c.Password = "pass\nrm -rf /" },
+			wantErr: "--password",
+		},
+		{
+			name:    "password with carriage return",
+			modify:  func(c *VMConfig) { c.Password = "pass\rrm" },
+			wantErr: "--password",
+		},
+		{
+			name:    "password with null byte",
+			modify:  func(c *VMConfig) { c.Password = "pass\x00cmd" },
+			wantErr: "--password",
+		},
+		{
+			name:    "password with del control char",
+			modify:  func(c *VMConfig) { c.Password = "pass\x7fcmd" },
+			wantErr: "--password",
+		},
+		{
 			name:   "empty password is allowed",
 			modify: func(c *VMConfig) { c.Password = "" },
 		},
