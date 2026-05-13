@@ -411,7 +411,7 @@ func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache
 	if vm == nil {
 		return nil, fmt.Errorf("no VM record")
 	}
-	if vm.IsBridge() {
+	if vm.ResolvedNetBackend() == types.BackendBridge {
 		dev := vm.ResolvedNetBridgeDev()
 		if dev == "" {
 			return nil, fmt.Errorf("bridge backend but no bridge device persisted")

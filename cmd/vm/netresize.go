@@ -45,10 +45,11 @@ func (h Handler) NetResize(cmd *cobra.Command, args []string) error {
 
 // plumbingForVM picks the provider from persisted VM state; 0-NIC works because NetBackend persists.
 func plumbingForVM(conf *config.Config, vm *types.VM) (network.Network, error) {
-	if vm.ResolvedNetBackend() == "" {
+	backend := vm.ResolvedNetBackend()
+	if backend == "" {
 		return nil, fmt.Errorf("no network backend on VM; cannot resize")
 	}
-	if vm.IsCNI() && vm.ResolvedNetnsPath() == "" {
+	if backend == types.BackendCNI && vm.ResolvedNetnsPath() == "" {
 		return nil, fmt.Errorf("CNI backend but no netns; resize would target host netns")
 	}
 	return providerForVM(conf, nil, map[string]network.Network{}, vm)

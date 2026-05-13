@@ -157,12 +157,6 @@ func (v *VM) ResolvedNetBridgeDev() string {
 	return ""
 }
 
-// IsBridge reports whether the VM uses the bridge backend.
-func (v *VM) IsBridge() bool { return v.ResolvedNetBackend() == BackendBridge }
-
-// IsCNI reports whether the VM uses the CNI backend.
-func (v *VM) IsCNI() bool { return v.ResolvedNetBackend() == BackendCNI }
-
 // ApplyNetSetup copies network fields from net into v.
 func (v *VM) ApplyNetSetup(net NetSetup) {
 	if v == nil {

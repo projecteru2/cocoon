@@ -236,23 +236,5 @@ func TestVMResolvedNetNilReceiver(t *testing.T) {
 	if got := v.ResolvedNetBridgeDev(); got != "" {
 		t.Errorf("nil ResolvedNetBridgeDev = %q, want \"\"", got)
 	}
-	if v.IsBridge() || v.IsCNI() {
-		t.Errorf("nil IsBridge/IsCNI both want false")
-	}
 	v.ApplyNetSetup(NetSetup{Backend: "cni"}) // must not panic
-}
-
-func TestVMIsBridgeIsCNI(t *testing.T) {
-	bridge := VM{NetBackend: BackendBridge}
-	cni := VM{NetBackend: BackendCNI}
-	empty := VM{}
-	if !bridge.IsBridge() || bridge.IsCNI() {
-		t.Errorf("bridge: IsBridge=true, IsCNI=false")
-	}
-	if !cni.IsCNI() || cni.IsBridge() {
-		t.Errorf("cni: IsCNI=true, IsBridge=false")
-	}
-	if empty.IsBridge() || empty.IsCNI() {
-		t.Errorf("empty: both false")
-	}
 }
