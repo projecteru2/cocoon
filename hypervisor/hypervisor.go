@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("VM not found")
-	ErrNotRunning = errors.New("VM not running")
-	ErrAmbiguous  = errors.New("VM ref resolves to multiple backends")
+	ErrNotFound   = errors.New("vm not found")
+	ErrNotRunning = errors.New("vm not running")
+	ErrAmbiguous  = errors.New("vm ref resolves to multiple backends")
 )
 
 // Hypervisor manages VM lifecycle. Implemented by each backend.
