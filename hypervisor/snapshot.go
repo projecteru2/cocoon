@@ -20,8 +20,11 @@ const SnapshotMetaFile = "cocoon.json"
 type SnapshotMeta struct {
 	StorageConfigs []*types.StorageConfig `json:"storage_configs"`
 	BootConfig     *types.BootConfig      `json:"boot_config,omitempty"`
-	CPU            int                    `json:"cpu,omitempty"`
-	Memory         int64                  `json:"memory,omitempty"`
+	// CPU and Memory are only populated by Firecracker, where the snapshot
+	// strips the FC config; CH leaves both zero and reads from rec.Config
+	// instead (CH's config.json round-trips CPU/Memory natively).
+	CPU    int   `json:"cpu,omitempty"`
+	Memory int64 `json:"memory,omitempty"`
 }
 
 func SaveSnapshotMeta(dir string, meta *SnapshotMeta) error {
