@@ -36,12 +36,13 @@ type VMConfig struct {
 	DataDisks []DataDiskSpec `json:"-"` // populated from --data-disk; consumed by Create
 }
 
-// NetSetup is the network handoff from initNetwork to the hypervisor.
+// NetSetup is the VM's host networking state: backend, netns, bridge, and attached NICs.
+// Embedded into VM and also used as the initNetwork → hypervisor handoff.
 type NetSetup struct {
-	Backend   string
-	NetnsPath string
-	BridgeDev string
-	NICs      []*NetworkConfig
+	NetBackend     string           `json:"net_backend,omitempty"`
+	NetnsPath      string           `json:"netns_path,omitempty"`
+	NetBridgeDev   string           `json:"net_bridge_dev,omitempty"`
+	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
 }
 
 // VM is the runtime record for a VM, persisted by the hypervisor backend.
@@ -56,14 +57,10 @@ type VM struct {
 	SocketPath  string `json:"socket_path,omitempty"`  // CH API Unix socket
 	VsockSocket string `json:"vsock_socket,omitempty"` // hybrid vsock UDS for cocoon-agent
 
-	// Attached resources — promoted into VMRecord via embedding.
-	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
-	StorageConfigs []*StorageConfig `json:"storage_configs,omitempty"`
+	// Network — embedded; fields promote (vm.NetBackend, vm.NetworkConfigs, ...).
+	NetSetup
 
-	// VM-level so 0-NIC VMs still carry backend + netns.
-	NetBackend   string `json:"net_backend,omitempty"`
-	NetnsPath    string `json:"netns_path,omitempty"`
-	NetBridgeDev string `json:"net_bridge_dev,omitempty"`
+	StorageConfigs []*StorageConfig `json:"storage_configs,omitempty"`
 
 	// FirstBooted is true after the VM has been started at least once.
 	// Used to skip cidata attachment on subsequent starts (cloudimg only).
@@ -155,15 +152,4 @@ func (v *VM) ResolvedNetBridgeDev() string {
 		return v.NetworkConfigs[0].BridgeDev
 	}
 	return ""
-}
-
-// ApplyNetSetup copies network fields from net into v.
-func (v *VM) ApplyNetSetup(net NetSetup) {
-	if v == nil {
-		return
-	}
-	v.NetworkConfigs = net.NICs
-	v.NetBackend = net.Backend
-	v.NetnsPath = net.NetnsPath
-	v.NetBridgeDev = net.BridgeDev
 }

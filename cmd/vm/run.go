@@ -490,7 +490,7 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	if nics <= 0 && backend == types.BackendCNI && nsPath == "" {
 		return netProvider, types.NetSetup{}, nil
 	}
-	setup := types.NetSetup{Backend: backend, NetnsPath: nsPath, BridgeDev: bridgeDev}
+	setup := types.NetSetup{NetBackend: backend, NetnsPath: nsPath, NetBridgeDev: bridgeDev}
 	if nics <= 0 {
 		return netProvider, setup, nil
 	}
@@ -503,7 +503,7 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 		rollbackNetwork(ctx, netProvider, vmID)
 		return nil, types.NetSetup{}, fmt.Errorf("configure network: %w", err)
 	}
-	setup.NICs = configs
+	setup.NetworkConfigs = configs
 	return netProvider, setup, nil
 }
 

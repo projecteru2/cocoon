@@ -180,29 +180,29 @@ func TestVMResolvedNetFields(t *testing.T) {
 	}{
 		{
 			name:           "VM-level fields populated",
-			vm:             VM{NetBackend: "cni", NetnsPath: "/var/run/netns/cocoon-x", NetBridgeDev: ""},
+			vm:             VM{NetSetup: NetSetup{NetBackend: "cni", NetnsPath: "/var/run/netns/cocoon-x"}},
 			wantNetnsPath:  "/var/run/netns/cocoon-x",
 			wantNetBackend: "cni",
 		},
 		{
 			name: "fallback to NIC[0] when VM-level empty",
-			vm: VM{NetworkConfigs: []*NetworkConfig{
+			vm: VM{NetSetup: NetSetup{NetworkConfigs: []*NetworkConfig{
 				{Backend: BackendBridge, NetnsPath: "", BridgeDev: "br0"},
-			}},
+			}}},
 			wantNetBackend:   BackendBridge,
 			wantNetBridgeDev: "br0",
 		},
 		{
 			name: "pre-bridge record (empty Backend) maps to CNI",
-			vm: VM{NetworkConfigs: []*NetworkConfig{
+			vm: VM{NetSetup: NetSetup{NetworkConfigs: []*NetworkConfig{
 				{NetnsPath: "/var/run/netns/cocoon-y"},
-			}},
+			}}},
 			wantNetnsPath:  "/var/run/netns/cocoon-y",
 			wantNetBackend: BackendCNI,
 		},
 		{
 			name:           "VM-level wins over NIC[0]",
-			vm:             VM{NetBackend: "cni", NetworkConfigs: []*NetworkConfig{{Backend: BackendBridge}}},
+			vm:             VM{NetSetup: NetSetup{NetBackend: "cni", NetworkConfigs: []*NetworkConfig{{Backend: BackendBridge}}}},
 			wantNetBackend: "cni",
 		},
 		{
@@ -236,5 +236,4 @@ func TestVMResolvedNetNilReceiver(t *testing.T) {
 	if got := v.ResolvedNetBridgeDev(); got != "" {
 		t.Errorf("nil ResolvedNetBridgeDev = %q, want \"\"", got)
 	}
-	v.ApplyNetSetup(NetSetup{Backend: "cni"}) // must not panic
 }

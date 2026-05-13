@@ -99,7 +99,7 @@ func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec
 		bootCopy = &bc
 	}
 
-	preparedStorage, err := spec.Prepare(ctx, id, spec.VMCfg, spec.StorageConfigs, spec.Net.NICs, bootCopy)
+	preparedStorage, err := spec.Prepare(ctx, id, spec.VMCfg, spec.StorageConfigs, spec.Net.NetworkConfigs, bootCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -110,9 +110,9 @@ func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec
 	info := &types.VM{
 		ID: id, Hypervisor: b.Typ, State: types.VMStateCreated,
 		Config: *spec.VMCfg, StorageConfigs: preparedStorage,
+		NetSetup:  spec.Net,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	info.ApplyNetSetup(spec.Net)
 	if err = b.FinalizeCreate(ctx, id, info, bootCopy, blobIDs); err != nil {
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}

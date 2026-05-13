@@ -28,7 +28,7 @@ func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMCo
 }
 
 func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time) (*types.VM, error) {
-	networkConfigs := net.NICs
+	networkConfigs := net.NetworkConfigs
 	logger := log.WithFunc("firecracker.Clone")
 
 	meta, err := hypervisor.LoadAndValidateMeta(runDir, fc.conf.RootDir, fc.conf.Config.RunDir)
@@ -101,9 +101,9 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	info := &types.VM{
 		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
 		Config: *vmCfg, StorageConfigs: storageConfigs,
+		NetSetup:  net,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
-	info.ApplyNetSetup(net)
 	if err := fc.FinalizeClone(ctx, vmID, info, bootCfg, blobIDs); err != nil {
 		fc.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)
