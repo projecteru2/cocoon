@@ -547,9 +547,9 @@ cocoon vm net my-vm --nics 2
 cocoon vm net my-vm --nics 1
 ```
 
-Cocoon manages **host-side** plumbing only. CH's `vm.remove-device` marks the slot for ejection but the actual eject only happens when the guest cooperates via ACPI (B0EJ write). The host TAP / veth / CNI lease are torn down immediately after the API call regardless. Quiesce in-guest NIC state (driver unbind, NetworkManager removal, Windows NDIS halt) **before** reducing the count, or the in-guest driver will reference plumbing that no longer exists.
+On NIC removal, cocoon waits for the guest to ACK B0EJ (CH polls `device_tree` until the device disappears) before tearing down the host TAP / veth / CNI lease. If the guest never ACKs within the eject timeout, the command fails and leaves the cocoon record + host plumbing intact so the operator can quiesce the guest (driver unbind, NetworkManager removal, Windows NDIS halt) and retry.
 
-A VM started with zero NICs cannot be resized up — CH was launched in the host netns (no `NetworkConfigs` to derive a per-VM netns from), so later plumbing can't reach it. To recover networking on a 0-NIC snapshot, clone with `cocoon vm clone --nics 1 --network <conflist>` (or `--bridge <dev>`): the clone starts with NICs from the start, putting CH in the right netns from boot.
+Resize from zero is supported: under CNI, `--nics 0` still provisions a per-VM netns at boot (CH lives in it from the start), so a later `cocoon vm net --nics N` hot-plugs into the same namespace. Bridge mode keeps CH in the host netns regardless of NIC count, so 0→N adds TAPs onto the configured bridge.
 
 ## Windows Support
 

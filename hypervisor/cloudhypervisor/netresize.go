@@ -15,8 +15,8 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// ejectWaitTimeout bounds the wait for guest B0EJ; Linux acks < 1 s, Windows can take a few.
-const ejectWaitTimeout = 10 * time.Second
+// ejectWaitTimeout bounds the wait for guest B0EJ; Linux acks < 1 s, Windows can take 10–20 s.
+const ejectWaitTimeout = 30 * time.Second
 
 // NetResize brings the VM's NIC count to spec.Target on a running CH VM.
 func (ch *CloudHypervisor) NetResize(ctx context.Context, vmRef string, spec netresize.Spec, plumbing netresize.Plumbing) (netresize.Result, error) {

@@ -17,11 +17,11 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
+func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, net types.NetSetup, bootCfg *types.BootConfig) (*types.VM, error) {
 	return fc.CreateSequence(ctx, id, hypervisor.CreateSpec{
 		VMCfg:          vmCfg,
 		StorageConfigs: storageConfigs,
-		NetworkConfigs: networkConfigs,
+		Net:            net,
 		BootConfig:     bootCfg,
 		Prepare:        fc.prepareOCI,
 	})

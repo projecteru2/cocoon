@@ -29,6 +29,11 @@ func (b *Bridge) Type() string { return "bridge" }
 // Verify is not supported.
 func (b *Bridge) Verify(_ context.Context, _ string) error { return errUnsupported }
 
+// Prepare is not supported.
+func (b *Bridge) Prepare(_ context.Context, _ string, _ *types.VMConfig) (string, error) {
+	return "", errUnsupported
+}
+
 // Add is not supported.
 func (b *Bridge) Add(_ context.Context, _ string, _ *types.VMConfig, _ ...network.AddSpec) ([]*types.NetworkConfig, error) {
 	return nil, errUnsupported

@@ -373,11 +373,18 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 
 	for _, ref := range refs {
 		vm := byID[ref]
-		if vm == nil || len(vm.NetworkConfigs) == 0 {
+		if vm == nil {
 			continue
 		}
-
-		netProvider, provErr := providerForVM(conf, cniProvider, bridgeProviders, vm.NetworkConfigs)
+		backend := vm.ResolvedNetBackend()
+		if backend == "" {
+			continue
+		}
+		// Bridge 0-NIC: no TAP, no netns — nothing to recover.
+		if backend == types.BackendBridge && len(vm.NetworkConfigs) == 0 {
+			continue
+		}
+		netProvider, provErr := providerForVM(conf, cniProvider, bridgeProviders, vm)
 		if provErr != nil {
 			logger.Warnf(ctx, "skip recovery for VM %s: %v", vm.ID, provErr)
 			continue
@@ -386,31 +393,37 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 			continue
 		}
 		logger.Warnf(ctx, "network missing for VM %s, recovering", vm.ID)
+		if _, prepErr := netProvider.Prepare(ctx, vm.ID, &vm.Config); prepErr != nil {
+			logger.Warnf(ctx, "prepare netns for VM %s: %v (start will fail)", vm.ID, prepErr)
+			continue
+		}
+		if len(vm.NetworkConfigs) == 0 {
+			continue
+		}
 		if _, recoverErr := netProvider.Add(ctx, vm.ID, &vm.Config, network.AddRecover(vm.NetworkConfigs)...); recoverErr != nil {
 			logger.Warnf(ctx, "recover network for VM %s: %v (start will fail)", vm.ID, recoverErr)
 		}
 	}
 }
 
-// providerForVM picks the network provider from persisted NetworkConfig; cniProvider may be nil (lazy-init), bridgeCache must be non-nil.
-func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache map[string]network.Network, configs []*types.NetworkConfig) (network.Network, error) {
-	if len(configs) == 0 {
-		return nil, fmt.Errorf("no network configs")
+// providerForVM picks the provider from VM state. cniProvider may be nil; bridgeCache must be non-nil.
+func providerForVM(conf *config.Config, cniProvider network.Network, bridgeCache map[string]network.Network, vm *types.VM) (network.Network, error) {
+	if vm == nil {
+		return nil, fmt.Errorf("no VM record")
 	}
-	// All NICs on a VM share the same backend.
-	cfg := configs[0]
-	if cfg.Backend == types.BackendBridge {
-		if cfg.BridgeDev == "" {
+	if vm.ResolvedNetBackend() == types.BackendBridge {
+		dev := vm.ResolvedNetBridgeDev()
+		if dev == "" {
 			return nil, fmt.Errorf("bridge backend but no bridge device persisted")
 		}
-		if cached, ok := bridgeCache[cfg.BridgeDev]; ok {
+		if cached, ok := bridgeCache[dev]; ok {
 			return cached, nil
 		}
-		p, err := cmdcore.InitBridgeNetwork(conf, cfg.BridgeDev)
+		p, err := cmdcore.InitBridgeNetwork(conf, dev)
 		if err != nil {
 			return nil, err
 		}
-		bridgeCache[cfg.BridgeDev] = p
+		bridgeCache[dev] = p
 		return p, nil
 	}
 	// "cni" or empty (backward compat).

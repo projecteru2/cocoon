@@ -17,6 +17,19 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
+// Prepare creates the per-VM netns; returns "" with no conflist.
+func (c *CNI) Prepare(_ context.Context, vmID string, _ *types.VMConfig) (string, error) {
+	if c.cniConf == nil {
+		return "", nil
+	}
+	nsName := netnsName(vmID)
+	nsPath := netnsPath(vmID)
+	if _, err := ensureNetns(nsName, nsPath); err != nil {
+		return "", fmt.Errorf("ensure netns %s: %w", nsName, err)
+	}
+	return nsPath, nil
+}
+
 // Add creates the netns (if absent) and allocates each NIC's CNI plumbing.
 func (c *CNI) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) (configs []*types.NetworkConfig, retErr error) {
 	if c.cniConf == nil {

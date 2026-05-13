@@ -36,6 +36,15 @@ type VMConfig struct {
 	DataDisks []DataDiskSpec `json:"-"` // populated from --data-disk; consumed by Create
 }
 
+// NetSetup is the VM's host networking state: backend, netns, bridge, and attached NICs.
+// Embedded into VM and also used as the initNetwork → hypervisor handoff.
+type NetSetup struct {
+	NetBackend     string           `json:"net_backend,omitempty"`
+	NetnsPath      string           `json:"netns_path,omitempty"`
+	NetBridgeDev   string           `json:"net_bridge_dev,omitempty"`
+	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
+}
+
 // VM is the runtime record for a VM, persisted by the hypervisor backend.
 type VM struct {
 	ID         string   `json:"id"`
@@ -48,8 +57,9 @@ type VM struct {
 	SocketPath  string `json:"socket_path,omitempty"`  // CH API Unix socket
 	VsockSocket string `json:"vsock_socket,omitempty"` // hybrid vsock UDS for cocoon-agent
 
-	// Attached resources — promoted into VMRecord via embedding.
-	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
+	// Network — embedded; fields promote (vm.NetBackend, vm.NetworkConfigs, ...).
+	NetSetup
+
 	StorageConfigs []*StorageConfig `json:"storage_configs,omitempty"`
 
 	// FirstBooted is true after the VM has been started at least once.
@@ -97,4 +107,49 @@ func (cfg *VMConfig) Validate() error {
 		return fmt.Errorf("--password contains unsafe shell characters (backtick, $, ;, |, &, etc.)")
 	}
 	return nil
+}
+
+// ResolvedNetnsPath returns NetnsPath, with NIC[0] fallback.
+func (v *VM) ResolvedNetnsPath() string {
+	if v == nil {
+		return ""
+	}
+	if v.NetnsPath != "" {
+		return v.NetnsPath
+	}
+	if len(v.NetworkConfigs) > 0 {
+		return v.NetworkConfigs[0].NetnsPath
+	}
+	return ""
+}
+
+// ResolvedNetBackend returns NetBackend, with NIC[0] fallback.
+func (v *VM) ResolvedNetBackend() string {
+	if v == nil {
+		return ""
+	}
+	if v.NetBackend != "" {
+		return v.NetBackend
+	}
+	if len(v.NetworkConfigs) > 0 {
+		if b := v.NetworkConfigs[0].Backend; b != "" {
+			return b
+		}
+		return BackendCNI
+	}
+	return ""
+}
+
+// ResolvedNetBridgeDev returns NetBridgeDev, with NIC[0] fallback.
+func (v *VM) ResolvedNetBridgeDev() string {
+	if v == nil {
+		return ""
+	}
+	if v.NetBridgeDev != "" {
+		return v.NetBridgeDev
+	}
+	if len(v.NetworkConfigs) > 0 {
+		return v.NetworkConfigs[0].BridgeDev
+	}
+	return ""
 }

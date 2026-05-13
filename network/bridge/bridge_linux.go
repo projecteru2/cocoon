@@ -67,6 +67,11 @@ func (b *Bridge) Verify(_ context.Context, vmID string) error {
 	return nil
 }
 
+// Prepare is a no-op for bridge mode.
+func (b *Bridge) Prepare(_ context.Context, _ string, _ *types.VMConfig) (string, error) {
+	return "", nil
+}
+
 // Add allocates TAP devices on the bridge for the given specs.
 func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) (configs []*types.NetworkConfig, retErr error) {
 	if len(specs) == 0 {

@@ -244,7 +244,7 @@ Control-plane traffic from cocoon-managed hosts (vk-cocoon, `cocoon vm exec`) go
 
 ## NIC hot-remove leaves the PCI slot pending on Cloud Hypervisor
 
-`cocoon vm net --nics N` waits for CH's `device_tree` to drop the removed device (polled via `vm.info` until the entry disappears, max 10 s) before tearing down host plumbing. CH only frees the PCI slot — and unregisters the device's ioeventfds — when the guest writes to the ACPI hot-plug controller (B0EJ) in response to the SCI raised by `remove-device`. If the guest never ACKs (driver wedged, paused, NDIS halted), the wait times out, the cocoon record is left intact, and the command returns an error so the user can quiesce the guest and retry.
+`cocoon vm net --nics N` waits for CH's `device_tree` to drop the removed device (polled via `vm.info` until the entry disappears, max 30 s) before tearing down host plumbing. CH only frees the PCI slot — and unregisters the device's ioeventfds — when the guest writes to the ACPI hot-plug controller (B0EJ) in response to the SCI raised by `remove-device`. If the guest never ACKs (driver wedged, paused, NDIS halted), the wait times out, the cocoon record is left intact, and the command returns an error so the user can quiesce the guest and retry.
 
 If the host plumbing teardown itself fails after a successful eject, cocoon truncates the record anyway and surfaces a warning — the orphan TAP / veth / CNI lease is cleaned up by `cocoon vm rm` or the next gc cycle. The user still has to consider:
 

@@ -62,9 +62,11 @@ func TestVMIPsAndSort(t *testing.T) {
 				},
 			},
 			CreatedAt: now.Add(-time.Minute),
-			NetworkConfigs: []*types.NetworkConfig{
-				{Network: &types.Network{IP: "10.0.0.2"}},
-				{Network: &types.Network{IP: "10.0.0.3"}},
+			NetSetup: types.NetSetup{
+				NetworkConfigs: []*types.NetworkConfig{
+					{Network: &types.Network{IP: "10.0.0.2"}},
+					{Network: &types.Network{IP: "10.0.0.3"}},
+				},
 			},
 		},
 	}

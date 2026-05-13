@@ -14,11 +14,11 @@ import (
 // CowSerial is re-exported for backward compatibility.
 const CowSerial = hypervisor.CowSerial
 
-func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, bootCfg *types.BootConfig) (*types.VM, error) {
+func (ch *CloudHypervisor) Create(ctx context.Context, id string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, net types.NetSetup, bootCfg *types.BootConfig) (*types.VM, error) {
 	return ch.CreateSequence(ctx, id, hypervisor.CreateSpec{
 		VMCfg:          vmCfg,
 		StorageConfigs: storageConfigs,
-		NetworkConfigs: networkConfigs,
+		Net:            net,
 		BootConfig:     bootCfg,
 		Prepare: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, nc []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error) {
 			if boot != nil && boot.KernelPath != "" {

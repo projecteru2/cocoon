@@ -23,11 +23,12 @@ type driveRedirect struct {
 	createdDir  bool
 }
 
-func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
-	return fc.CloneFromStream(ctx, vmID, vmCfg, networkConfigs, snapshotConfig, snapshot, fc.cloneAfterExtract)
+func (fc *Firecracker) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
+	return fc.CloneFromStream(ctx, vmID, vmCfg, net, snapshotConfig, snapshot, fc.cloneAfterExtract)
 }
 
-func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
+func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time) (*types.VM, error) {
+	networkConfigs := net.NetworkConfigs
 	logger := log.WithFunc("firecracker.Clone")
 
 	meta, err := hypervisor.LoadAndValidateMeta(runDir, fc.conf.RootDir, fc.conf.Config.RunDir)
@@ -73,7 +74,6 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 	// changed, so symlink-redirect the source path until upstream supports
 	// drive overrides at load time.
 	sockPath := hypervisor.SocketPath(runDir)
-	withNetwork := len(networkConfigs) > 0
 	var pid int
 	if cloneErr := withSourceWritableDisksLocked(meta.StorageConfigs, func() error {
 		redirects, redirectErr := createDriveRedirects(meta.StorageConfigs, storageConfigs)
@@ -84,10 +84,10 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 
 		var launchErr error
 		pid, launchErr = fc.launchProcess(ctx, &hypervisor.VMRecord{
-			VM:     types.VM{ID: vmID, NetworkConfigs: networkConfigs},
+			VM:     types.VM{ID: vmID},
 			RunDir: runDir,
 			LogDir: logDir,
-		}, sockPath, withNetwork)
+		}, sockPath, net.NetnsPath)
 		if launchErr != nil {
 			return fmt.Errorf("launch FC: %w", launchErr)
 		}
@@ -100,7 +100,8 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 
 	info := &types.VM{
 		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
-		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
+		Config: *vmCfg, StorageConfigs: storageConfigs,
+		NetSetup:  net,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
 	if err := fc.FinalizeClone(ctx, vmID, info, bootCfg, blobIDs); err != nil {

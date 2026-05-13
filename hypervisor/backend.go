@@ -101,7 +101,7 @@ type DirectRestoreSpec struct {
 type CreateSpec struct {
 	VMCfg          *types.VMConfig
 	StorageConfigs []*types.StorageConfig
-	NetworkConfigs []*types.NetworkConfig
+	Net            types.NetSetup
 	BootConfig     *types.BootConfig
 	Prepare        func(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error)
 }

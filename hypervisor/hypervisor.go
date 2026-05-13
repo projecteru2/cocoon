@@ -19,7 +19,7 @@ var (
 type Hypervisor interface {
 	Type() string
 
-	Create(ctx context.Context, vmID string, vmCfg *types.VMConfig, storage []*types.StorageConfig, network []*types.NetworkConfig, boot *types.BootConfig) (*types.VM, error)
+	Create(ctx context.Context, vmID string, vmCfg *types.VMConfig, storage []*types.StorageConfig, net types.NetSetup, boot *types.BootConfig) (*types.VM, error)
 	Start(ctx context.Context, refs []string) ([]string, error)
 	Stop(ctx context.Context, refs []string) ([]string, error)
 	Inspect(ctx context.Context, ref string) (*types.VM, error)
@@ -28,7 +28,7 @@ type Hypervisor interface {
 	Console(ctx context.Context, ref string) (io.ReadWriteCloser, error)
 	LogPath(ctx context.Context, ref string) (string, error)
 	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
-	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error)
+	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error)
 	Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error)
 
 	RegisterGC(*gc.Orchestrator)
@@ -43,6 +43,6 @@ type Watchable interface {
 // Direct is an optional interface for hypervisors that support
 // clone/restore from a local snapshot directory.
 type Direct interface {
-	DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error)
+	DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error)
 	DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error)
 }
