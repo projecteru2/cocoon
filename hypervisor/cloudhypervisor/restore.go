@@ -72,8 +72,7 @@ func (ch *CloudHypervisor) restoreAfterExtract(ctx context.Context, vmID string,
 	args := []string{"--api-socket", sockPath}
 	ch.saveCmdline(ctx, rec, args)
 
-	withNetwork := len(rec.NetworkConfigs) > 0
-	pid, launchErr := ch.launchProcess(ctx, rec, sockPath, args, withNetwork)
+	pid, launchErr := ch.launchProcess(ctx, rec, sockPath, args)
 	if launchErr != nil {
 		return nil, fmt.Errorf("launch CH: %w", launchErr)
 	}

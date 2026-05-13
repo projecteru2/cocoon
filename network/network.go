@@ -23,6 +23,8 @@ type AddSpec struct {
 type Network interface {
 	Type() string
 	Verify(ctx context.Context, vmID string) error
+	// Prepare provisions per-VM state regardless of NIC count; returns the netns path or "".
+	Prepare(ctx context.Context, vmID string, vmCfg *types.VMConfig) (string, error)
 	Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...AddSpec) ([]*types.NetworkConfig, error)
 	Remove(ctx context.Context, vmID string, indices ...int) error
 	Delete(context.Context, []string) ([]string, error)

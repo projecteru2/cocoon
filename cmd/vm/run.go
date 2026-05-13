@@ -122,14 +122,14 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 	})
 	defer stop()
 
-	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
+	vmCfg, vmID, netProvider, netSetup, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
 		return err
 	}
 
 	logger.Infof(ctx, "cloning VM from snapshot %s ...", snapRef)
 
-	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, networkConfigs, &cfg, stream)
+	vm, cloneErr := hyper.Clone(ctx, vmID, vmCfg, netSetup, &cfg, stream)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
@@ -139,7 +139,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		return jsonErr
 	}
 	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
-	printPostCloneHints(vm, networkConfigs)
+	printPostCloneHints(vm, netSetup.NICs)
 	return nil
 }
 
@@ -285,7 +285,7 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 }
 
 func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dcr hypervisor.Direct, cfg types.SnapshotConfig, srcDir, sourceLabel string, logger *log.Fields) error {
-	vmCfg, vmID, netProvider, networkConfigs, err := h.prepareClone(ctx, cmd, conf, cfg)
+	vmCfg, vmID, netProvider, netSetup, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
 		return err
 	}
@@ -295,7 +295,7 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 		logger.Infof(ctx, "cloning VM from %s ...", sourceLabel)
 	}
 
-	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, networkConfigs, &cfg, srcDir)
+	vm, cloneErr := dcr.DirectClone(ctx, vmID, vmCfg, netSetup, &cfg, srcDir)
 	if cloneErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return fmt.Errorf("clone VM: %w", cloneErr)
@@ -305,7 +305,7 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 		return cmdcore.OutputJSON(vm)
 	}
 	logger.Infof(ctx, "VM cloned: %s (name: %s)", vm.ID, vm.Config.Name)
-	printPostCloneHints(vm, networkConfigs)
+	printPostCloneHints(vm, netSetup.NICs)
 	return nil
 }
 
@@ -328,24 +328,24 @@ func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, st
 	return "", args[baseArgs], nil
 }
 
-func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, []*types.NetworkConfig, error) {
+func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, types.NetSetup, error) {
 	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
 	if err != nil {
-		return nil, "", nil, nil, err
+		return nil, "", nil, types.NetSetup{}, err
 	}
 	vmID := utils.GenerateID()
 	if vmCfg.Name == "" {
 		vmCfg.Name = "cocoon-clone-" + network.VMIDPrefix(vmID)
 	}
 	if err = vmCfg.Validate(); err != nil {
-		return nil, "", nil, nil, err
+		return nil, "", nil, types.NetSetup{}, err
 	}
 
 	// Auto-pull base image if --pull is set (cross-node clone).
 	if pull, _ := cmd.Flags().GetBool("pull"); pull && vmCfg.Image != "" && vmCfg.ImageType != "" {
 		backends, initErr := cmdcore.InitImageBackends(ctx, conf)
 		if initErr != nil {
-			return nil, "", nil, nil, fmt.Errorf("init image backends: %w", initErr)
+			return nil, "", nil, types.NetSetup{}, fmt.Errorf("init image backends: %w", initErr)
 		}
 		cmdcore.EnsureImage(ctx, backends, vmCfg)
 	}
@@ -354,16 +354,16 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 	nics := cfg.NICs
 	if cmd.Flags().Changed("nics") {
 		if conf.UseFirecracker {
-			return nil, "", nil, nil, fmt.Errorf("--nics override on clone is Cloud Hypervisor only (FC network_overrides retargets existing NICs, not resize)")
+			return nil, "", nil, types.NetSetup{}, fmt.Errorf("--nics override on clone is Cloud Hypervisor only (FC network_overrides retargets existing NICs, not resize)")
 		}
 		nics, _ = cmd.Flags().GetInt("nics")
 	}
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
+	netProvider, netSetup, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
 	if err != nil {
-		return nil, "", nil, nil, err
+		return nil, "", nil, types.NetSetup{}, err
 	}
 
-	return vmCfg, vmID, netProvider, networkConfigs, nil
+	return vmCfg, vmID, netProvider, netSetup, nil
 }
 
 func (h Handler) restoreDirect(ctx context.Context, cmd *cobra.Command, snapRef, vmRef string, vmCfg *types.VMConfig, snapBackend snapshot.Snapshot, hyper hypervisor.Hypervisor, logger *log.Fields) (bool, error) {
@@ -448,12 +448,12 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	vmID := utils.GenerateID()
 
 	nics, _ := cmd.Flags().GetInt("nics")
-	netProvider, networkConfigs, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
+	netProvider, netSetup, err := initNetwork(ctx, conf, vmID, nics, vmCfg, tapQueues(vmCfg.CPU, conf.UseFirecracker), bridgeDev)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	info, createErr := hyper.Create(ctx, vmID, vmCfg, storageConfigs, networkConfigs, bootCfg)
+	info, createErr := hyper.Create(ctx, vmID, vmCfg, storageConfigs, netSetup, bootCfg)
 	if createErr != nil {
 		rollbackNetwork(ctx, netProvider, vmID)
 		return nil, nil, nil, fmt.Errorf("create VM: %w", createErr)
@@ -469,10 +469,7 @@ func tapQueues(cpu int, useFC bool) int {
 	return cpu
 }
 
-func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, queues int, bridgeDev string) (network.Network, []*types.NetworkConfig, error) {
-	if nics <= 0 {
-		return nil, nil, nil
-	}
+func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int, vmCfg *types.VMConfig, queues int, bridgeDev string) (network.Network, types.NetSetup, error) {
 	var netProvider network.Network
 	var err error
 	if bridgeDev != "" {
@@ -481,7 +478,20 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 		netProvider, err = cmdcore.InitNetwork(conf)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("init network: %w", err)
+		return nil, types.NetSetup{}, fmt.Errorf("init network: %w", err)
+	}
+	nsPath, err := netProvider.Prepare(ctx, vmID, vmCfg)
+	if err != nil {
+		return nil, types.NetSetup{}, fmt.Errorf("prepare network: %w", err)
+	}
+	// CNI with no conflist + no NICs degenerates to host-netns mode; record an
+	// empty backend so a later resize doesn't pick CNI and miss the netns.
+	if nics <= 0 && netProvider.Type() == types.BackendCNI && nsPath == "" {
+		return netProvider, types.NetSetup{}, nil
+	}
+	setup := types.NetSetup{Backend: netProvider.Type(), NetnsPath: nsPath, BridgeDev: bridgeDev}
+	if nics <= 0 {
+		return netProvider, setup, nil
 	}
 	// Override CPU for TAP queue count — FC uses single-queue, CH uses per-vCPU queues.
 	// The network layer derives TAP queues from vmCfg.CPU.
@@ -490,9 +500,11 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	configs, err := netProvider.Add(ctx, vmID, vmCfg, network.AddRange(0, nics)...)
 	vmCfg.CPU = origCPU
 	if err != nil {
-		return nil, nil, fmt.Errorf("configure network: %w", err)
+		rollbackNetwork(ctx, netProvider, vmID)
+		return nil, types.NetSetup{}, fmt.Errorf("configure network: %w", err)
 	}
-	return netProvider, configs, nil
+	setup.NICs = configs
+	return netProvider, setup, nil
 }
 
 func rollbackNetwork(ctx context.Context, netProvider network.Network, vmID string) {

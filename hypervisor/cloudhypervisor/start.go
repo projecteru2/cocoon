@@ -37,15 +37,14 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 	args := buildCLIArgs(vmCfg, sockPath)
 	ch.saveCmdline(ctx, rec, args)
 
-	withNetwork := len(rec.NetworkConfigs) > 0
-	if _, err = ch.launchProcess(ctx, rec, sockPath, args, withNetwork); err != nil {
+	if _, err = ch.launchProcess(ctx, rec, sockPath, args); err != nil {
 		ch.MarkError(ctx, id)
 		return fmt.Errorf("launch VM: %w", err)
 	}
 	return nil
 }
 
-func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, socketPath string, args []string, withNetwork bool) (int, error) {
+func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, socketPath string, args []string) (int, error) {
 	processLog := ch.LogFilePath(rec.LogDir)
 	logFile, err := os.Create(processLog) //nolint:gosec
 	if err != nil {
@@ -64,10 +63,7 @@ func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VM
 	}
 
 	// CNI mode: enter per-VM netns before fork. Bridge mode: TAP is in host netns.
-	netnsPath := ""
-	if withNetwork && rec.NetworkConfigs[0].NetnsPath != "" {
-		netnsPath = rec.NetworkConfigs[0].NetnsPath
-	}
+	netnsPath := rec.ResolvedNetnsPath()
 
 	pid, err := ch.LaunchVMProcess(ctx, hypervisor.LaunchSpec{
 		Cmd:       cmd,

@@ -36,6 +36,14 @@ type VMConfig struct {
 	DataDisks []DataDiskSpec `json:"-"` // populated from --data-disk; consumed by Create
 }
 
+// NetSetup is what initNetwork hands the hypervisor: backend identity + netns + NICs.
+type NetSetup struct {
+	Backend   string
+	NetnsPath string
+	BridgeDev string
+	NICs      []*NetworkConfig
+}
+
 // VM is the runtime record for a VM, persisted by the hypervisor backend.
 type VM struct {
 	ID         string   `json:"id"`
@@ -51,6 +59,11 @@ type VM struct {
 	// Attached resources — promoted into VMRecord via embedding.
 	NetworkConfigs []*NetworkConfig `json:"network_configs,omitempty"`
 	StorageConfigs []*StorageConfig `json:"storage_configs,omitempty"`
+
+	// Host networking at VM level so 0-NIC VMs still carry backend + netns.
+	NetBackend   string `json:"net_backend,omitempty"`
+	NetnsPath    string `json:"netns_path,omitempty"`
+	NetBridgeDev string `json:"net_bridge_dev,omitempty"`
 
 	// FirstBooted is true after the VM has been started at least once.
 	// Used to skip cidata attachment on subsequent starts (cloudimg only).
@@ -97,4 +110,40 @@ func (cfg *VMConfig) Validate() error {
 		return fmt.Errorf("--password contains unsafe shell characters (backtick, $, ;, |, &, etc.)")
 	}
 	return nil
+}
+
+// ResolvedNetnsPath returns the netns where CH runs (NIC[0] fallback for old records).
+func (v *VM) ResolvedNetnsPath() string {
+	if v.NetnsPath != "" {
+		return v.NetnsPath
+	}
+	if len(v.NetworkConfigs) > 0 {
+		return v.NetworkConfigs[0].NetnsPath
+	}
+	return ""
+}
+
+// ResolvedNetBackend returns the host network backend (NIC[0] fallback for old records).
+func (v *VM) ResolvedNetBackend() string {
+	if v.NetBackend != "" {
+		return v.NetBackend
+	}
+	if len(v.NetworkConfigs) > 0 {
+		if b := v.NetworkConfigs[0].Backend; b != "" {
+			return b
+		}
+		return BackendCNI
+	}
+	return ""
+}
+
+// ResolvedNetBridgeDev returns the bridge device (NIC[0] fallback for old records).
+func (v *VM) ResolvedNetBridgeDev() string {
+	if v.NetBridgeDev != "" {
+		return v.NetBridgeDev
+	}
+	if len(v.NetworkConfigs) > 0 {
+		return v.NetworkConfigs[0].BridgeDev
+	}
+	return ""
 }

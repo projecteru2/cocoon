@@ -26,11 +26,12 @@ type cloneResumeOpts struct {
 	snapshotCfg         *chVMConfig
 }
 
-func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
-	return ch.CloneFromStream(ctx, vmID, vmCfg, networkConfigs, snapshotConfig, snapshot, ch.cloneAfterExtract)
+func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error) {
+	return ch.CloneFromStream(ctx, vmID, vmCfg, net, snapshotConfig, snapshot, ch.cloneAfterExtract)
 }
 
-func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error) {
+func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time) (*types.VM, error) {
+	networkConfigs := net.NICs
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
 	chConfigPath := filepath.Join(runDir, "config.json")
@@ -105,12 +106,16 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	args := []string{"--api-socket", sockPath}
 	ch.saveCmdline(ctx, &hypervisor.VMRecord{RunDir: runDir}, args)
 
-	withNetwork := len(networkConfigs) > 0
 	pid, err := ch.launchProcess(ctx, &hypervisor.VMRecord{
-		VM:     types.VM{NetworkConfigs: networkConfigs},
+		VM: types.VM{
+			NetworkConfigs: networkConfigs,
+			NetBackend:     net.Backend,
+			NetnsPath:      net.NetnsPath,
+			NetBridgeDev:   net.BridgeDev,
+		},
 		RunDir: runDir,
 		LogDir: logDir,
-	}, sockPath, args, withNetwork)
+	}, sockPath, args)
 	if err != nil {
 		ch.MarkError(ctx, vmID)
 		return nil, fmt.Errorf("launch CH: %w", err)
@@ -130,6 +135,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	info := &types.VM{
 		ID: vmID, Hypervisor: typ, State: types.VMStateRunning,
 		Config: *vmCfg, StorageConfigs: storageConfigs, NetworkConfigs: networkConfigs,
+		NetBackend: net.Backend, NetnsPath: net.NetnsPath, NetBridgeDev: net.BridgeDev,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
 	if err := ch.FinalizeClone(ctx, vmID, info, bootCfg, nil); err != nil {

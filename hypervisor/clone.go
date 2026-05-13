@@ -39,9 +39,9 @@ func (b *Backend) CloneSetup(ctx context.Context, vmID string, vmCfg *types.VMCo
 // snapshot lives on the same host (no tar streaming needed).
 func (b *Backend) DirectCloneBase(
 	ctx context.Context, vmID string, vmCfg *types.VMConfig,
-	networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, srcDir string,
+	net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string,
 	cloneFiles func(dstDir, srcDir string) error,
-	afterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error),
+	afterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time) (*types.VM, error),
 ) (_ *types.VM, err error) {
 	runDir, logDir, now, cleanup, err := b.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
 	if err != nil {
@@ -57,15 +57,15 @@ func (b *Backend) DirectCloneBase(
 		return nil, fmt.Errorf("clone snapshot files: %w", err)
 	}
 
-	return afterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
+	return afterExtract(ctx, vmID, vmCfg, net, runDir, logDir, now)
 }
 
 // CloneFromStream clones from a tar stream into a fresh runDir. Used when
 // the snapshot arrives over the network (cross-node clone).
 func (b *Backend) CloneFromStream(
 	ctx context.Context, vmID string, vmCfg *types.VMConfig,
-	networkConfigs []*types.NetworkConfig, snapshotConfig *types.SnapshotConfig, snapshot io.Reader,
-	afterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, runDir, logDir string, now time.Time) (*types.VM, error),
+	net types.NetSetup, snapshotConfig *types.SnapshotConfig, snapshot io.Reader,
+	afterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time) (*types.VM, error),
 ) (_ *types.VM, err error) {
 	runDir, logDir, now, cleanup, err := b.CloneSetup(ctx, vmID, vmCfg, snapshotConfig)
 	if err != nil {
@@ -81,7 +81,7 @@ func (b *Backend) CloneFromStream(
 		return nil, fmt.Errorf("extract snapshot: %w", err)
 	}
 
-	return afterExtract(ctx, vmID, vmCfg, networkConfigs, runDir, logDir, now)
+	return afterExtract(ctx, vmID, vmCfg, net, runDir, logDir, now)
 }
 
 // FinalizeClone updates the cloned VM's record in place after restore-and-resume.

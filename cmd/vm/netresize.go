@@ -22,7 +22,7 @@ func (h Handler) NetResize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("vm net: %w", err)
 	}
-	plumbing, err := plumbingForVM(conf, vm.NetworkConfigs)
+	plumbing, err := plumbingForVM(conf, vm)
 	if err != nil {
 		return fmt.Errorf("vm net: %w", err)
 	}
@@ -43,10 +43,14 @@ func (h Handler) NetResize(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// plumbingForVM picks the provider matching the VM's existing NICs; zero NICs is fatal (use `vm clone --nics N` instead).
-func plumbingForVM(conf *config.Config, configs []*types.NetworkConfig) (network.Network, error) {
-	if len(configs) == 0 {
-		return nil, fmt.Errorf("zero NICs; resize up not supported (use `vm clone --nics N` instead)")
+// plumbingForVM picks the provider from persisted VM state; 0-NIC works because NetBackend persists.
+func plumbingForVM(conf *config.Config, vm *types.VM) (network.Network, error) {
+	backend := vm.ResolvedNetBackend()
+	if backend == "" {
+		return nil, fmt.Errorf("no network backend on VM; cannot resize")
 	}
-	return providerForVM(conf, nil, map[string]network.Network{}, configs)
+	if backend == types.BackendCNI && vm.ResolvedNetnsPath() == "" {
+		return nil, fmt.Errorf("CNI VM has no netns; CH is in host netns and resize-up would land in the wrong namespace")
+	}
+	return providerForVM(conf, nil, map[string]network.Network{}, vm)
 }
