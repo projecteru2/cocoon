@@ -86,7 +86,7 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 // MarkError flips a single VM's state to VMStateError, logging on persist failure.
 func (b *Backend) MarkError(ctx context.Context, id string) {
 	if err := b.UpdateStates(ctx, []string{id}, types.VMStateError); err != nil {
-		log.WithFunc(b.Typ+".MarkError").Warnf(ctx, "mark VM %s error: %v", id, err)
+		log.WithFunc(b.Typ+".MarkError").Errorf(ctx, err, "mark VM %s error", id)
 	}
 }
 

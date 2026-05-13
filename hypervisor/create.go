@@ -44,7 +44,7 @@ func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 		}
 		return nil
 	}); err != nil {
-		log.WithFunc(b.Typ+".RollbackCreate").Warnf(ctx, "rollback VM %s (name=%s): %v", id, name, err)
+		log.WithFunc(b.Typ+".RollbackCreate").Errorf(ctx, err, "rollback VM %s (name=%s)", id, name)
 	}
 }
 
