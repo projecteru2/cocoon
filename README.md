@@ -344,7 +344,7 @@ $ cocoon vm exec -e FOO=bar myvm -- sh -c 'echo $FOO'
 bar
 ```
 
-Requires cocoon-agent to be running inside the guest. All official `ghcr.io/cocoonstack/cocoon/ubuntu:*` and `ghcr.io/cocoonstack/cocoon/android:*` images now bake the binary and enable it on boot (systemd unit on Ubuntu, init.rc service on Android). The official `ghcr.io/cocoonstack/windows/win11:*` images bake cocoon-agent v0.1.2 as a Windows service via SCM; DIY Windows images need to install the agent themselves.
+Requires cocoon-agent to be running inside the guest. All official `ghcr.io/cocoonstack/cocoon/ubuntu:*` and `ghcr.io/cocoonstack/cocoon/android:*` images now bake the binary and enable it on boot (systemd unit on Ubuntu, init.rc service on Android). The official `ghcr.io/cocoonstack/windows/win11:*` images bake cocoon-agent v0.1.3 as a Windows service via SCM; DIY Windows images need to install the agent themselves.
 
 ### Logs Flags
 
@@ -573,6 +573,8 @@ The `--windows` flag:
 ### Image
 
 Pre-built images and build automation are maintained in [cocoonstack/windows](https://github.com/cocoonstack/windows).
+
+The Windows image is published as an **OCI artifact** (split qcow2 parts pushed via ORAS), not a runnable OCI container image — use `oras pull` (not `cocoon image pull` or `docker pull`).
 
 ```bash
 # 1. Pull split parts via oras (https://oras.land)

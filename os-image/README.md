@@ -23,6 +23,7 @@ Multi-arch (`linux/amd64`, `linux/arm64`).
 | Image | Tag | IMAGE_NAME |
 |-------|-----|------------|
 | Android 14 | `14.0` | `ghcr.io/cocoonstack/cocoon/android:14.0` |
+| Android 15 | `15.0` | `ghcr.io/cocoonstack/cocoon/android:15.0` |
 
 Access via `adb connect <vm-ip>:5555` or `scrcpy -s <vm-ip>:5555 --no-audio`.
 
@@ -36,6 +37,8 @@ Pre-built images are published to GHCR as split qcow2 parts (each part ≤ 1.9 G
 ghcr.io/cocoonstack/windows/win11:25h2              # moving alias, latest good build
 ghcr.io/cocoonstack/windows/win11:25h2-<YYYYMMDD>   # dated immutable tag
 ```
+
+The Windows image is published as an **OCI artifact** (split qcow2 parts pushed via ORAS), not a runnable OCI container image — use `oras pull` (not `cocoon image pull` or `docker pull`).
 
 Pull and import into Cocoon:
 
