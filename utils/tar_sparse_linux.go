@@ -14,17 +14,8 @@ import (
 // Sparse-map JSON cap (margin under tar's 1MB PAX block); var so tests can override.
 var maxSparseMapJSONSize = 800 * 1024
 
-// tarFileMaybeSparse writes a file to tw using our custom COCOON.sparse PAX
-// format when the file has holes (detected via SEEK_HOLE/SEEK_DATA).
-//
-// For a 10G COW disk with 25MB of actual data, this writes ~25MB to the tar
-// archive instead of 10G — making snapshot creation orders of magnitude faster.
-//
-// Falls back to a regular tar entry when:
-//   - the file is empty or very small
-//   - SEEK_HOLE/SEEK_DATA fails (unsupported filesystem)
-//   - the file has no holes (not actually sparse)
-//   - the segment-map JSON would exceed tar's 1MB PAX cap
+// tarFileMaybeSparse writes file as COCOON.sparse PAX when it has holes (SEEK_HOLE/SEEK_DATA).
+// Falls back to a regular tar entry on small files, unsupported FS, no holes, or oversized segment map.
 func tarFileMaybeSparse(tw *tar.Writer, path, nameInTar string) error {
 	f, err := os.Open(path) //nolint:gosec
 	if err != nil {

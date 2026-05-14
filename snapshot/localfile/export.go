@@ -14,9 +14,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Export streams the snapshot as a raw tar archive.
-// The first tar entry is snapshot.json containing the SnapshotConfig metadata;
-// the remaining entries are the data files from the snapshot directory.
+// Export streams the snapshot as a raw tar (first entry: snapshot.json envelope; rest: data files).
 func (lf *LocalFile) Export(ctx context.Context, ref string) (io.ReadCloser, error) {
 	return lf.export(ctx, ref, false)
 }
@@ -26,11 +24,7 @@ func (lf *LocalFile) ExportCompressed(ctx context.Context, ref string) (io.ReadC
 	return lf.export(ctx, ref, true)
 }
 
-// ExportToDir copies snapshot data into dir alongside a snapshot.json
-// envelope. ReflinkCopy keeps the result standalone (rsync-friendly), unlike
-// the hardlinks DirectClone uses internally for memory pages. The envelope
-// is written last so its presence is the all-data-ready marker that
-// `--from-dir` can rely on.
+// ExportToDir reflinks snapshot data into dir + writes snapshot.json last so its presence is the all-data-ready marker for --from-dir.
 func (lf *LocalFile) ExportToDir(ctx context.Context, ref, dir string) error {
 	dataDir, cfg, err := lf.DataDir(ctx, ref)
 	if err != nil {

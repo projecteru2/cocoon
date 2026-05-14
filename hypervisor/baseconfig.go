@@ -13,9 +13,7 @@ const (
 	defaultTerminateGracePeriod = 5 * time.Second
 )
 
-// BaseConfig holds the directory layout and timeout defaults shared by
-// all hypervisor backends. Each backend embeds BaseConfig and adds
-// backend-specific methods (BinaryName, PIDFileName, etc.).
+// BaseConfig holds the directory layout + timeout defaults shared by all hypervisor backends; backends embed it and add binary-specific methods.
 type BaseConfig struct {
 	*config.Config
 	backendName string
@@ -38,9 +36,7 @@ func (c *BaseConfig) VMRunDir(vmID string) string { return filepath.Join(c.RunDi
 
 func (c *BaseConfig) VMLogDir(vmID string) string { return filepath.Join(c.LogDir(), vmID) }
 
-// DataDiskPath returns the canonical raw file path for a user data disk.
-// Filename includes the disk name so cleanSnapshotFiles matchers can
-// identify them via prefix.
+// DataDiskPath returns the canonical raw path; filename embeds the disk name so cleanSnapshotFiles prefix-match works.
 func (c *BaseConfig) DataDiskPath(vmID, name string) string {
 	return filepath.Join(c.VMRunDir(vmID), DataDiskBaseName(name))
 }

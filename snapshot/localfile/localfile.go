@@ -63,9 +63,7 @@ func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, types.Sna
 	return rec.DataDir, snapshotRecordToConfig(rec), nil
 }
 
-// Create stores a snapshot from stream. Uses a two-phase pattern
-// (placeholder → extract → finalize) so a crash between phases leaves a
-// pending record GC reclaims, not an orphan data directory.
+// Create stores a snapshot from stream via placeholder→extract→finalize so a mid-flight crash leaves only a pending record for GC.
 func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (_ string, err error) {
 	id := cfg.ID
 	if id == "" {
@@ -209,9 +207,7 @@ func (lf *LocalFile) rollbackCreate(ctx context.Context, id, name string) {
 	}
 }
 
-// resolveRecord locks the index once, resolves ref, and returns a value-copy
-// of the non-pending record. Used by DataDir / Inspect / Restore to avoid
-// repeating the resolve+pending-filter dance.
+// resolveRecord locks once, resolves ref, returns a value-copy of the non-pending record.
 func (lf *LocalFile) resolveRecord(ctx context.Context, ref string) (snapshot.SnapshotRecord, error) {
 	var rec snapshot.SnapshotRecord
 	return rec, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {

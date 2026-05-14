@@ -49,9 +49,7 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	return &rec, nil
 }
 
-// LaunchVMProcess starts spec.Cmd and waits for the API socket. On any error
-// after Start, the process is killed and the PID file is removed. Caller
-// reaps cmd via cmd.Wait() in a goroutine on success.
+// LaunchVMProcess starts spec.Cmd and waits for the API socket; any post-Start error kills the process + removes the PID file. Caller reaps via cmd.Wait().
 func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int, err error) {
 	started := false
 	pidWritten := false

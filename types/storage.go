@@ -48,9 +48,7 @@ type DataDiskSpec struct {
 	DirectIO      *bool
 }
 
-// ValidateStorageConfigs enforces invariants at every boundary that loads
-// or finalizes StorageConfigs (FinalizeCreate, Start, Snapshot, Clone/Restore
-// after sidecar load).
+// ValidateStorageConfigs enforces StorageConfig invariants at every load/finalize boundary.
 func ValidateStorageConfigs(configs []*StorageConfig) error {
 	for i, sc := range configs {
 		if sc == nil {

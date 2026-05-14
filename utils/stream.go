@@ -70,9 +70,7 @@ func TarDirStreamWithRemove(dir string) io.ReadCloser {
 	})
 }
 
-// PeekReader peeks up to n bytes and returns them along with a reader that
-// re-emits the head followed by the rest of r. A short read at EOF is not an
-// error — caller checks len(head).
+// PeekReader peeks up to n bytes + returns a reader that re-emits them then the rest; short read at EOF is not an error.
 func PeekReader(r io.Reader, n int) ([]byte, io.Reader, error) {
 	head := make([]byte, n)
 	actual, err := io.ReadFull(r, head)

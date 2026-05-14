@@ -128,11 +128,7 @@ func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, ne
 	return f.Close()
 }
 
-// buildMountSpecs derives cloud-init mounts from StorageConfigs. A data disk
-// is auto-mounted iff Role==Data, MountPoint is non-empty, and FSType is a
-// known formatter (none → guest is responsible for mkfs+mount, skip).
-// Defaults Options to "defaults,nofail" so a missing or corrupt disk
-// doesn't keep the guest from booting.
+// buildMountSpecs derives cloud-init mounts (defaults,nofail) for Role==Data disks with non-empty MountPoint and a known FSType.
 func buildMountSpecs(configs []*types.StorageConfig) []metadata.MountSpec {
 	var out []metadata.MountSpec
 	for _, sc := range configs {

@@ -29,9 +29,7 @@ const (
 	ioEngineAsync = "Async" // io_uring
 )
 
-// Firecracker REST API request types.
-// FC uses a pre-boot configuration model: start an empty process,
-// configure via HTTP PUT/PATCH, then issue InstanceStart.
+// Firecracker REST API request types — pre-boot config model: start empty, configure via PUT/PATCH, InstanceStart.
 
 type fcMachineConfig struct {
 	VCPUCount  int    `json:"vcpu_count"`
@@ -96,9 +94,7 @@ type fcNetworkOverride struct {
 	HostDevName string `json:"host_dev_name"`
 }
 
-// fcVsockOverride retargets the snapshot's vsock UDS during snapshot/load.
-// Requires FC >= v1.16; older FC rejects unknown fields, so the wrapper is
-// *pointer + omitempty (nil never goes on the wire).
+// fcVsockOverride retargets the vsock UDS during snapshot/load. Pointer+omitempty keeps the field off the wire for FC < v1.16.
 type fcVsockOverride struct {
 	UDSPath string `json:"uds_path"`
 }
@@ -108,20 +104,13 @@ type fcSnapshotMemBE struct {
 	BackendType string `json:"backend_type"`
 }
 
-// fcAPI PUTs body to a Firecracker REST endpoint with retry. Use only for
-// idempotent endpoints (pre-boot config — putMachineConfig, putBootSource,
-// putDrive, putNetworkInterface, putBalloon, putEntropy, putVsock — where
-// a retry PUT just overwrites the same config). All current callers expect
-// 204; if a future endpoint needs alt success codes, switch to DoAPIWithRetry
-// directly instead of widening this wrapper.
+// fcAPI PUTs body to an idempotent FC REST endpoint with retry; expects 204. Use DoAPIWithRetry for non-204 responses.
 func fcAPI(ctx context.Context, hc *http.Client, endpoint string, body []byte) error {
 	_, err := utils.DoAPIWithRetry(ctx, hc, http.MethodPut, "http://localhost"+endpoint, body)
 	return err
 }
 
-// fcAPIOnce is the no-retry variant for non-idempotent state transitions
-// (instance-start, pause/resume) where a retry after a lost response would
-// hit a wrong-state error and mask the original success.
+// fcAPIOnce is no-retry for non-idempotent state transitions (instance-start, pause/resume) — retry would hit wrong-state.
 func fcAPIOnce(ctx context.Context, hc *http.Client, method, endpoint string, body []byte, successCodes ...int) error {
 	_, err := utils.DoAPIOnce(ctx, hc, method, "http://localhost"+endpoint, body, successCodes...)
 	return err
@@ -200,9 +189,7 @@ func resumeVM(ctx context.Context, hc *http.Client) error {
 	return fcAPIOnce(ctx, hc, http.MethodPatch, "/vm", body)
 }
 
-// createSnapshotFC creates a full VM snapshot (vmstate + memory file) in destDir.
-// Bypasses retry — memory transfer takes minutes; resending after a transient
-// error would re-transfer multi-GiB and overwrite a partial state.json.
+// createSnapshotFC writes vmstate + memory to destDir; no retry — resending would re-transfer multi-GiB and clobber a partial state.json.
 func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 	body, err := json.Marshal(fcSnapshotCreate{
 		SnapshotPath: filepath.Join(destDir, snapshotVMStateFile),
@@ -217,9 +204,7 @@ func createSnapshotFC(ctx context.Context, sockPath, destDir string) error {
 	return err
 }
 
-// loadSnapshotFC loads a snapshot from sourceDir into a freshly started FC.
-// vsockUDSOverride="" inherits the snapshot's path (same-VM restore, FC < v1.16).
-// Bypasses retry — same memory-transfer reasoning as createSnapshotFC.
+// loadSnapshotFC loads from sourceDir into a fresh FC; vsockUDSOverride="" inherits the snapshot's path (FC < v1.16). No retry (same reason as createSnapshotFC).
 func loadSnapshotFC(ctx context.Context, sockPath, sourceDir string, networkOverrides []fcNetworkOverride, vsockUDSOverride string) error {
 	req := fcSnapshotLoad{
 		SnapshotPath: filepath.Join(sourceDir, snapshotVMStateFile),

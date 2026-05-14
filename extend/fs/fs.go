@@ -1,9 +1,5 @@
-// Package fs is the runtime attach interface for vhost-user-fs devices
-// (typically backed by virtiofsd) on a running VM.
-//
-// State semantics: attach is runtime-only. Attached devices are not persisted
-// in the VM record and disappear when the VM stops. The user must re-attach
-// after a restart. Cocoon does not own the virtiofsd backend.
+// Package fs is the runtime attach interface for vhost-user-fs devices (typically virtiofsd).
+// Attach is runtime-only — devices don't persist past VM stop; re-attach after restart.
 package fs
 
 import (
@@ -57,12 +53,7 @@ type Lister interface {
 	FsList(ctx context.Context, vmRef string) ([]Attached, error)
 }
 
-// Normalize enforces required fields and applies queue-size defaults.
-// Mutates the receiver — callers expect the post-call Spec to be ready
-// for serialization. Mirror vfio.Spec.NormalizedPath in spirit (compute
-// + validate in one call) so future Specs in extend/ converge on the
-// same idiom rather than fan out into pure-Validate vs. mutating-Validate
-// styles.
+// Normalize enforces required fields and applies queue-size defaults; mutates the receiver.
 func (s *Spec) Normalize() error {
 	if s.Socket == "" {
 		return fmt.Errorf("socket is required")
@@ -87,9 +78,7 @@ func (s *Spec) Normalize() error {
 	return nil
 }
 
-// DeriveID returns the deterministic CH device id for a tag. Both attach
-// (passed to vm.add-fs) and detach (matched against vm.info) use this so
-// concurrent attaches of the same tag fail at CH's id-uniqueness check.
+// DeriveID returns the deterministic CH device id for a tag (used by attach + detach so concurrent attaches collide on CH's id check).
 func DeriveID(tag string) string {
 	return "cocoon-fs-" + tag
 }

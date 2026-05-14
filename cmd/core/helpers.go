@@ -156,10 +156,7 @@ func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.V
 	return all, nil
 }
 
-// RouteRefs resolves each user ref (full ID, name, or ID prefix) to its
-// owning hypervisor and returns a map of owner → resolved full VM IDs.
-// Returning full IDs (not raw refs) ensures downstream code — including
-// network recovery and lifecycle batchers — never has to re-resolve prefixes.
+// RouteRefs resolves user refs to (hypervisor → full VM IDs); downstream callers never re-resolve.
 func RouteRefs(ctx context.Context, hypers []hypervisor.Hypervisor, refs []string) (map[hypervisor.Hypervisor][]string, error) {
 	result := map[hypervisor.Hypervisor][]string{}
 	for _, ref := range refs {
@@ -222,9 +219,7 @@ func ResolveImage(ctx context.Context, backends []imagebackend.Images, vmCfg *ty
 	return storageConfigs, bootCfg, nil
 }
 
-// EnsureImage pulls the digest-pinned base image if missing locally; warns
-// (rather than fails) for imported images so VerifyBaseFiles surfaces the
-// real error.
+// EnsureImage pulls the digest-pinned base if missing; only warns so VerifyBaseFiles surfaces the real error for imported images.
 func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *types.VMConfig) {
 	if vmCfg.Image == "" || vmCfg.ImageType == "" {
 		return
@@ -259,9 +254,7 @@ func EnsureImage(ctx context.Context, backends []imagebackend.Images, vmCfg *typ
 			logger.Warnf(ctx, "auto-pull %s failed (imported image?): %v — clone may fail if base layers are missing", pullRef, pullErr)
 			return
 		}
-		// For non-OCI images (e.g. cloudimg), digestPullRef cannot pin by
-		// digest, so the pull may fetch newer content whose digest differs
-		// from the one recorded at snapshot time. Verify post-pull.
+		// cloudimg has no digest pinning, so a pull may drift; verify the digest after.
 		if vmCfg.ImageDigest != "" && pullRef == vmCfg.Image {
 			img, err := b.Inspect(ctx, vmCfg.ImageDigest)
 			if err != nil || img == nil {
@@ -284,9 +277,7 @@ func ResolveImageOwner(ctx context.Context, backends []imagebackend.Images, ref 
 	)
 }
 
-// resolveOwner returns the unique backend among backends for which found
-// reports true. notFound is returned when zero match; ambiguous wraps the
-// caller-supplied error and lists the matched backend types.
+// resolveOwner returns the unique backend where found==true; notFound on zero, ambiguous wrapped on multi-match (lists matched types).
 func resolveOwner[T interface{ Type() string }](backends []T, ref string, found func(T) (bool, error), notFound, ambiguous error) (T, error) {
 	var matches []T
 	var zero T
@@ -465,10 +456,7 @@ func WantJSON(cmd *cobra.Command) bool {
 	return out == "json"
 }
 
-// MaybeOutputJSON emits v as JSON iff --output=json is set. Returns
-// (true, encodeErr) when JSON was emitted — caller should return the error
-// without falling through to human-readable logging. Returns (false, nil)
-// otherwise so the caller proceeds with normal log output.
+// MaybeOutputJSON emits JSON iff --output=json; (true, _) means handled and the caller should stop logging.
 func MaybeOutputJSON(cmd *cobra.Command, v any) (bool, error) {
 	if !WantJSON(cmd) {
 		return false, nil
@@ -495,11 +483,7 @@ func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
 }
 
-// validateRefShape catches malformed base-image refs before they hit a backend
-// that would surface a misleading downstream error. cloudimg fetches over HTTP
-// (ref must start with http:// or https://); OCI pulls via registry protocol
-// (ref must parse via name.ParseReference). A bare OCI ref leaking into the
-// cloudimg path would otherwise surface as `unsupported protocol scheme ""`.
+// validateRefShape rejects URL/OCI ref mismatches early so backends don't surface misleading downstream errors.
 func validateRefShape(ref, imageType string) error {
 	switch imageType {
 	case types.ImageTypeCloudImg:
@@ -536,10 +520,7 @@ func findHypervisorFactory(typ config.HypervisorType) func(*config.Config) (hype
 	return nil
 }
 
-// resolveVMOwner returns the owning hypervisor and the resolved *types.VM.
-// Reusing the Inspect we already pay for fixes prefix-resolution downstream:
-// callers can use vm.ID instead of the user's raw ref (which may be a prefix
-// or name).
+// resolveVMOwner returns the owning hypervisor and resolved *types.VM so callers use vm.ID instead of re-resolving the raw ref.
 func resolveVMOwner(ctx context.Context, hypers []hypervisor.Hypervisor, ref string) (hypervisor.Hypervisor, *types.VM, error) {
 	var resolved *types.VM
 	owner, err := resolveOwner(hypers, ref, func(h hypervisor.Hypervisor) (bool, error) {
@@ -608,9 +589,7 @@ func parseDataDiskFlags(raw []string) ([]types.DataDiskSpec, error) {
 	return specs, nil
 }
 
-// parseDataDiskSpec parses one --data-disk argument: comma-separated key=value
-// pairs. size is required and >= 16MiB; name/fstype/mount/directio are
-// optional and defaulted by normalizeDataDiskSpecs.
+// parseDataDiskSpec parses a comma-separated --data-disk arg; size is required (≥16MiB), others default via normalizeDataDiskSpecs.
 func parseDataDiskSpec(s string) (types.DataDiskSpec, error) {
 	var spec types.DataDiskSpec
 	if s == "" {
@@ -669,12 +648,7 @@ func parseDataDiskSpec(s string) (types.DataDiskSpec, error) {
 	return spec, nil
 }
 
-// normalizeDataDiskSpecs fills defaults and enforces uniqueness:
-//   - empty FSType => ext4 (then re-validates whitelist)
-//   - empty Name => dataN, skipping any name already taken
-//   - !MountPointSet && fstype != none => /mnt/<name>
-//   - fstype == none requires MountPoint == ""
-//   - Names must be unique across the batch
+// normalizeDataDiskSpecs fills defaults (FSType=ext4, Name=dataN, MountPoint=/mnt/<name>) and enforces unique names; fstype=none rejects non-empty MountPoint.
 func normalizeDataDiskSpecs(specs []types.DataDiskSpec) error {
 	used := make(map[string]bool)
 	for _, s := range specs {

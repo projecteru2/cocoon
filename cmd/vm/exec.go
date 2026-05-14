@@ -94,9 +94,7 @@ func parseExecEnv(pairs []string) (map[string]string, error) {
 	return out, nil
 }
 
-// dialHybridVsock dials the host UDS and runs the CONNECT-port handshake (CH/FC share the dialect).
-// CH accepts the unix conn before the agent inside the guest is listening, so the read for the
-// "OK " reply blocks indefinitely if the agent is mid-startup. Watch ctx so Ctrl+C / SIGTERM unblock.
+// dialHybridVsock dials the UDS + runs CONNECT-port handshake (CH/FC); ctx-aware so Ctrl+C unblocks the "OK " read while the in-guest agent is still coming up.
 func dialHybridVsock(ctx context.Context, socketPath string, port uint32) (io.ReadWriteCloser, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", socketPath)

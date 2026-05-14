@@ -9,9 +9,7 @@ import (
 	"strings"
 )
 
-// /proc/<pid>/cmdline is NUL-separated argv. Match argv[0] basename strictly,
-// then apply the optional expectArg substring check on the remainder so a
-// process running "bash -c 'cloud-hypervisor ...'" can't impersonate the VMM.
+// Match argv[0] basename strictly + expectArg substring on the rest so "bash -c 'cloud-hypervisor ...'" can't impersonate the VMM.
 func verifyProcessCmdline(pid int, binaryName, expectArg string) (matched, available bool) {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {

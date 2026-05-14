@@ -1,6 +1,4 @@
-// Cross-module GC protocols: each is an unexported interface paired with an
-// exported accessor. Snapshot types in other packages opt in by adding the
-// matching method, so this file imports nothing concrete.
+// Cross-module GC protocols: snapshots opt in via the matching method; this file imports nothing concrete.
 package gc
 
 // usedBlobIDs is implemented by snapshots that reference image blobs.
@@ -13,14 +11,7 @@ type activeVMIDs interface {
 	ActiveVMIDs() map[string]struct{}
 }
 
-// Collect aggregates ID sets from all snapshots in others using the given
-// accessor. Snapshots that don't support the accessor return nil and are
-// silently skipped.
-//
-// Usage:
-//
-//	blobIDs := gc.Collect(others, gc.BlobIDs)
-//	vmIDs   := gc.Collect(others, gc.VMIDs)
+// Collect aggregates ID sets from snapshots via accessor; snapshots that don't implement it are skipped.
 func Collect(others map[string]any, accessor func(any) map[string]struct{}) map[string]struct{} {
 	result := make(map[string]struct{})
 	for _, snap := range others {

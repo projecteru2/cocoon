@@ -12,12 +12,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Stop shuts down the Cloud Hypervisor process for each VM ref.
-// Two modes are used depending on the VM's boot method:
-//   - UEFI boot (cloudimg): ACPI power-button → poll → fallback SIGTERM/SIGKILL
-//   - Direct boot (OCI):    vm.shutdown API → SIGTERM → SIGKILL (no ACPI)
-//
-// Returns the IDs that were successfully stopped.
+// Stop shuts down each CH process: UEFI uses ACPI power-button; direct-boot uses vm.shutdown. Both fall back to SIGTERM→SIGKILL.
 func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, error) {
 	return ch.StopAll(ctx, refs, ch.stopOne)
 }
@@ -51,9 +46,7 @@ func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, hc *http.Client, vm
 	)
 }
 
-// forceTerminate shuts down a VM by flushing disk backends via the REST API,
-// then sending SIGTERM → SIGKILL. Verifies the PID still belongs to
-// cloud-hypervisor before sending signals to avoid killing a reused PID.
+// forceTerminate flushes disks via REST then SIGTERM→SIGKILL; verifies pid is still cloud-hypervisor to avoid signaling a reused PID.
 func (ch *CloudHypervisor) forceTerminate(ctx context.Context, hc *http.Client, vmID, socketPath string, pid int) error {
 	if err := shutdownVM(ctx, hc); err != nil {
 		log.WithFunc("cloudhypervisor.forceTerminate").Warnf(ctx, "vm.shutdown %s: %v", vmID, err)

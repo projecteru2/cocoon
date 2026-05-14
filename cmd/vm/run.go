@@ -53,9 +53,7 @@ func (h Handler) Run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("start VM %s: %w", vm.ID, err)
 	}
 	if wantJSON {
-		// Re-inspect to capture post-start state (running, PID, IP).
-		// On failure, fall back to pre-start vm and surface the reason so the
-		// caller doesn't silently consume stale JSON.
+		// Re-inspect for post-start state; on err, fall back to pre-start vm so JSON isn't silently stale.
 		info, inspectErr := hyper.Inspect(ctx, vm.ID)
 		switch {
 		case inspectErr != nil:
@@ -215,9 +213,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// restoreFromDir runs DirectRestore over an envelope-bearing dir. The
-// envelope's snapshot ID is gated against vm.SnapshotIDs; a foreign ID
-// requires --force so "overwrite VM with unrelated lineage" is opt-in.
+// restoreFromDir runs DirectRestore over an envelope dir; a foreign snapshot ID requires --force so cross-lineage overwrite is opt-in.
 func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, vmRef, dir string, logger *log.Fields) error {
 	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
 	if err != nil {
@@ -309,11 +305,7 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 	return nil
 }
 
-// snapshotSource resolves the snapshot source for clone/restore: either a
-// directory via --from-dir or a positional SNAPSHOT ref. baseArgs is the
-// number of leading positional args before SNAPSHOT (0 for clone, 1 for
-// restore where args[0] is VM). Returns (fromDir, snapRef, err) with exactly
-// one of fromDir/snapRef non-empty on success.
+// snapshotSource picks the clone/restore source: --from-dir or args[baseArgs]. Exactly one of (fromDir, snapRef) is non-empty.
 func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
 	fromDir, _ := cmd.Flags().GetString("from-dir")
 	if fromDir != "" {

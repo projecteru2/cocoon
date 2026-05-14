@@ -32,9 +32,7 @@ func (ch *CloudHypervisor) cowPath(vmID string, directBoot bool) string {
 	return ch.conf.OverlayPath(vmID)
 }
 
-// qemuExpandImage expands a disk image to targetSize if its current virtual
-// size is smaller. For raw/sparse files (directBoot), os.Truncate is used;
-// for qcow2 images, qemu-img resize is used. No-op if already large enough.
+// qemuExpandImage grows a disk to targetSize iff smaller; truncate for raw (directBoot), qemu-img resize for qcow2.
 func qemuExpandImage(ctx context.Context, path string, targetSize int64, directBoot bool) error {
 	if directBoot {
 		return hypervisor.ExpandRawImage(path, targetSize)

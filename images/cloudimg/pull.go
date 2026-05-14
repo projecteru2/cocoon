@@ -52,9 +52,7 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// pull downloads url and commits it as a blob under url. The URL→blob
-// mapping is idempotent: a second pull of the same URL whose blob is
-// still present is a no-op.
+// pull commits url as a blob; the URL→blob mapping is idempotent (no-op when the blob already exists).
 func pull(ctx context.Context, conf *Config, store storage.Store[imageIndex], url string, force bool, tracker progress.Tracker) error {
 	logger := log.WithFunc("cloudimg.pull")
 

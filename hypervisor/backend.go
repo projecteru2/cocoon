@@ -95,9 +95,7 @@ type DirectRestoreSpec struct {
 	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// CreateSpec carries the inputs to CreateSequence. Prepare returns the
-// final storage configs (e.g. with COW + data disks attached); the rest of
-// the sequence is uniform across backends.
+// CreateSpec carries CreateSequence inputs; Prepare returns final storage configs (COW + data disks).
 type CreateSpec struct {
 	VMCfg          *types.VMConfig
 	StorageConfigs []*types.StorageConfig
@@ -106,9 +104,7 @@ type CreateSpec struct {
 	Prepare        func(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, net types.NetSetup, boot *types.BootConfig) ([]*types.StorageConfig, error)
 }
 
-// SnapshotSpec carries the backend-specific hooks for SnapshotSequence.
-// hc is the shared http.Client built by SnapshotSequence so HTTP keep-alive
-// reuses one CH/FC API socket connection across pause/capture/resume.
+// SnapshotSpec carries backend hooks for SnapshotSequence; the shared hc keeps HTTP keep-alive across pause/capture/resume.
 type SnapshotSpec struct {
 	Pause        func(rec *VMRecord, hc *http.Client) error
 	Resume       func(rec *VMRecord, hc *http.Client) error

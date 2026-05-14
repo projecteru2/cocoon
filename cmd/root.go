@@ -108,9 +108,7 @@ func initConfig(ctx context.Context) error {
 		return fmt.Errorf("config: %w", err)
 	}
 
-	// core/log.SetupLog hardcodes os.Stdout as the logger writer. Swap
-	// os.Stdout→os.Stderr for the call so the captured writer is stderr,
-	// preserving stdout for -o json output. Restore immediately after.
+	// core/log.SetupLog captures os.Stdout; swap stderr in for the call so -o json output stays on stdout.
 	origStdout := os.Stdout
 	os.Stdout = os.Stderr
 	setupErr := log.SetupLog(ctx, conf.Log, "")

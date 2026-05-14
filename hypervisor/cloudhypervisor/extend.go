@@ -89,9 +89,7 @@ func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec 
 		ID:   spec.ID,
 		Path: path,
 	}, spec.ID, func(info *chVMInfoResponse) error {
-		// host stat happens after the running-VM gate inside attachWith,
-		// so a stopped VM reports the VM-state error instead of misleading
-		// host path output.
+		// stat is gated behind the running-VM check so stopped VMs surface the state error, not a host-path one.
 		st, statErr := os.Stat(path)
 		if statErr != nil {
 			return fmt.Errorf("pci path %s: %w", path, statErr)
@@ -137,9 +135,7 @@ func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio
 	})
 }
 
-// inspectRunning is the shared bootstrap for every extend op: gate on a
-// live VM and grab a fresh vm.info snapshot to feed conflict scans,
-// memory checks, or device-id lookups.
+// inspectRunning gates on a live VM and returns a fresh vm.info for conflict/memory/device-id lookups.
 func (ch *CloudHypervisor) inspectRunning(ctx context.Context, vmRef string) (*http.Client, *chVMInfoResponse, error) {
 	hc, err := ch.runningVMClient(ctx, vmRef)
 	if err != nil {
@@ -169,9 +165,7 @@ func (ch *CloudHypervisor) attachWith(
 	if err != nil {
 		return "", fmt.Errorf("marshal %s: %w", endpoint, err)
 	}
-	// vm.add-fs / vm.add-device are not idempotent: a retry after CH already
-	// accepted the device but the response was lost would echo back as a
-	// misleading "duplicate id" rejection. vmAPIOnce skips the retry layer.
+	// vmAPIOnce: vm.add-fs / vm.add-device aren't idempotent — a retry after a lost ACK echoes as "duplicate id".
 	resp, err := vmAPIOnce(ctx, hc, endpoint, bodyBytes, http.StatusOK, http.StatusNoContent)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", endpoint, err)
@@ -183,10 +177,7 @@ func (ch *CloudHypervisor) attachWith(
 	if pci.ID != "" {
 		return pci.ID, nil
 	}
-	// CH always returns 200 with PciDeviceInfo on add-fs/add-device, so this
-	// path means we accepted the alt 204 success code and lost the body. The
-	// fallback covers the user-supplied id; an empty fallback (e.g. VFIO with
-	// no --id) would otherwise leave the caller without a detach key.
+	// Body-less success means we accepted the alt 204 code; fall back to the user-supplied id, but reject empty (VFIO without --id has no detach key).
 	if fallbackID == "" {
 		return "", fmt.Errorf("%s: empty response body and no fallback id (CH returned no PciDeviceInfo)", endpoint)
 	}
@@ -212,9 +203,7 @@ func (ch *CloudHypervisor) detachWith(
 	return nil
 }
 
-// runningVMClient resolves vmRef, asserts the recorded CH process is still
-// alive (PID file + cmdline match — same gate as Backend.WithRunningVM),
-// and returns an http.Client connected to its CH API socket.
+// runningVMClient resolves vmRef, asserts the CH process is alive (matches Backend.WithRunningVM), and returns an http.Client on its API socket.
 func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*http.Client, error) {
 	hc, _, _, err := ch.runningVMClientWithRecord(ctx, vmRef)
 	return hc, err
@@ -244,9 +233,7 @@ func (ch *CloudHypervisor) runningVMClientWithRecord(ctx context.Context, vmRef 
 	return utils.NewSocketHTTPClient(sockPath), vmID, rec, nil
 }
 
-// listWith is the shared skeleton for inspect-time enumeration.
-// Stopped VMs return a nil slice (not an error) so inspect can omit the
-// field cleanly.
+// listWith is the inspect-time enumeration skeleton; stopped VMs return nil (not an error) so inspect can omit the field cleanly.
 func listWith[A any](
 	ctx context.Context, ch *CloudHypervisor, vmRef string,
 	extract func(*chVMInfoResponse) []A,

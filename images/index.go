@@ -53,9 +53,7 @@ func ReferencedDigests[E Entry](images map[string]*E) map[string]struct{} {
 	return refs
 }
 
-// LookupRefs returns all ref keys matching id by exact key, optional
-// normalization, or digest prefix. normalizers are tried in order for
-// backend-specific key transforms (e.g., OCI image reference normalization).
+// LookupRefs returns all ref keys matching id by exact key, normalizer, or digest prefix.
 func LookupRefs[E Entry](images map[string]*E, id string, normalizers ...func(string) (string, bool)) []string {
 	// Exact key match.
 	if entry, ok := images[id]; ok && entry != nil {
@@ -69,11 +67,7 @@ func LookupRefs[E Entry](images map[string]*E, id string, normalizers ...func(st
 			}
 		}
 	}
-	// Digest match (exact or prefix) — collect ALL matching refs.
-	// Require at least minHexLen hex characters for prefix match to avoid
-	// overly broad matches (e.g., "sha256:a" hitting everything).
-	// Strip optional "sha256:" before measuring so the threshold counts
-	// actual hex digits, not the algorithm prefix.
+	// Digest match (exact or prefix); minHexLen guards against over-broad prefixes like "sha256:a".
 	idHex := strings.TrimPrefix(id, "sha256:")
 	var refs []string
 	for ref, ep := range images {
@@ -94,15 +88,8 @@ func LookupRefs[E Entry](images map[string]*E, id string, normalizers ...func(st
 	return refs
 }
 
-// GCStaleTemp removes temp entries older than StaleTempAge.
-// Set dirOnly=true to only remove directories (OCI uses dirs, cloudimg uses files).
-//
-// Regular files whose name ends in ".lock" are preserved regardless of
-// age — they are flock rendezvous files, and removing one while another
-// process is holding the lock would break cross-process mutual
-// exclusion (flock synchronizes on inode, not pathname: a subsequent
-// flock.New on the same path would create a new inode and race with
-// the lock holder). They are 0-byte files so the leak is negligible.
+// GCStaleTemp removes temp entries older than StaleTempAge; dirOnly=true skips files.
+// .lock files are never removed — flock syncs on inode, so deleting one races with a current holder.
 func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
 	cutoff := time.Now().Add(-utils.StaleTempAge)
 	return utils.RemoveMatching(ctx, dir, func(e os.DirEntry) bool {
@@ -132,9 +119,7 @@ func GCCollectBlobs(ctx context.Context, tempDir string, dirOnly bool, ids []str
 	return errors.Join(errs...)
 }
 
-// deleteByID removes entries from the map by looking up each ID.
-// lookup returns all matching ref keys (supporting digest prefix and multi-ref
-// matches), so "delete <digest>" removes every ref pointing to that digest.
+// deleteByID removes every ref returned by lookup, so "delete <digest>" sweeps all refs pointing at it.
 func deleteByID[E any](ctx context.Context, logPrefix string, images map[string]*E, lookup func(string) []string, ids []string) []string {
 	logger := log.WithFunc(logPrefix)
 	var deleted []string

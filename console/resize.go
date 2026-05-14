@@ -10,9 +10,7 @@ import (
 	"github.com/moby/term"
 )
 
-// HandleResize propagates the initial terminal size from localFd to remoteFd
-// and listens for SIGWINCH to relay subsequent resize events.
-// Returns a cleanup function that stops the signal handler.
+// HandleResize syncs localFd → remoteFd terminal size and relays SIGWINCH; returned cleanup stops the signal handler.
 func HandleResize(localFd, remoteFd uintptr) func() {
 	syncSize := func() {
 		if ws, err := term.GetWinsize(localFd); err == nil {

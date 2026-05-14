@@ -7,9 +7,7 @@ import (
 	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
-// NewStore creates a JSON-backed Store and returns it alongside the locker.
-// Both use the same underlying flock so the locker can be passed independently
-// (e.g. to gc.Module) while sharing the same cross-process lock file.
+// NewStore returns a JSON-backed Store and its locker; both share the same flock file so the locker can be passed to gc.Module independently.
 func NewStore[T any](filePath, lockPath string) (storage.Store[T], lock.Locker) {
 	locker := flock.New(lockPath)
 	return storejson.New[T](filePath, locker), locker

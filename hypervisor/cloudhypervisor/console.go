@@ -12,15 +12,8 @@ import (
 	"github.com/cocoonstack/cocoon/hypervisor"
 )
 
-// Console connects to the VM's console output and returns a bidirectional stream.
-//
-// For UEFI-boot VMs (cloudimg): connects to the serial socket (console.sock).
-// For direct-boot VMs (OCI):    opens the virtio-console PTY allocated by CH.
-//
-// The console path is resolved lazily on first access via the CH API
-// (OCI/PTY) or the deterministic socket path (UEFI), so callers like
-// Clone and Start don't need to query it upfront.
-// The caller is responsible for closing the returned ReadWriteCloser.
+// Console returns a bidirectional stream to the VM console: console.sock (UEFI) or the CH-allocated PTY (OCI).
+// Caller closes the returned ReadWriteCloser.
 func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWriteCloser, error) {
 	id, err := ch.ResolveRef(ctx, ref)
 	if err != nil {

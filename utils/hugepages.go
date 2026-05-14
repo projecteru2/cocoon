@@ -8,9 +8,7 @@ import (
 	"strings"
 )
 
-// DetectHugePages reads /proc/sys/vm/nr_hugepages and returns true
-// if the host has hugepages configured (value > 0).
-// Returns false on any error (non-Linux, file missing, etc.).
+// DetectHugePages returns true iff /proc/sys/vm/nr_hugepages > 0; false on any error (non-Linux, etc.).
 func DetectHugePages() bool {
 	data, err := os.ReadFile("/proc/sys/vm/nr_hugepages")
 	if err != nil {

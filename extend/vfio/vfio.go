@@ -1,10 +1,5 @@
-// Package vfio is the runtime attach interface for VFIO PCI passthrough
-// devices on a running VM. Typical use cases: GPU, NIC, NVMe.
-//
-// State semantics: attach is runtime-only. Attached devices are not
-// persisted in the VM record and disappear when the VM stops. Host-side
-// IOMMU enablement and vfio-pci driver binding are the user's
-// responsibility.
+// Package vfio is the runtime attach interface for VFIO PCI passthrough (GPU, NIC, NVMe).
+// Attach is runtime-only — devices don't persist past VM stop; host IOMMU + vfio-pci binding are the user's job.
 package vfio
 
 import (
@@ -58,11 +53,7 @@ type Lister interface {
 	DeviceList(ctx context.Context, vmRef string) ([]Attached, error)
 }
 
-// NormalizedPath validates the spec and returns the canonical sysfs path
-// (NormalizePath already covers PCI shape validation, so callers do not
-// need a separate Validate()). Path existence is asserted by the backend
-// right before calling CH; the host file may be removed between CLI parse
-// and the API call.
+// NormalizedPath validates the spec and returns the canonical sysfs path; existence is checked at attach time.
 func (s *Spec) NormalizedPath() (string, error) {
 	if s.PCI == "" {
 		return "", fmt.Errorf("pci is required")
@@ -73,11 +64,7 @@ func (s *Spec) NormalizedPath() (string, error) {
 	return NormalizePath(s.PCI)
 }
 
-// NormalizePath maps any of {01:00.0, 0000:01:00.0, /sys/bus/pci/devices/<bdf>}
-// into the canonical sysfs path that CH's vm.add-device expects.
-// Absolute paths must live under /sys/bus/pci/devices/ with a valid BDF
-// suffix — accepting an arbitrary host path would let cocoon hand CH a
-// non-PCI directory.
+// NormalizePath maps {short BDF, full BDF, sysfs path} → canonical /sys/bus/pci/devices/<bdf>; rejects paths outside that root.
 func NormalizePath(input string) (string, error) {
 	in := strings.TrimSpace(input)
 	if in == "" {

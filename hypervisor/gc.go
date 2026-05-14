@@ -12,9 +12,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// VMGCSnapshot holds the data collected during the ReadDB phase of a
-// hypervisor GC module. Both Cloud Hypervisor and Firecracker produce
-// identical snapshots; the type lives here to avoid duplication.
+// VMGCSnapshot is the ReadDB-phase data for any hypervisor GC module (CH + FC share the shape).
 type VMGCSnapshot struct {
 	blobIDs     map[string]struct{}
 	vmIDs       map[string]struct{}
@@ -62,9 +60,7 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(snap VMGCSnapshot, _ map[string]any) []string {
-			// "db" is a reserved system subdirectory (stores vms.json/vms.lock).
-			// When RootDir == RunDir, it lives alongside per-VM dirs and must be
-			// excluded from orphan detection.
+			// "db" holds vms.json/vms.lock — exclude from orphan scan when RootDir == RunDir.
 			reserved := map[string]struct{}{"db": {}}
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
 			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)

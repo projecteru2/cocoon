@@ -159,9 +159,7 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	cowDev := DevPath(len(layerDevs))
 
 	var cmdline strings.Builder
-	// FC quirks: ttyS0 (not hvc0), reboot=k (no ACPI PM, use i8042 reset so
-	// shutdown exits FC instead of hanging), pci=off + i8042.noaux +
-	// 8250.nr_uarts=1 skip probes for absent hardware.
+	// FC quirks: ttyS0 + reboot=k (i8042 reset, no ACPI), pci=off + i8042.noaux + 8250.nr_uarts=1 skip absent-hardware probes.
 	fmt.Fprintf(&cmdline,
 		"console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
 		strings.Join(layerDevs, ","), cowDev,

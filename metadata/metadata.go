@@ -21,10 +21,7 @@ var (
 	metaDataTmpl = template.Must(template.New("meta-data").Parse(
 		"instance-id: {{.InstanceID}}\nlocal-hostname: {{.Hostname}}\n"))
 
-	// userDataTmpl renders cloud-config user-data.
-	// Networking primary path is network-config (netplan/cloud-init-local).
-	// It also writes fallback systemd-networkd units matching current MAC so
-	// clone reinit can survive netplan PERM-MAC mismatch on later reboots.
+	// userDataTmpl renders cloud-config; also writes systemd-networkd fallback units so clone reinit survives netplan PERM-MAC mismatch.
 	userDataTmpl = template.Must(template.New("user-data").Funcs(tmplFuncs).Parse(`#cloud-config
 {{- if .Password}}
 chpasswd:
@@ -80,12 +77,8 @@ write_files:
 {{- end}}
 `))
 
-	// networkConfigTmpl renders cloud-init network-config (netplan v2 passthrough).
-	// Primary path:
-	//   - cloud-init-local renders /etc/netplan/50-cloud-init.yaml
-	//   - systemd-networkd configures interfaces before network-online.target
-	// Clone reinit fallback for netplan PERM-MAC mismatch is provided by
-	// user-data write_files that emit direct systemd-networkd units.
+	// networkConfigTmpl renders cloud-init network-config (netplan v2 → systemd-networkd).
+	// Clone reinit fallback for netplan PERM-MAC mismatch is wired in via user-data write_files.
 	networkConfigTmpl = template.Must(template.New("network-config").Parse(`version: 2
 ethernets:
 {{- range $i, $n := .Networks}}

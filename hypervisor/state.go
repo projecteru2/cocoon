@@ -25,9 +25,7 @@ func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid 
 	return fn(pid)
 }
 
-// WithPausedVM pauses, runs fn, resumes. Resume on the success path is eager
-// so its error promotes to the return; on fn-error the deferred resume only
-// logs (the inner error wins).
+// WithPausedVM pauses, runs fn, resumes; eager resume on success promotes its error, deferred resume on fn-error only logs.
 func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume, fn func() error) error {
 	return b.WithRunningVM(ctx, rec, func(_ int) error {
 		if err := pause(); err != nil {

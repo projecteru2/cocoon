@@ -97,10 +97,7 @@ func handleCachedLayer(ctx context.Context, j layerJob, digestHex string) {
 	j.tracker.OnEvent(ociProgress.Event{Phase: ociProgress.PhaseLayer, Index: j.idx, Total: j.total, Digest: digestHex[:12]})
 }
 
-// applyCachedLayerPaths fills result with the cached blob/kernel/initrd
-// paths for digestHex. Caller must have confirmed the erofs blob is
-// cached at conf.BlobPath(digestHex); kernel/initrd are picked up only
-// when their files exist locally (older imports may lack one or both).
+// applyCachedLayerPaths fills result with cached blob/kernel/initrd paths for digestHex; caller asserts the erofs blob exists, kernel/initrd are best-effort.
 func applyCachedLayerPaths(conf *Config, result *pullLayerResult, digestHex string) {
 	result.erofsPath = conf.BlobPath(digestHex)
 	if utils.ValidFile(conf.KernelPath(digestHex)) {

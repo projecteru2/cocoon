@@ -48,9 +48,7 @@ func LoadAndValidateMeta(dir, rootDir, runDir string) (*SnapshotMeta, error) {
 	return meta, nil
 }
 
-// PopulateFromSrc cleans runDir of old snapshot files then copies in fresh
-// ones from srcDir. Used by DirectRestore to swap a running VM's runtime
-// state to a local snapshot directory.
+// PopulateFromSrc cleans runDir of old snapshot files then copies fresh ones from srcDir (used by DirectRestore).
 func PopulateFromSrc(runDir, srcDir string, clean func(string) error, clone func(string, string) error) error {
 	if err := clean(runDir); err != nil {
 		return fmt.Errorf("clean old snapshot files: %w", err)
@@ -61,9 +59,7 @@ func PopulateFromSrc(runDir, srcDir string, clean func(string) error, clone func
 	return nil
 }
 
-// PreflightRestore is the shared restore preflight: load+validate sidecar,
-// run backend-specific integrity, then assert the snapshot's role sequence
-// is a valid prefix of rec.
+// PreflightRestore: load+validate sidecar, run backend-specific integrity, assert snapshot role sequence is a prefix of rec.
 func PreflightRestore(srcDir, rootDir, runDir string, rec *VMRecord, integrity func(srcDir string, sidecar []*types.StorageConfig) error) error {
 	meta, err := LoadAndValidateMeta(srcDir, rootDir, runDir)
 	if err != nil {
@@ -160,9 +156,7 @@ func (b *Backend) BuildSnapshotConfig(snapID string, rec *VMRecord) *types.Snaps
 	return cfg
 }
 
-// SnapshotSequence is the shared capture skeleton. The pause window is the
-// VM-availability hit, so all hot work (capture only) runs inside it and
-// AfterCapture (e.g. cidata copy) runs outside.
+// SnapshotSequence is the shared capture skeleton; only capture runs in the pause window — AfterCapture (e.g. cidata copy) runs outside.
 func (b *Backend) SnapshotSequence(ctx context.Context, ref string, spec SnapshotSpec) (_ *types.SnapshotConfig, _ io.ReadCloser, err error) {
 	vmID, err := b.ResolveRef(ctx, ref)
 	if err != nil {

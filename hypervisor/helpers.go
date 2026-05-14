@@ -13,17 +13,12 @@ func (b *Backend) PIDFilePath(runDir string) string {
 	return filepath.Join(runDir, b.Conf.PIDFileName())
 }
 
-// LogFilePath returns the per-VM hypervisor log file under logDir, named
-// after the backend type. Used at launch time (write) and by LogPath
-// (read) so the two ends can't drift.
+// LogFilePath returns the per-VM hypervisor log file under logDir (named after the backend so write/read can't drift).
 func (b *Backend) LogFilePath(logDir string) string {
 	return filepath.Join(logDir, b.Typ+".log")
 }
 
-// LogPath resolves ref to a VM ID and returns its hypervisor log path.
-// Reads LogDir from the persisted record so it stays correct after a
-// --log-dir config change; falls back to the current Conf for legacy
-// records that predate LogDir persistence.
+// LogPath resolves ref → log path via the persisted LogDir (survives --log-dir change); falls back to current Conf for legacy records.
 func (b *Backend) LogPath(ctx context.Context, ref string) (string, error) {
 	id, err := b.ResolveRef(ctx, ref)
 	if err != nil {
@@ -52,9 +47,7 @@ func ConsoleSockPath(runDir string) string { return filepath.Join(runDir, Consol
 
 func VsockSockPath(runDir string) string { return filepath.Join(runDir, VsockSockName) }
 
-// BalloonSize returns the balloon size in bytes and whether the balloon
-// should be enabled. Disabled on Windows (virtio-win driver retries deflation
-// indefinitely, blocking shutdown) and below MinBalloonMemory.
+// BalloonSize returns (bytes, enabled); disabled on Windows (virtio-win driver loops on deflation) and below MinBalloonMemory.
 func BalloonSize(memoryBytes int64, windows bool) (int64, bool) {
 	if windows || memoryBytes < MinBalloonMemory {
 		return 0, false

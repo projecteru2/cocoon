@@ -17,9 +17,7 @@ func (fc *Firecracker) preflightRestore(srcDir string, rec *hypervisor.VMRecord)
 	return hypervisor.PreflightRestore(srcDir, fc.conf.RootDir, fc.conf.Config.RunDir, rec, snapshotIntegrity)
 }
 
-// snapshotIntegrity runs the cross-backend file/role checks then asserts the
-// FC-specific vmstate+mem files exist (FC vmstate is binary so the sidecar is
-// the only cocoon-side disk-shape source — no chCfg counterpart).
+// snapshotIntegrity runs the cross-backend checks + asserts FC vmstate+mem files exist (sidecar is the only disk-shape source for FC).
 func snapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) error {
 	if err := hypervisor.ValidateSnapshotIntegrity(srcDir, sidecar); err != nil {
 		return err

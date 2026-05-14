@@ -66,9 +66,7 @@ func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM,
 	})
 }
 
-// CreateSequence is the shared create skeleton. The placeholder-then-finalize
-// shape lets a crash mid-create leave a rolled-back DB and rundir, so GC
-// has nothing stale to reconcile.
+// CreateSequence is the shared placeholder→finalize create skeleton; a mid-flight crash rolls back DB + rundir so GC has nothing to reconcile.
 func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec) (_ *types.VM, err error) {
 	if err = ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err

@@ -41,9 +41,7 @@ func ReverseLayerSerials(storageConfigs []*types.StorageConfig) []string {
 	return hypervisor.ReverseLayers(storageConfigs, func(_ int, sc *types.StorageConfig) string { return sc.Serial })
 }
 
-// validateSnapshotIntegrity is the CH preflight: common checks, sidecar/
-// config.json disk shape match, plus state.json + memory-range-* presence
-// so vm.restore won't fail post-kill.
+// validateSnapshotIntegrity (CH): common checks + sidecar/config.json shape + state.json + memory-range-* presence.
 func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) error {
 	if err := hypervisor.ValidateSnapshotIntegrity(srcDir, sidecar); err != nil {
 		return err
@@ -55,10 +53,7 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	if len(sidecar) != len(chCfg.Disks) {
 		return fmt.Errorf("sidecar/config.json mismatch: %d vs %d disks", len(sidecar), len(chCfg.Disks))
 	}
-	// writeSnapshotMeta builds the sidecar by walking chCfg.Disks in order, so
-	// sidecar[i] and chCfg.Disks[i] must agree on path and readonly. Tampered or
-	// imported sidecars whose order drifts would otherwise let patchCHConfig
-	// write the wrong path into the wrong disk slot.
+	// sidecar[i] must agree with chCfg.Disks[i] (path, readonly); drift would let patchCHConfig write to the wrong slot.
 	for i, sc := range sidecar {
 		if sc.Path != chCfg.Disks[i].Path {
 			return fmt.Errorf("sidecar/config.json disk[%d] path mismatch: %q vs %q", i, sc.Path, chCfg.Disks[i].Path)
@@ -95,10 +90,7 @@ func hasMemoryRangeFile(srcDir string) (bool, error) {
 	return false, nil
 }
 
-// vmAPIOnce sends a single PUT without DoWithRetry. Used for non-idempotent
-// endpoints where a retry after a lost response could mask the original
-// success as a misleading "duplicate id" / wrong-state rejection. Returns the
-// raw body so add-fs/add-device callers can decode PciDeviceInfo.
+// vmAPIOnce is a single PUT for non-idempotent endpoints; returns raw body so add-fs/add-device can decode PciDeviceInfo.
 func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byte, successCodes ...int) ([]byte, error) {
 	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
@@ -114,9 +106,7 @@ func vmPutJSON[T any](ctx context.Context, hc *http.Client, endpoint, kind strin
 	return err
 }
 
-// shutdownVM, pauseVM, resumeVM are all CH state transitions; a second call
-// in the wrong state returns an error. Route through vmAPIOnce so a retry
-// after a lost response cannot mask the original success.
+// shutdownVM/pauseVM/resumeVM are CH state transitions via vmAPIOnce so a retry after a lost ACK can't hit a wrong-state error.
 func shutdownVM(ctx context.Context, hc *http.Client) error {
 	_, err := vmAPIOnce(ctx, hc, "vm.shutdown", nil)
 	return err
@@ -166,17 +156,12 @@ func restoreVM(ctx context.Context, hc *http.Client, sourceDir string, onDemand 
 	return err
 }
 
-// addDiskVM and addNetVM are the same non-idempotent shape as add-fs/add-device
-// — a retry after CH already attached the device hits "duplicate id" and
-// masks the original success. Used during clone (cidata hot-plug, NIC swap)
-// after vm.restore.
+// addDiskVM / addNetVM use vmAPIOnce — retry would hit "duplicate id" after a successful attach (clone-time cidata + NIC swap).
 func addDiskVM(ctx context.Context, hc *http.Client, disk chDisk) error {
 	return vmPutJSON(ctx, hc, "vm.add-disk", "add-disk request", disk, http.StatusOK, http.StatusNoContent)
 }
 
-// removeDeviceVM is non-idempotent: a retry after CH already detached the
-// device but the response was lost would surface as "id not found" and mask
-// the original success.
+// removeDeviceVM is non-idempotent — a retry after a lost ACK would surface as "id not found".
 func removeDeviceVM(ctx context.Context, hc *http.Client, deviceID string) error {
 	return vmPutJSON(ctx, hc, "vm.remove-device", "remove-device request", map[string]string{"id": deviceID})
 }
@@ -240,9 +225,7 @@ func powerButton(ctx context.Context, hc *http.Client) error {
 	return err
 }
 
-// queryConsolePTY retrieves the virtio-console PTY path from a running CH
-// instance via GET /api/v1/vm.info. Returns empty string if the console is
-// not in Pty mode.
+// queryConsolePTY GETs vm.info for the virtio-console PTY path; "" if console is not in Pty mode.
 func queryConsolePTY(ctx context.Context, apiSocketPath string) (string, error) {
 	info, err := getVMInfo(ctx, utils.NewSocketHTTPClient(apiSocketPath))
 	if err != nil {

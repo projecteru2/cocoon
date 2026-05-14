@@ -292,9 +292,7 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	return cmdline.String()
 }
 
-// buildStateReplacements maps source disk paths to clone paths for state.json
-// patching. Slices to min length so an appended cidata in storageConfigs
-// doesn't desync the prefix; MACs are handled separately by NIC hot-swap.
+// buildStateReplacements maps source disk paths → clone paths for state.json patching; slices to min length so an appended cidata doesn't desync (MACs go via NIC hot-swap).
 func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig) map[string]string {
 	n := min(len(chCfg.Disks), len(storageConfigs))
 	m := make(map[string]string, n)

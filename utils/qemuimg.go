@@ -7,10 +7,7 @@ import (
 	"strings"
 )
 
-// RunQemuImg shells out to qemu-img and wraps any non-zero exit with the
-// trimmed combined output. Use this for operations without meaningful
-// stdout (create, resize, convert); for queries that need a clean stdout
-// payload (e.g. `info --output=json`), call exec.CommandContext directly.
+// RunQemuImg shells out to qemu-img; non-zero exit returns wrapped combined output. Use exec.CommandContext directly when stdout matters.
 func RunQemuImg(ctx context.Context, args ...string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("qemu-img: no args")

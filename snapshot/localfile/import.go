@@ -16,10 +16,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Import reads a tar archive (optionally gzip-compressed) containing snapshot.json
-// metadata and data files, stores the snapshot, and returns the new snapshot ID.
-// Gzip wrapping is auto-detected from magic bytes; raw tar is accepted directly.
-// Non-empty name and description override values from snapshot.json.
+// Import reads a snapshot tar (gzip auto-detected), stores it, returns the new ID. Non-empty name/description override the envelope.
 func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description string) (_ string, err error) {
 	tarReader, gzCloser, err := unwrapGzip(r)
 	if err != nil {

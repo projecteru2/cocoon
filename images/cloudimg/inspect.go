@@ -74,10 +74,7 @@ func inspectImage(ctx context.Context, path string) (*sourceImageInfo, error) {
 	if isQcow2 {
 		return info, nil
 	}
-	// Not qcow2: delegate to qemu-img to distinguish raw from unsupported
-	// formats (vmdk/vdi/vhd/etc.). Blindly treating non-qcow2 as raw would
-	// let convertToQcow2 silently produce corrupt output.
-	// shell out because no Go inspector covers the full disk format matrix; qemu-img is authoritative.
+	// Not qcow2: shell out to qemu-img to distinguish raw from unsupported (vmdk/vdi/vhd/etc.) — treating non-qcow2 as raw would corrupt convertToQcow2 output.
 	cmd := exec.CommandContext(ctx, "qemu-img", "info", "--output=json", path) //nolint:gosec // path is controlled
 	out, err := cmd.Output()
 	if err != nil {
@@ -95,10 +92,7 @@ func inspectImage(ctx context.Context, path string) (*sourceImageInfo, error) {
 	return &sourceImageInfo{Format: "raw"}, nil
 }
 
-// inspectQcow2Header parses the qcow2 header fields needed by prepareTmpBlob
-// without forking qemu-img. Returns (info, true, nil) on valid qcow2,
-// (nil, false, nil) if the file is not qcow2, or an error if the header is
-// truncated or the version is unsupported.
+// inspectQcow2Header parses qcow2 header fields without forking qemu-img; (info, true, nil) on qcow2, (nil, false, nil) if not qcow2.
 func inspectQcow2Header(path string) (*sourceImageInfo, bool, error) {
 	f, err := os.Open(path) //nolint:gosec // path is caller-controlled
 	if err != nil {

@@ -177,9 +177,7 @@ func InitCOWFilesystem(ctx context.Context, path string) error {
 	return nil
 }
 
-// DataDiskBaseName is the canonical file name for a user data disk. Centralized
-// so cleanSnapshotFiles matchers, snapshot reflink loops, and clone path
-// rewrites all agree.
+// DataDiskBaseName is the canonical file name (centralized so matchers, reflink loops, and clone path rewrites stay in sync).
 func DataDiskBaseName(serial string) string {
 	return "data-" + serial + ".raw"
 }
@@ -189,9 +187,7 @@ func IsDataDiskFile(name string) bool {
 	return strings.HasPrefix(name, "data-") && strings.HasSuffix(name, ".raw")
 }
 
-// ReflinkDataDisks reflinks every Role==Data disk in configs into dstDir
-// using the canonical data-<serial>.raw filename. Used by both CH and FC
-// snapshot paths inside the pause window.
+// ReflinkDataDisks reflinks every Role==Data disk into dstDir under data-<serial>.raw (CH+FC use it inside the snapshot pause window).
 func ReflinkDataDisks(dstDir string, configs []*types.StorageConfig) error {
 	for _, sc := range configs {
 		if sc.Role != types.StorageRoleData {
@@ -205,11 +201,7 @@ func ReflinkDataDisks(dstDir string, configs []*types.StorageConfig) error {
 	return nil
 }
 
-// PrepareDataDisks creates raw sparse files for each spec under baseDir,
-// optionally formats them, and returns StorageConfigs ready to append to a
-// VM's storage list. Names must be unique and pass types.ValidDataDiskName;
-// fstype is "ext4" (default) or "none". Returns an empty slice when specs is
-// empty.
+// PrepareDataDisks creates sparse files for each spec under baseDir, optionally formats (ext4 default), returns StorageConfigs; names must be unique and ValidDataDiskName-passing.
 func PrepareDataDisks(ctx context.Context, baseDir string, specs []types.DataDiskSpec) ([]*types.StorageConfig, error) {
 	if len(specs) == 0 {
 		return nil, nil
@@ -254,9 +246,7 @@ func PrepareDataDisks(ctx context.Context, baseDir string, specs []types.DataDis
 	return out, nil
 }
 
-// PrepareOCICOW creates an ext4-formatted sparse COW file at cowPath and
-// returns storageConfigs with the new COW entry (CowSerial) appended.
-// The returned slice must be used by the caller; append may reallocate.
+// PrepareOCICOW creates an ext4-formatted sparse COW at cowPath and returns storageConfigs with the new CowSerial entry appended (use the returned slice; append may reallocate).
 func PrepareOCICOW(ctx context.Context, cowPath string, storage int64, storageConfigs []*types.StorageConfig) ([]*types.StorageConfig, error) {
 	if err := createSparseFile(cowPath, storage); err != nil {
 		return nil, err
@@ -272,12 +262,7 @@ func PrepareOCICOW(ctx context.Context, cowPath string, storage int64, storageCo
 	}), nil
 }
 
-// ValidateSnapshotIntegrity is the backend-agnostic preflight: every disk in
-// the sidecar passes structural validation, and every snapshot-resident disk
-// (Role in {COW, Cidata, Data}) has its file present under srcDir. Layers are
-// shared blobs and not part of the snapshot tar, so they're skipped here.
-// Backends layer their own checks (e.g. CH state.json + memory-range, FC
-// vmstate + mem) on top.
+// ValidateSnapshotIntegrity is the backend-agnostic preflight: sidecar is structurally valid and every snapshot-resident disk (COW/Cidata/Data) is on disk. Layers are shared blobs; backends add their own (state.json, vmstate) checks.
 func ValidateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) error {
 	if err := types.ValidateStorageConfigs(sidecar); err != nil {
 		return fmt.Errorf("sidecar invalid: %w", err)
@@ -294,10 +279,7 @@ func ValidateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	return nil
 }
 
-// ValidateRoleSequence checks that the snapshot's disk shape (sidecar) is a
-// valid prefix of the VM's current record. Rec may have trailing cidata that
-// the snapshot lacks (cloudimg post-first-boot snapshots) — that is the only
-// allowed extension.
+// ValidateRoleSequence checks sidecar is a role-by-role prefix of rec; rec may carry trailing cidata (cloudimg post-first-boot) — the only allowed extension.
 func ValidateRoleSequence(sidecar, rec []*types.StorageConfig) error {
 	if len(sidecar) > len(rec) {
 		return fmt.Errorf("snapshot has %d disks, record only %d", len(sidecar), len(rec))
@@ -374,9 +356,7 @@ func CloneSnapshotFiles(dstDir, srcDir string, classify func(name string) Snapsh
 
 		switch classify(name) {
 		case SnapshotFileMemory:
-			// Hardlink for same-fs; symlink fallback for cross-fs (EXDEV only).
-			// Hypervisors read memory files via MAP_PRIVATE, so neither
-			// hardlink nor symlink will be modified.
+			// Hardlink (same-fs); symlink fallback on EXDEV. Hypervisors MAP_PRIVATE the file so neither link is mutated.
 			if linkErr := os.Link(src, dst); linkErr != nil {
 				if !errors.Is(linkErr, syscall.EXDEV) {
 					return fmt.Errorf("link %s: %w", name, linkErr)
@@ -480,9 +460,7 @@ func createSparseFile(path string, size int64) error {
 	return nil
 }
 
-// snapshotResidentBasename returns the basename a sidecar entry's file should
-// have inside srcDir, or "" for shared base layers (not in the snapshot tar).
-// Sidecar Path still references the source runDir, so we strip to basename.
+// snapshotResidentBasename returns the basename for sidecar entries inside srcDir; "" for shared base layers (not in tar).
 func snapshotResidentBasename(sc *types.StorageConfig) string {
 	switch sc.Role {
 	case types.StorageRoleData:

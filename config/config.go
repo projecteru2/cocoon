@@ -22,9 +22,7 @@ type Config struct {
 	// RootDir is the base directory for persistent data (images, firmware, VM DB).
 	// Env: COCOON_ROOT_DIR. Default: /var/lib/cocoon.
 	RootDir string `json:"root_dir" mapstructure:"root_dir"`
-	// RunDir is the base directory for runtime state (PID files, Unix sockets).
-	// Contents are ephemeral and may not survive reboots.
-	// Env: COCOON_RUN_DIR. Default: /var/lib/cocoon/run.
+	// RunDir: ephemeral runtime state (PID files, sockets). Env: COCOON_RUN_DIR. Default: /var/lib/cocoon/run.
 	RunDir string `json:"run_dir" mapstructure:"run_dir"`
 	// LogDir is the base directory for VM and process logs.
 	// Env: COCOON_LOG_DIR. Default: /var/log/cocoon.
@@ -38,9 +36,7 @@ type Config struct {
 	// UseFirecracker selects Firecracker as the hypervisor backend.
 	// Set via --fc flag. Default: false (use Cloud Hypervisor).
 	UseFirecracker bool `json:"use_firecracker,omitempty" mapstructure:"use_firecracker"`
-	// StopTimeoutSeconds is how long to wait for a guest to respond to an
-	// ACPI power-button before falling back to SIGTERM/SIGKILL.
-	// Default: 30.
+	// StopTimeoutSeconds: guest ACPI grace before SIGTERM/SIGKILL escalation. Default: 30.
 	StopTimeoutSeconds int `json:"stop_timeout_seconds" mapstructure:"stop_timeout_seconds"`
 	// PoolSize is the goroutine pool size for concurrent operations.
 	// Defaults to runtime.NumCPU() if zero.
@@ -51,9 +47,7 @@ type Config struct {
 	// CNIBinDir is the directory for CNI plugin binaries.
 	// Default: /opt/cni/bin.
 	CNIBinDir string `json:"cni_bin_dir" mapstructure:"cni_bin_dir"`
-	// DNS is a comma or semicolon separated list of DNS server addresses
-	// injected into VM network configuration.
-	// Env: COCOON_DNS. Default: "8.8.8.8,1.1.1.1".
+	// DNS: comma/semicolon-separated DNS servers injected into VM net config. Env: COCOON_DNS. Default: "8.8.8.8,1.1.1.1".
 	DNS string `json:"dns" mapstructure:"dns"`
 	// SocketWaitTimeoutSeconds is how long to wait for the CH API socket
 	// after process start. Default: 5. Increase for slow storage.

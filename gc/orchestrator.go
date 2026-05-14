@@ -17,26 +17,13 @@ type Orchestrator struct {
 // New creates an empty Orchestrator.
 func New() *Orchestrator { return &Orchestrator{} }
 
-// Register adds a typed Module to the Orchestrator.
-// This is a package-level function (not a method) because Go methods cannot
-// have type parameters.
+// Register adds a typed Module; package-level (not a method) because Go methods can't have type params.
 func Register[S any](o *Orchestrator, m Module[S]) {
 	o.modules = append(o.modules, m)
 }
 
-// Run executes one GC cycle:
-//
-//  1. TryLock all modules; skip those whose lock is busy.
-//  2. ReadDB each locked module to build a snapshot.
-//  3. Resolve deletion targets per module. Each module's Resolve receives
-//     all other snapshots (typed as any) for cross-module analysis — e.g.,
-//     image GC checks UsedBlobIDs from the VM snapshot to protect active blobs.
-//  4. Collect targets for each snapshotted module.
-//  5. Unlock all (deferred).
-//
-// All locks are held for the entire cycle so that the snapshot, resolve, and
-// collect phases see a consistent view. GC runs infrequently and executes
-// fast, so the extended lock hold is acceptable.
+// Run executes one GC cycle: lock all modules, snapshot, resolve, collect.
+// Fail-closed: any busy lock aborts the cycle so cross-module decisions stay consistent.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	logger := log.WithFunc("gc.Run")
 
@@ -63,9 +50,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Fail-closed: if any module was skipped, abort the entire cycle.
-	// Collecting without a complete cross-module snapshot risks deleting data
-	// still protected by the missing module (e.g. blobs pinned by VMs).
+	// Fail-closed: skip aborts the cycle so cross-module references (e.g. VMs pinning blobs) aren't violated.
 	if len(skipped) > 0 {
 		return fmt.Errorf("gc aborted: modules skipped (lock busy): %s", strings.Join(skipped, ", "))
 	}

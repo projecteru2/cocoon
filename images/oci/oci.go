@@ -102,10 +102,7 @@ func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
 	return o.ops.Delete(ctx, ids)
 }
 
-// Config generates StorageConfig and BootConfig entries for the given VMs.
-// Paths are derived from layer digests at runtime, not stored in the index.
-// Image references are normalized (e.g., "ubuntu:24.04" matches "docker.io/library/ubuntu:24.04").
-// Returns an error if any referenced blob or boot file is missing on disk.
+// Config generates StorageConfig + BootConfig for the given VMs; paths derive from layer digests, refs are normalized, errors if a blob is missing.
 func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, boot []*types.BootConfig, err error) {
 	err = o.store.With(ctx, func(idx *imageIndex) error {
 		result = make([][]*types.StorageConfig, len(vms))

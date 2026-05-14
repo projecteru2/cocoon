@@ -8,9 +8,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// WatchFile watches a file for changes using fsnotify on the parent directory.
-//
-// Watch parent dir (temp-file + rename changes inode).
+// WatchFile watches a file via fsnotify on the parent dir (atomic rename changes inode).
 func WatchFile(ctx context.Context, filePath string, debounce time.Duration) (<-chan struct{}, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {

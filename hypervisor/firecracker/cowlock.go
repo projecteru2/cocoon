@@ -29,14 +29,8 @@ func withCOWPathLocked(cowPath string, fn func() error) error {
 	return fn()
 }
 
-// withSourceWritableDisksLocked locks every writable disk path of a source
-// VM (COW + every data disk) in dictionary order before invoking fn. The
-// fixed ordering means concurrent clones / snapshots of the same VM never
-// deadlock against each other.
-//
-// Each lock acquisition runs recoverStaleBackup so an interrupted previous
-// clone of that path can finish swapping its symlink redirect before the
-// next caller proceeds.
+// withSourceWritableDisksLocked locks the source VM's writable disks (COW + data) in sorted order so concurrent clones can't deadlock.
+// Each acquire runs recoverStaleBackup to finish any interrupted prior swap.
 func withSourceWritableDisksLocked(configs []*types.StorageConfig, fn func() error) error {
 	paths := make([]string, 0, len(configs))
 	for _, sc := range configs {

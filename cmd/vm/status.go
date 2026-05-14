@@ -207,9 +207,7 @@ func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, fi
 	})
 }
 
-// statusEventDiffLoop runs the shared diff: snapshot all VMs each tick, compare
-// against the previous tick's snapshots, and emit ADDED/MODIFIED/DELETED events
-// via emitter. Holds both snap and vm so emitters can choose either format.
+// statusEventDiffLoop snapshots every tick, diffs vs previous, emits ADDED/MODIFIED/DELETED. Carries both snap and vm so emitters pick either.
 func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time, emitter eventEmitter) {
 	type entry struct {
 		snap vmSnapshot

@@ -10,13 +10,7 @@ import (
 	"github.com/moby/term"
 )
 
-// Relay runs bidirectional I/O with escape-sequence detection.
-// rw can be a PTY (*os.File) or a Unix socket (net.Conn) — any io.ReadWriter.
-// escapeKeys is the byte sequence that triggers a detach (e.g. {0x1D, '.'}).
-// Returns nil on clean disconnect (escape sequence, EOF, or EIO).
-//
-// The caller is responsible for closing the underlying connection after Relay
-// returns, which unblocks the remaining goroutine.
+// Relay runs bidirectional I/O with escape-sequence detection; caller closes rw after Relay returns to unblock the second goroutine.
 func Relay(rw io.ReadWriter, escapeKeys []byte) error {
 	errCh := make(chan error, 2) //nolint:mnd
 
@@ -51,9 +45,7 @@ func FormatEscapeChar(b byte) string {
 	return string(b)
 }
 
-// ParseEscapeChar parses the --escape-char flag value. It accepts:
-//   - Caret notation for control characters: "^]", "^A", "^C", etc.
-//   - A single printable or control character (raw byte).
+// ParseEscapeChar parses --escape-char: caret notation ("^]", "^A") or a single raw byte.
 func ParseEscapeChar(s string) (byte, error) {
 	if len(s) == 2 && s[0] == '^' {
 		c := s[1]

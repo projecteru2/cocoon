@@ -31,9 +31,7 @@ func ReadPIDFile(path string) (int, error) {
 	return pid, nil
 }
 
-// IsProcessAlive returns true if a process with the given PID currently exists.
-// Uses kill(pid, 0) — no signal is sent, only existence is checked.
-// EPERM means the process exists but we lack permission to signal it.
+// IsProcessAlive uses kill(pid, 0) — true if the process exists; EPERM still counts (process exists, lacking signal permission).
 func IsProcessAlive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -54,9 +52,7 @@ func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	return IsProcessAlive(pid)
 }
 
-// TerminateProcess verifies the PID belongs to binaryName (with optional
-// cmdline arg check), then sends SIGTERM, waits up to gracePeriod, and
-// falls back to SIGKILL.
+// TerminateProcess verifies pid matches binaryName+expectArg, sends SIGTERM, waits gracePeriod, escalates to SIGKILL.
 func TerminateProcess(ctx context.Context, pid int, binaryName, expectArg string, gracePeriod time.Duration) error {
 	if handled, err := terminateWithPidfd(ctx, pid, binaryName, expectArg, gracePeriod); handled {
 		return err

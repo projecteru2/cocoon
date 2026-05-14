@@ -194,9 +194,7 @@ func (fc *Firecracker) launchProcess(ctx context.Context, rec *hypervisor.VMReco
 	return pid, nil
 }
 
-// startConsoleRelay launches a background relay process that holds the PTY
-// master and listens on console.sock for interactive console connections.
-// The relay auto-exits when the FC process (fcPID) dies.
+// startConsoleRelay forks a relay that holds the PTY master, serves console.sock, and exits when fcPID dies.
 func (fc *Firecracker) startConsoleRelay(_ context.Context, runDir string, master *os.File, fcPID int) error {
 	consoleSock := hypervisor.ConsoleSockPath(runDir)
 

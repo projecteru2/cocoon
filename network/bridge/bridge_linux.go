@@ -21,13 +21,7 @@ const typ = "bridge"
 
 var _ network.Network = (*Bridge)(nil)
 
-// Bridge implements network.Network by creating TAP devices and adding
-// them directly to an existing Linux bridge. An external DHCP server
-// on the bridge (e.g. dnsmasq) serves VM IPs. No veth, no TC, no
-// netns — just TAP-on-bridge, the simplest possible VM networking.
-//
-// This backend is designed to work with cocoon-net's cni0 bridge or
-// any pre-existing bridge that has DHCP + routing already set up.
+// Bridge implements network.Network as TAP-on-bridge. Requires a pre-existing bridge with DHCP + routing (e.g. cocoon-net's cni0).
 type Bridge struct {
 	conf      *config.Config
 	bridgeDev string
@@ -201,9 +195,7 @@ func tearDownTAPs(vmID string, indices []int, bestEffort bool) error {
 }
 
 func createTAP(name string, numQueues int) error {
-	// queue_pairs = num_queues / 2 (TX+RX pair per queue).
-	// Multi-queue requires queue_pairs > 1.
-	// TAP IFF_MULTI_QUEUE must match CH's expectations.
+	// queue_pairs = num_queues / 2 (TX+RX); multi-queue needs >1, and IFF_MULTI_QUEUE must match CH's expectation.
 	queuePairs := max(1, numQueues/2) //nolint:mnd
 	flags := netlink.TUNTAP_VNET_HDR | netlink.TUNTAP_NO_PI
 	if queuePairs <= 1 {

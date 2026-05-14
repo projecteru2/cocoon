@@ -14,9 +14,7 @@ type funcTracker func(any)
 // OnEvent dispatches a progress event to the wrapped callback.
 func (f funcTracker) OnEvent(e any) { f(e) }
 
-// NewTracker creates a Tracker from a typed callback function.
-// The caller works with a concrete event type; the Tracker interface
-// stays non-generic so it can be used in interfaces like Images.
+// NewTracker wraps a typed callback as a non-generic Tracker so Images can hold it in its interface.
 func NewTracker[E any](fn func(E)) Tracker {
 	return funcTracker(func(v any) {
 		if e, ok := v.(E); ok {

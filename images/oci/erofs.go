@@ -13,13 +13,7 @@ const (
 	erofsCompression = "lz4hc"
 )
 
-// startErofsConversion starts mkfs.erofs to convert tar stream into EROFS.
-// The caller writes the tar stream to the returned WriteCloser and must close it
-// when done to signal EOF. Call cmd.Wait() after closing stdin to collect the result.
-//
-// This mirrors start.sh's per-layer conversion:
-//
-//	mkfs.erofs --tar=f -zlz4hc -C4096 -T0 -U <uuid> output.erofs
+// startErofsConversion pipes a tar stream into mkfs.erofs; caller writes+closes stdin, then cmd.Wait().
 func startErofsConversion(ctx context.Context, uuid, outputPath string) (cmd *exec.Cmd, stdin io.WriteCloser, output *bytes.Buffer, err error) {
 	// shell out because no Go EROFS writer library; mkfs.erofs is authoritative.
 	cmd = exec.CommandContext(ctx, "mkfs.erofs", //nolint:gosec

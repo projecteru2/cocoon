@@ -70,9 +70,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		bootCfg.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, dns)
 	}
 
-	// FC snapshot/load requires drives at source absolute paths; only COW path
-	// changed, so symlink-redirect the source path until upstream supports
-	// drive overrides at load time.
+	// FC's snapshot/load wants source-absolute drive paths; symlink-redirect the source COW until upstream supports drive overrides.
 	sockPath := hypervisor.SocketPath(runDir)
 	var pid int
 	if cloneErr := withSourceWritableDisksLocked(meta.StorageConfigs, func() error {
@@ -125,10 +123,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 		}
 	}()
 
-	// network_overrides points FC at the clone's TAP instead of the source TAP
-	// (FC recreates devices from vmstate). The earlier symlink redirect makes
-	// FC open the clone's COW; held fds survive its cleanup. vsock_override
-	// retargets the snapshot's UDS — see fcVsockOverride.
+	// network_overrides repoints FC at the clone's TAP (FC recreates from vmstate); vsock_override retargets the snapshot UDS.
 	netOverrides := buildNetworkOverrides(networkConfigs)
 	if err = loadSnapshotFC(ctx, sockPath, runDir, netOverrides, hypervisor.VsockSockPath(runDir)); err != nil {
 		return fmt.Errorf("snapshot/load: %w", err)
@@ -140,9 +135,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 	return nil
 }
 
-// rebuildCloneStorage rewrites paths per role: Layer keeps source path (shared
-// blob), COW → clone cowPath, Data → clone runDir. Cidata is rejected (FC has
-// no cloudimg path).
+// rebuildCloneStorage rewrites paths per role: Layer→source (shared), COW→cowPath, Data→clone runDir; cidata rejected (FC has no cloudimg).
 func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*types.StorageConfig, error) {
 	runDir := filepath.Dir(cowPath)
 	configs := hypervisor.CloneStorageConfigs(meta.StorageConfigs)
@@ -162,9 +155,7 @@ func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*type
 	return configs, nil
 }
 
-// createDriveRedirects creates temporary symlinks from source COW path to
-// clone COW path so FC snapshot/load can find drives at expected locations.
-// Only creates redirects for paths that actually differ (i.e., COW disk).
+// createDriveRedirects symlinks source COW → clone COW so FC snapshot/load finds the drive at the expected source path.
 func createDriveRedirects(srcConfigs, dstConfigs []*types.StorageConfig) ([]driveRedirect, error) {
 	var redirects []driveRedirect
 	for i, src := range srcConfigs {

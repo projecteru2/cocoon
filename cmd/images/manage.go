@@ -62,11 +62,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve each ref to its owning backend BEFORE issuing deletes.
-	// Without this, iterating all backends and calling Delete on each
-	// with the full ref list would remove every same-named entry from
-	// every backend — an OCI image and a cloudimg image with the same
-	// name would both be destroyed by a single `image rm <name>`.
+	// Resolve each ref to its owning backend so a name shared across OCI+cloudimg doesn't delete both.
 	refsByBackend := map[imagebackend.Images][]string{}
 	for _, ref := range args {
 		owner, resolveErr := cmdcore.ResolveImageOwner(ctx, backends, ref)
@@ -103,9 +99,7 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve the owning backend first so cross-backend name collisions
-	// surface as ErrAmbiguous instead of being silently hidden behind
-	// whichever backend happens to come first in the iteration order.
+	// Resolve owning backend first so cross-backend name collisions surface as ErrAmbiguous instead of iteration-order luck.
 	ref := args[0]
 	owner, err := cmdcore.ResolveImageOwner(ctx, backends, ref)
 	if err != nil {
@@ -116,9 +110,7 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("inspect %s: %w", owner.Type(), err)
 	}
 	if img == nil {
-		// Narrow TOCTOU: ref was deleted between ResolveImageOwner's
-		// probe and this re-probe (concurrent image rm or GC). Fail
-		// explicitly instead of dumping "null" as JSON.
+		// TOCTOU: concurrent rm/GC between resolve and re-probe; fail explicit instead of dumping "null" JSON.
 		return fmt.Errorf("image %q: disappeared during resolve", ref)
 	}
 	return cmdcore.OutputJSON(img)

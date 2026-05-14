@@ -34,9 +34,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 			}
 			return hypervisor.ReflinkDataDisks(tmpDir, rec.StorageConfigs)
 		},
-		// Lock writable disks: a concurrent clone's rename+symlink redirect
-		// would otherwise race this snapshot's reflink. Dictionary order
-		// avoids deadlock.
+		// Lock writable disks in dictionary order so a concurrent clone's rename+symlink can't race the reflink.
 		Wrap: func(rec *hypervisor.VMRecord, fn func() error) error {
 			return withSourceWritableDisksLocked(rec.StorageConfigs, fn)
 		},

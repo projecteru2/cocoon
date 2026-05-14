@@ -108,12 +108,8 @@ func rawArrayLen(raw json.RawMessage) int {
 	return len(arr)
 }
 
-// patchStateJSON patches disk path values in state.json using structured JSON
-// traversal. Only string values under keys "disk_path" or "path" are replaced,
-// and only when the entire value exactly matches a key in replacements.
-//
-// CH's vm.restore uses config.json (not state.json) to open disk files.
-// Patching state.json prevents debugging confusion from stale paths.
+// patchStateJSON rewrites disk_path/path string values in state.json that exactly match a replacements key.
+// CH restores from config.json, not state.json — this is purely to keep state.json readable post-clone.
 func patchStateJSON(path string, replacements map[string]string) error {
 	if len(replacements) == 0 {
 		return nil

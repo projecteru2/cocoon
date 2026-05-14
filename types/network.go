@@ -27,9 +27,7 @@ type NetworkConfig struct {
 	Network *Network `json:"network,omitempty"`
 }
 
-// Network holds guest-visible IP configuration for a NIC.
-// All addresses are stored as human-readable strings for JSON clarity.
-// All fields are omitempty — DHCP NICs have no static IP configuration.
+// Network is the guest-visible IP config for a NIC; all fields omitempty so DHCP NICs serialize empty.
 type Network struct {
 	IP      string `json:"ip,omitempty"`      // dotted decimal, e.g. "10.0.0.2"
 	Gateway string `json:"gateway,omitempty"` // dotted decimal, e.g. "10.0.0.1"

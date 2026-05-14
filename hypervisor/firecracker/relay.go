@@ -65,16 +65,8 @@ func IsRelayMode() bool {
 	return os.Getenv(relayEnvKey) == "1"
 }
 
-// RunRelay runs the console relay loop. Called from main.go when
-// IsRelayMode() returns true. The relay process inherits:
-//   - fd 3: PTY master (bidirectional serial I/O with FC)
-//   - fd 4: Unix listener file (console.sock)
-//   - _COCOON_FC_PID: Firecracker PID to monitor
-//
-// A single persistent goroutine reads from the PTY master for the
-// lifetime of the relay. Each console session receives output via a
-// broadcast mechanism — no per-session goroutine reads the PTY, so
-// disconnecting a session never leaves stale readers competing for data.
+// RunRelay runs the console relay loop. Inherits fd 3 (PTY master), fd 4 (console.sock listener), $_COCOON_FC_PID.
+// A single persistent goroutine reads the PTY and broadcasts to the active session so disconnects don't strand readers.
 func RunRelay(ctx context.Context) {
 	master := os.NewFile(relayMasterFD, "pty-master")
 	defer master.Close() //nolint:errcheck
@@ -113,9 +105,7 @@ func RunRelay(ctx context.Context) {
 		}
 	}()
 
-	// Persistent PTY reader: a single goroutine reads the PTY master and
-	// broadcasts to the current console session. This prevents stale
-	// goroutines from stealing data after a session disconnects.
+	// Single PTY reader → broadcast to active session so disconnects don't strand goroutines fighting for bytes.
 	bc := &broadcaster{master: master}
 	go bc.readLoop()
 

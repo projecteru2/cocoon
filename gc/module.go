@@ -6,9 +6,7 @@ import (
 	"github.com/cocoonstack/cocoon/lock"
 )
 
-// Module[S] describes a typed storage module that participates in GC.
-// S is the snapshot type returned by ReadDB and consumed by Resolve,
-// giving the Resolve implementation full type safety on its own data.
+// Module[S] is a typed GC participant; S is the snapshot type ReadDB returns and Resolve consumes.
 type Module[S any] struct {
 	Name   string
 	Locker lock.Locker
@@ -16,9 +14,7 @@ type Module[S any] struct {
 	// ReadDB reads the module's current state (called while the lock is held).
 	ReadDB func(ctx context.Context) (S, error)
 
-	// Resolve analyses this module's typed snapshot and returns IDs to delete.
-	// others contains snapshots from all other modules (typed as any).
-	// Use type assertions on others for cross-module analysis (e.g. vm pinning images).
+	// Resolve returns IDs to delete; others holds snapshots from peer modules (cast for cross-module analysis, e.g. VMs pinning images).
 	Resolve func(snap S, others map[string]any) []string
 
 	// Collect removes the given IDs (called while the lock is held).

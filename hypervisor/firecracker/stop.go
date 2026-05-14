@@ -9,9 +9,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Stop shuts down the Firecracker process for each VM ref.
-// Honors --force (skip SendCtrlAltDel, immediate kill) and --timeout
-// (wait for guest to respond to SendCtrlAltDel before escalating).
+// Stop shuts down each FC: SendCtrlAltDel + --timeout wait, or --force for immediate kill.
 func (fc *Firecracker) Stop(ctx context.Context, refs []string) ([]string, error) {
 	return fc.StopAll(ctx, refs, fc.stopOne)
 }

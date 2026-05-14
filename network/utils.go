@@ -5,9 +5,7 @@ import "cmp"
 const (
 	vmIDPrefixLen = 8
 
-	// NetQueueSize is the default virtio-net ring depth per queue.
-	// 512 balances download throughput (favors larger rings) against
-	// request-response latency (favors smaller rings).
+	// NetQueueSize: default virtio-net ring depth per queue; 512 balances throughput vs request latency.
 	NetQueueSize = 512
 )
 

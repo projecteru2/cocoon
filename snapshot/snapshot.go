@@ -20,9 +20,7 @@ type CompressedExporter interface {
 	ExportCompressed(ctx context.Context, ref string) (io.ReadCloser, error)
 }
 
-// DirectoryExporter exports directly into a target directory (with a
-// snapshot.json envelope) so users can ship snapshots over rsync/NFS without
-// a tar round-trip. Pairs with `vm clone --from-dir`.
+// DirectoryExporter exports into a target dir with snapshot.json so rsync/NFS workflows skip the tar round-trip. Pairs with `vm clone --from-dir`.
 type DirectoryExporter interface {
 	ExportToDir(ctx context.Context, ref, dir string) error
 }
@@ -45,9 +43,7 @@ type Snapshot interface {
 	// Export streams the snapshot as a raw tar archive.
 	// The archive includes a snapshot.json metadata entry followed by data files.
 	Export(ctx context.Context, ref string) (io.ReadCloser, error)
-	// Import reads a tar archive (gzip or raw, auto-detected) with snapshot.json
-	// metadata, stores the snapshot, and returns the new snapshot ID.
-	// Name and description override values from snapshot.json if non-empty.
+	// Import reads a snapshot tar (gzip auto-detected); non-empty name/description override the envelope.
 	Import(ctx context.Context, r io.Reader, name, description string) (string, error)
 
 	RegisterGC(*gc.Orchestrator)

@@ -75,9 +75,7 @@ func (l *Lock) Unlock(_ context.Context) error {
 	return nil
 }
 
-// commitFlock opens a fresh flock fd, runs acquire, and either stores the fd
-// (on success) or releases the channel token (on failure) so Unlock is always
-// called in a balanced pair with Lock/TryLock.
+// commitFlock acquires a flock fd; on failure releases the channel token so Lock/Unlock stay balanced.
 func (l *Lock) commitFlock(acquire func(*flock.Flock) (bool, error)) (bool, error) {
 	fl := flock.New(l.path)
 	locked, err := acquire(fl)

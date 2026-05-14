@@ -1,8 +1,6 @@
 package utils
 
-// CleanStaleRecords removes records matching targetIDs from items,
-// with a staleness re-check via isStale to guard against TOCTOU.
-// nameOf extracts the name for nameMap cleanup ("" means no name entry).
+// CleanStaleRecords removes targetIDs from items, re-checking isStale to dodge TOCTOU; nameOf=="" skips nameMap cleanup.
 func CleanStaleRecords[T any](
 	items map[string]*T,
 	nameMap map[string]string,

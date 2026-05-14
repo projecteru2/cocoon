@@ -238,10 +238,7 @@ func streamLog(ctx context.Context, path string, follow bool, tail int) error {
 			if !ok {
 				return nil
 			}
-			// stop/start re-opens with O_TRUNC; the head bytes change because
-			// CH/FC stamp a unique boot timestamp at line 1, so a sig mismatch
-			// catches a new generation even when the file regrows to the same
-			// length within the debounce window.
+			// Stop/start re-opens O_TRUNC; head bytes shift because CH/FC stamp a unique boot timestamp on line 1, so sig mismatch catches new generations even at the same length.
 			newSig, _ := utils.FileHead(f, logHeadSigLen)
 			if !bytes.Equal(newSig, sig) {
 				if _, err := f.Seek(0, io.SeekStart); err != nil {
@@ -462,13 +459,8 @@ func batchRoutedCmd(ctx context.Context, cmd *cobra.Command, name, pastTense str
 	return nil
 }
 
-// collectAttachedDevices reads runtime fs/vfio device lists from the
-// backend. Errors are logged and dropped — inspect should not fail just
-// because vm.info is briefly unreachable.
-//
-// TODO(inspect): the two Lister calls each fetch their own vm.info. A
-// combined Lister in extend/ would let inspect pay one HTTP round-trip
-// instead of two. Mirrored on cloudhypervisor/extend.go FsList/DeviceList.
+// collectAttachedDevices reads fs/vfio devices; errors are logged and dropped so inspect tolerates a flaky vm.info.
+// TODO(inspect): each Lister calls vm.info separately; combine via extend/ Lister to halve the round-trips.
 func collectAttachedDevices(ctx context.Context, hyper hypervisor.Hypervisor, ref string) *attachedDevices {
 	logger := log.WithFunc("cmd.vm.inspect")
 	out := &attachedDevices{}
