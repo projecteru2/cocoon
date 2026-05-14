@@ -103,7 +103,7 @@ type CreateSpec struct {
 	StorageConfigs []*types.StorageConfig
 	Net            types.NetSetup
 	BootConfig     *types.BootConfig
-	Prepare        func(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, boot *types.BootConfig) ([]*types.StorageConfig, error)
+	Prepare        func(ctx context.Context, vmID string, vmCfg *types.VMConfig, storageConfigs []*types.StorageConfig, net types.NetSetup, boot *types.BootConfig) ([]*types.StorageConfig, error)
 }
 
 // SnapshotSpec carries the backend-specific hooks for SnapshotSequence.

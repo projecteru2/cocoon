@@ -34,13 +34,13 @@ const (
 	SnapshotFileMeta
 	// SnapshotFileSkip means the file should not be cloned.
 	SnapshotFileSkip
+)
 
-	// MinDataDiskSize is the minimum user data disk size; mkfs.ext4 is
-	// unstable below this on small sparse files.
+const (
+	// MinDataDiskSize is the minimum user data disk size; mkfs.ext4 is unstable below this on small sparse files.
 	MinDataDiskSize int64 = 16 << 20
 
-	// socketReadyPollInterval is the WaitForSocket poll cadence — VMM socket
-	// usually appears within a few ms after process start.
+	// socketReadyPollInterval is the WaitForSocket poll cadence — VMM socket usually appears within a few ms after process start.
 	socketReadyPollInterval = 1 * time.Millisecond
 )
 

@@ -99,7 +99,7 @@ func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec
 		bootCopy = &bc
 	}
 
-	preparedStorage, err := spec.Prepare(ctx, id, spec.VMCfg, spec.StorageConfigs, spec.Net.NetworkConfigs, bootCopy)
+	preparedStorage, err := spec.Prepare(ctx, id, spec.VMCfg, spec.StorageConfigs, spec.Net, bootCopy)
 	if err != nil {
 		return nil, err
 	}

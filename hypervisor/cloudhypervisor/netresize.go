@@ -104,6 +104,9 @@ func (ch *CloudHypervisor) netResizeRemove(ctx context.Context, hc *http.Client,
 		}
 		plumbingErr := plumbing.Remove(ctx, vmID, i)
 		if err := ch.truncateNetworkConfigs(ctx, vmID, i); err != nil {
+			if plumbingErr != nil {
+				logger.Warnf(ctx, "host plumbing leak for vm %s nic %d (%s): %v", vmID, i, chID, plumbingErr)
+			}
 			logger.Errorf(ctx, err, "persistence diverged from CH for vm %s nic %d (%s): live device removed, cocoon record retained", vmID, i, chID)
 			return res, fmt.Errorf("persist remove nic %d: %w", i, err)
 		}

@@ -23,7 +23,9 @@ func (fc *Firecracker) Create(ctx context.Context, id string, vmCfg *types.VMCon
 		StorageConfigs: storageConfigs,
 		Net:            net,
 		BootConfig:     bootCfg,
-		Prepare:        fc.prepareOCI,
+		Prepare: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, sc []*types.StorageConfig, net types.NetSetup, boot *types.BootConfig) ([]*types.StorageConfig, error) {
+			return fc.prepareOCI(ctx, vmID, vmCfg, sc, net.NetworkConfigs, boot)
+		},
 	})
 }
 
