@@ -3,6 +3,7 @@ package cloudhypervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -112,14 +113,31 @@ func shutdownVM(ctx context.Context, hc *http.Client) error {
 	return err
 }
 
+// pauseVM is idempotent — swallows CH's Paused→Paused 500 so a stuck-paused VM recovers.
 func pauseVM(ctx context.Context, hc *http.Client) error {
 	_, err := vmAPIOnce(ctx, hc, "vm.pause", nil)
+	if err != nil && isAlreadyInStateError(err, "Paused") {
+		return nil
+	}
 	return err
 }
 
+// resumeVM is idempotent — swallows CH's Running→Running 500.
 func resumeVM(ctx context.Context, hc *http.Client) error {
 	_, err := vmAPIOnce(ctx, hc, "vm.resume", nil)
+	if err != nil && isAlreadyInStateError(err, "Running") {
+		return nil
+	}
 	return err
+}
+
+// isAlreadyInStateError matches CH's exact `Invalid transition: InvalidStateTransition(<state>, <state>)` in a 500 body.
+func isAlreadyInStateError(err error, state string) bool {
+	var ae *utils.APIError
+	if !errors.As(err, &ae) || ae.Code != http.StatusInternalServerError {
+		return false
+	}
+	return strings.Contains(ae.Message, fmt.Sprintf("Invalid transition: InvalidStateTransition(%s, %s)", state, state))
 }
 
 // snapshotVM and restoreVM temporarily extend the client timeout for

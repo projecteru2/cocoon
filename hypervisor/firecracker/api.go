@@ -169,8 +169,7 @@ func sendCtrlAltDel(ctx context.Context, hc *http.Client) error {
 	return fcAPIOnce(ctx, hc, http.MethodPut, "/actions", body)
 }
 
-// pauseVM pauses a running FC instance via PATCH /vm. Non-idempotent: a
-// retry after a lost response would hit "already paused" and mask success.
+// pauseVM pauses a running FC instance via PATCH /vm. Idempotent: FC's vCPU event loop acks Pause from the paused state without error (vstate/vcpu.rs).
 func pauseVM(ctx context.Context, hc *http.Client) error {
 	body, err := json.Marshal(map[string]string{"state": vmStatePaused})
 	if err != nil {
@@ -179,8 +178,7 @@ func pauseVM(ctx context.Context, hc *http.Client) error {
 	return fcAPIOnce(ctx, hc, http.MethodPatch, "/vm", body)
 }
 
-// resumeVM resumes a paused FC instance via PATCH /vm. Same non-idempotent
-// shape as pauseVM.
+// resumeVM resumes a paused FC instance via PATCH /vm. Idempotent like pauseVM.
 func resumeVM(ctx context.Context, hc *http.Client) error {
 	body, err := json.Marshal(map[string]string{"state": vmStateResumed})
 	if err != nil {
