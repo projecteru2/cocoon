@@ -78,7 +78,7 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 		// Catches workers/siblings the pidfile-based stop didn't see; fail-closed on scan error so we never wipe rundir while VMM state is unknown.
 		scanned, scanErr := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath)
 		if scanErr != nil {
-			return fmt.Errorf("refuse delete: VM %s /proc scan errored: %w (resolve host issue and retry)", id, scanErr)
+			return fmt.Errorf("refuse delete: VM %s /proc scan errored: %w (resolve the host issue and retry)", id, scanErr)
 		}
 		for _, pid := range scanned {
 			if termErr := utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod()); termErr != nil {

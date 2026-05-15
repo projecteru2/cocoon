@@ -31,7 +31,7 @@ func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid 
 	// Covers pidfile/socket cleaned up before VMM exited. Fail-closed if scan errors so callers don't treat inconclusive state as ErrNotRunning.
 	scanned, scanErr := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath)
 	if scanErr != nil {
-		return fmt.Errorf("VM %s: pidfile-based check failed and /proc scan errored: %w", rec.ID, scanErr)
+		return fmt.Errorf("VM %s: pidfile-based check failed and /proc scan errored: %w (resolve the host issue and retry)", rec.ID, scanErr)
 	}
 	if len(scanned) == 0 {
 		return ErrNotRunning
