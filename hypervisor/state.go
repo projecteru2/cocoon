@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"syscall"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -12,6 +14,8 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
+
+const socketProbeTimeout = 2 * time.Second
 
 // WithRunningVM calls fn if rec still points to a live VM process.
 func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid int) error) error {
@@ -23,6 +27,22 @@ func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid 
 		return ErrNotRunning
 	}
 	return fn(pid)
+}
+
+// IsAPISocketLive: (true,nil)=confirmed live; (false,nil)=ENOENT/ECONNREFUSED; (true,err)=fail-closed for unknown dial errors.
+func (b *Backend) IsAPISocketLive(ctx context.Context, rec *VMRecord) (bool, error) {
+	sock := SocketPath(rec.RunDir)
+	dialCtx, cancel := context.WithTimeout(ctx, socketProbeTimeout)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "unix", sock)
+	if err == nil {
+		_ = conn.Close()
+		return true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		return false, nil
+	}
+	return true, err
 }
 
 // WithPausedVM pauses, runs fn, resumes; eager resume on success promotes its error, deferred resume on fn-error only logs.

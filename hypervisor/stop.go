@@ -64,6 +64,16 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 		}); runningErr != nil && !errors.Is(runningErr, ErrNotRunning) {
 			return fmt.Errorf("stop before delete: %w", runningErr)
 		}
+		// Probe fires unconditionally: AF_UNIX has no TIME_WAIT, and catches false-negative pidfile/cmdline shortcuts.
+		if live, probeErr := b.IsAPISocketLive(ctx, &rec); live {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if probeErr != nil {
+				return fmt.Errorf("refuse delete: api socket %s probe inconclusive: %w (resolve the host issue or kill the vmm process then retry)", SocketPath(rec.RunDir), probeErr)
+			}
+			return fmt.Errorf("refuse delete: api socket %s still responsive (suspected orphan vmm; kill the vmm process then retry)", SocketPath(rec.RunDir))
+		}
 		if rmErr := RemoveVMDirs(rec.RunDir, rec.LogDir); rmErr != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", rmErr)
 		}

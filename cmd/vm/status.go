@@ -56,16 +56,26 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("list: %w", err)
 	}
+	sortVMs(vms)
+	format, _ := cmd.Flags().GetString("format")
+	return renderVMList(vms, format)
+}
+
+// renderVMList emits vms as JSON or table; "No VMs found." for empty in table mode.
+func renderVMList(vms []*types.VM, format string) error {
+	if format == "json" {
+		if vms == nil {
+			vms = []*types.VM{}
+		}
+		return cmdcore.OutputJSON(vms)
+	}
 	if len(vms) == 0 {
 		fmt.Println("No VMs found.")
 		return nil
 	}
-
-	sortVMs(vms)
-
-	return cmdcore.OutputFormatted(cmd, vms, func(w *tabwriter.Writer) {
-		printVMTable(w, vms)
-	})
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	printVMTable(w, vms)
+	return w.Flush()
 }
 
 func (h Handler) Status(cmd *cobra.Command, args []string) error {
@@ -79,18 +89,24 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 		interval = 5 //nolint:mnd
 	}
 	eventMode, _ := cmd.Flags().GetBool("event")
+	watchMode, _ := cmd.Flags().GetBool("watch")
+	if eventMode && watchMode {
+		return fmt.Errorf("--event and --watch are mutually exclusive")
+	}
+	format, _ := cmd.Flags().GetString("format")
 
 	hypers, hyperErr := cmdcore.InitAllHypervisors(conf)
 	if hyperErr != nil {
 		return hyperErr
 	}
 
-	watchCh := mergeWatchChannels(ctx, hypers)
+	if !eventMode && !watchMode {
+		return statusOnce(ctx, hypers, args, format)
+	}
 
+	watchCh := mergeWatchChannels(ctx, hypers)
 	ticker := time.NewTicker(time.Duration(interval) * time.Second)
 	defer ticker.Stop()
-
-	format, _ := cmd.Flags().GetString("format")
 
 	if eventMode {
 		if format == "json" {
@@ -103,6 +119,17 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 		statusRefreshLoop(ctx, hypers, args, watchCh, ticker.C, isTTY)
 	}
 	return nil
+}
+
+// statusOnce prints a single snapshot then returns; propagates ListAllVMs error (loop callers swallow).
+func statusOnce(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, format string) error {
+	vms, err := cmdcore.ListAllVMs(ctx, hypers)
+	if err != nil {
+		return fmt.Errorf("status: %w", err)
+	}
+	vms = applyFilters(vms, filters)
+	sortVMs(vms)
+	return renderVMList(vms, format)
 }
 
 func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-chan struct{} {
@@ -266,6 +293,7 @@ func printEventRow(w *tabwriter.Writer, event string, snap vmSnapshot) {
 		snap.ip, snap.image)
 }
 
+// listAndFilter swallows backend errors with a warn so a transient hiccup can't break the polling tick; one-shot callers must use cmdcore.ListAllVMs directly.
 func listAndFilter(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string) []*types.VM {
 	vms, err := cmdcore.ListAllVMs(ctx, hypers)
 	if err != nil {
@@ -273,16 +301,20 @@ func listAndFilter(ctx context.Context, hypers []hypervisor.Hypervisor, filters 
 		return nil
 	}
 	sortVMs(vms)
+	return applyFilters(vms, filters)
+}
+
+func applyFilters(vms []*types.VM, filters []string) []*types.VM {
 	if len(filters) == 0 {
 		return vms
 	}
-	var result []*types.VM
+	out := make([]*types.VM, 0, len(vms))
 	for _, vm := range vms {
 		if matchesFilter(vm, filters) {
-			result = append(result, vm)
+			out = append(out, vm)
 		}
 	}
-	return result
+	return out
 }
 
 func matchesFilter(vm *types.VM, filters []string) bool {

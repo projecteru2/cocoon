@@ -165,12 +165,13 @@ func Command(h Actions) *cobra.Command {
 
 	statusCmd := &cobra.Command{
 		Use:   "status [VM...]",
-		Short: "Watch VM status in real time",
+		Short: "Show VM status; --watch for refresh loop, --event for streaming",
 		RunE:  h.Status,
 	}
-	statusCmd.Flags().IntP("interval", "n", 5, "poll interval in seconds") //nolint:mnd
-	statusCmd.Flags().Bool("event", false, "event stream mode (append changes instead of refreshing)")
-	statusCmd.Flags().String("format", "", "output format: json (event mode only)")
+	statusCmd.Flags().IntP("interval", "n", 5, "poll interval in seconds (only with --watch or --event)") //nolint:mnd
+	statusCmd.Flags().BoolP("watch", "w", false, "refresh-loop mode (full-screen redraw each tick); omit for one-shot snapshot")
+	statusCmd.Flags().Bool("event", false, "event stream mode (append changes instead of refreshing); implies polling")
+	statusCmd.Flags().String("format", "", "output format: json (one-shot + event modes; --watch always renders a table)")
 
 	vmCmd.AddCommand(
 		createCmd,
