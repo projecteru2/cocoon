@@ -1,11 +1,40 @@
 package vm
 
 import (
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cocoonstack/cocoon/types"
 )
+
+// captureStdout redirects os.Stdout to a pipe, runs fn, returns the bytes; panic-safe via deferred cleanup.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer r.Close() //nolint:errcheck
+	defer w.Close() //nolint:errcheck // idempotent fallback if fn panics before the inline Close
+	orig := os.Stdout
+	defer func() { os.Stdout = orig }()
+	os.Stdout = w
+
+	var buf []byte
+	done := make(chan struct{})
+	go func() {
+		buf, _ = io.ReadAll(r)
+		close(done)
+	}()
+
+	fn()
+	_ = w.Close()
+	<-done
+	return string(buf)
+}
 
 func TestMatchesFilter(t *testing.T) {
 	vm := &types.VM{
@@ -84,4 +113,84 @@ func TestVMIPsAndSort(t *testing.T) {
 	if snap.id != "1" || snap.name != "earlier" || snap.image != "img-a" {
 		t.Fatalf("takeSnapshot() = %+v", snap)
 	}
+}
+
+func TestRenderVMList(t *testing.T) {
+	vm := &types.VM{
+		ID:        "abc",
+		Config:    types.VMConfig{Name: "demo", Config: types.Config{CPU: 1, Memory: 1 << 30, Image: "img"}},
+		CreatedAt: time.Now(),
+	}
+
+	tests := []struct {
+		name    string
+		vms     []*types.VM
+		format  string
+		want    string
+		notWant string
+	}{
+		{name: "empty table → No VMs found", vms: nil, format: "", want: "No VMs found."},
+		{name: "empty json → []", vms: nil, format: "json", want: "[]"},
+		{name: "table with vm contains name", vms: []*types.VM{vm}, format: "", want: "demo"},
+		{name: "json with vm contains id", vms: []*types.VM{vm}, format: "json", want: `"id": "abc"`},
+		{name: "table mode skips json marker", vms: []*types.VM{vm}, format: "", notWant: `"id":`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := captureStdout(t, func() {
+				if err := renderVMList(tt.vms, tt.format); err != nil {
+					t.Fatalf("renderVMList: %v", err)
+				}
+			})
+			if tt.want != "" && !strings.Contains(out, tt.want) {
+				t.Errorf("output %q does not contain %q", out, tt.want)
+			}
+			if tt.notWant != "" && strings.Contains(out, tt.notWant) {
+				t.Errorf("output %q unexpectedly contains %q", out, tt.notWant)
+			}
+		})
+	}
+}
+
+func TestApplyFilters(t *testing.T) {
+	vms := []*types.VM{
+		{ID: "abcdef123456", Config: types.VMConfig{Name: "alpha"}},
+		{ID: "beadbeef0000", Config: types.VMConfig{Name: "beta"}},
+	}
+	tests := []struct {
+		name    string
+		filters []string
+		wantIDs []string
+	}{
+		{name: "no filter returns all", filters: nil, wantIDs: []string{"abcdef123456", "beadbeef0000"}},
+		{name: "exact name", filters: []string{"alpha"}, wantIDs: []string{"abcdef123456"}},
+		{name: "id prefix", filters: []string{"bead"}, wantIDs: []string{"beadbeef0000"}},
+		{name: "multi filter union", filters: []string{"alpha", "bead"}, wantIDs: []string{"abcdef123456", "beadbeef0000"}},
+		{name: "no match", filters: []string{"zzz"}, wantIDs: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := applyFilters(vms, tt.filters)
+			gotIDs := make([]string, 0, len(got))
+			for _, vm := range got {
+				gotIDs = append(gotIDs, vm.ID)
+			}
+			if !equalStrings(gotIDs, tt.wantIDs) {
+				t.Errorf("applyFilters(%v) = %v, want %v", tt.filters, gotIDs, tt.wantIDs)
+			}
+		})
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
