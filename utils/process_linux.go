@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
 
-// FindVMMByCmdline returns pids whose argv[0] basename matches binaryName and args contain expectArg.
+// FindVMMByCmdline returns pids whose argv[0] basename matches binaryName and args contain expectArg, sorted numerically.
 func FindVMMByCmdline(binaryName, expectArg string) ([]int, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -26,6 +27,7 @@ func FindVMMByCmdline(binaryName, expectArg string) ([]int, error) {
 			pids = append(pids, pid)
 		}
 	}
+	slices.Sort(pids)
 	return pids, nil
 }
 

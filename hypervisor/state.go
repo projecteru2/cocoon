@@ -28,10 +28,10 @@ func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid 
 	if utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), sockPath) {
 		return fn(pid)
 	}
-	// Covers pidfile/socket cleaned up before VMM exited.
+	// Covers pidfile/socket cleaned up before VMM exited. Fail-closed if scan errors so callers don't treat inconclusive state as ErrNotRunning.
 	scanned, scanErr := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath)
 	if scanErr != nil {
-		logger.Warnf(ctx, "scan /proc for VM %s: %v", rec.ID, scanErr)
+		return fmt.Errorf("VM %s: pidfile-based check failed and /proc scan errored: %w", rec.ID, scanErr)
 	}
 	if len(scanned) == 0 {
 		return ErrNotRunning

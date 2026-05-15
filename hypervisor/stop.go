@@ -75,14 +75,16 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			}
 			return fmt.Errorf("refuse delete: api socket %s still responsive (suspected orphan vmm; kill the vmm process then retry)", sockPath)
 		}
-		// Catches workers/siblings the pidfile-based stop didn't see.
-		if scanned, _ := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath); len(scanned) > 0 {
-			for _, pid := range scanned {
-				if termErr := utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod()); termErr != nil {
-					return fmt.Errorf("terminate orphan VMM pid=%d for VM %s: %w", pid, id, termErr)
-				}
-				log.WithFunc(b.Typ+".Delete").Warnf(ctx, "killed orphan VMM pid=%d for VM %s", pid, id)
+		// Catches workers/siblings the pidfile-based stop didn't see; fail-closed on scan error so we never wipe rundir while VMM state is unknown.
+		scanned, scanErr := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath)
+		if scanErr != nil {
+			return fmt.Errorf("refuse delete: VM %s /proc scan errored: %w (resolve host issue and retry)", id, scanErr)
+		}
+		for _, pid := range scanned {
+			if termErr := utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod()); termErr != nil {
+				return fmt.Errorf("terminate orphan VMM pid=%d for VM %s: %w", pid, id, termErr)
 			}
+			log.WithFunc(b.Typ+".Delete").Warnf(ctx, "killed orphan VMM pid=%d for VM %s", pid, id)
 		}
 		if rmErr := RemoveVMDirs(rec.RunDir, rec.LogDir); rmErr != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", rmErr)
