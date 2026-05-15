@@ -19,14 +19,25 @@ const socketProbeTimeout = 2 * time.Second
 
 // WithRunningVM calls fn if rec still points to a live VM process.
 func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid int) error) error {
+	logger := log.WithFunc(b.Typ + ".WithRunningVM")
 	pid, pidErr := utils.ReadPIDFile(b.PIDFilePath(rec.RunDir))
 	if pidErr != nil && !errors.Is(pidErr, fs.ErrNotExist) {
-		log.WithFunc(b.Typ+".WithRunningVM").Warnf(ctx, "read PID file: %v", pidErr)
+		logger.Warnf(ctx, "read PID file: %v", pidErr)
 	}
-	if !utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), SocketPath(rec.RunDir)) {
+	sockPath := SocketPath(rec.RunDir)
+	if utils.VerifyProcessCmdline(pid, b.Conf.BinaryName(), sockPath) {
+		return fn(pid)
+	}
+	// Covers pidfile/socket cleaned up before VMM exited.
+	scanned, scanErr := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath)
+	if scanErr != nil {
+		logger.Warnf(ctx, "scan /proc for VM %s: %v", rec.ID, scanErr)
+	}
+	if len(scanned) == 0 {
 		return ErrNotRunning
 	}
-	return fn(pid)
+	logger.Warnf(ctx, "VM %s recovered live pids %v via cmdline scan", rec.ID, scanned)
+	return fn(scanned[0])
 }
 
 // IsAPISocketLive: (true,nil)=confirmed live; (false,nil)=ENOENT/ECONNREFUSED; (true,err)=fail-closed for unknown dial errors.

@@ -56,6 +56,7 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 		if loadErr != nil {
 			return loadErr
 		}
+		sockPath := SocketPath(rec.RunDir)
 		if runningErr := b.WithRunningVM(ctx, &rec, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
@@ -70,9 +71,18 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 				return ctxErr
 			}
 			if probeErr != nil {
-				return fmt.Errorf("refuse delete: api socket %s probe inconclusive: %w (resolve the host issue or kill the vmm process then retry)", SocketPath(rec.RunDir), probeErr)
+				return fmt.Errorf("refuse delete: api socket %s probe inconclusive: %w (resolve the host issue or kill the vmm process then retry)", sockPath, probeErr)
 			}
-			return fmt.Errorf("refuse delete: api socket %s still responsive (suspected orphan vmm; kill the vmm process then retry)", SocketPath(rec.RunDir))
+			return fmt.Errorf("refuse delete: api socket %s still responsive (suspected orphan vmm; kill the vmm process then retry)", sockPath)
+		}
+		// Catches workers/siblings the pidfile-based stop didn't see.
+		if scanned, _ := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath); len(scanned) > 0 {
+			for _, pid := range scanned {
+				if termErr := utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod()); termErr != nil {
+					return fmt.Errorf("terminate orphan VMM pid=%d for VM %s: %w", pid, id, termErr)
+				}
+				log.WithFunc(b.Typ+".Delete").Warnf(ctx, "killed orphan VMM pid=%d for VM %s", pid, id)
+			}
 		}
 		if rmErr := RemoveVMDirs(rec.RunDir, rec.LogDir); rmErr != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", rmErr)

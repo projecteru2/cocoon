@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -23,4 +24,23 @@ func verifyProcessCmdline(pid int, binaryName, expectArg string) (matched, avail
 		return true, true
 	}
 	return strings.Contains(rest, expectArg), true
+}
+
+// FindVMMByCmdline returns pids whose argv[0] basename matches binaryName and args contain marker.
+func FindVMMByCmdline(binaryName, marker string) ([]int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	var pids []int
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		if matched, _ := verifyProcessCmdline(pid, binaryName, marker); matched {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
 }
