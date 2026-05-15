@@ -41,12 +41,12 @@ func IsProcessAlive(pid int) bool {
 }
 
 // VerifyProcessCmdline matches pid against binaryName + expectArg in
-// /proc/<pid>/cmdline; falls back to IsProcessAlive on non-Linux.
+// /proc/<pid>/cmdline; falls back to IsProcessAlive on non-Linux or read errors.
 func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	if pid <= 0 {
 		return false
 	}
-	if match, ok := verifyProcessCmdline(pid, binaryName, expectArg); ok {
+	if match, err := verifyProcessCmdline(pid, binaryName, expectArg); err == nil {
 		return match
 	}
 	return IsProcessAlive(pid)

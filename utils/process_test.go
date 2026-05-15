@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -242,6 +244,46 @@ func TestTerminateProcess_SIGTERMIgnored_FallsBackToKill(t *testing.T) {
 	}
 
 	<-waitDone
+}
+
+func TestFindVMMByCmdline(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("FindVMMByCmdline scans /proc — linux only")
+	}
+	marker := "cocoon-find-marker-" + strconv.Itoa(os.Getpid())
+	// "sleep 60 && :" is a compound command so sh can't tail-exec into sleep and lose the marker arg.
+	cmd := exec.Command("sh", "-c", "sleep 60 && :", marker)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	// Poll briefly: cmdline is written by execve, so the parent may scan before /proc/<pid>/cmdline reflects argv.
+	var pids []int
+	for range 50 {
+		got, err := FindVMMByCmdline("sh", marker)
+		if err != nil {
+			t.Fatalf("FindVMMByCmdline: %v", err)
+		}
+		if len(got) > 0 {
+			pids = got
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(pids) != 1 || pids[0] != cmd.Process.Pid {
+		t.Errorf("FindVMMByCmdline: got %v, want [%d]", pids, cmd.Process.Pid)
+	}
+
+	if got, _ := FindVMMByCmdline("definitely-no-such-binary", marker); len(got) != 0 {
+		t.Errorf("wrong-binary scan matched: %v", got)
+	}
+	if got, _ := FindVMMByCmdline("sh", "no-such-marker-"+marker); len(got) != 0 {
+		t.Errorf("wrong-marker scan matched: %v", got)
+	}
 }
 
 func TestTerminateProcess_ContextCancelled(t *testing.T) {
