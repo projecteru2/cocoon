@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/projecteru2/core/log"
@@ -44,6 +45,7 @@ type LocalFile struct {
 	store    storage.Store[snapshot.SnapshotIndex]
 	locker   lock.Locker
 	gcPolicy EvictionPolicy
+	touchWG  sync.WaitGroup
 }
 
 func New(conf *config.Config, opts ...Option) (*LocalFile, error) {
@@ -124,6 +126,7 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 	if sizeErr != nil {
 		return "", fmt.Errorf("compute data dir size: %w", sizeErr)
 	}
+	finalizedAt := time.Now()
 	if err = lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
 		rec := idx.Snapshots[id]
 		if rec == nil {
@@ -131,7 +134,7 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		}
 		rec.Pending = false
 		rec.SizeBytes = size
-		rec.LastAccessedAt = now
+		rec.LastAccessedAt = finalizedAt
 		return nil
 	}); err != nil {
 		return "", fmt.Errorf("finalize snapshot: %w", err)
@@ -224,10 +227,11 @@ func (lf *LocalFile) rollbackCreate(ctx context.Context, id, name string) {
 	}
 }
 
-// lookupRecord resolves ref to a non-pending record; touch=true also bumps LastAccessedAt under the same write lock.
+// lookupRecord resolves ref to a non-pending record; touch=true bumps LastAccessedAt asynchronously so hot paths (clone DataDir, Export) don't block on the index write lock.
 func (lf *LocalFile) lookupRecord(ctx context.Context, ref string, touch bool) (snapshot.SnapshotRecord, error) {
 	var rec snapshot.SnapshotRecord
-	apply := func(idx *snapshot.SnapshotIndex) error {
+	var resolvedID string
+	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
 		id, err := idx.Resolve(ref)
 		if err != nil {
 			return err
@@ -236,16 +240,39 @@ func (lf *LocalFile) lookupRecord(ctx context.Context, ref string, touch bool) (
 		if r == nil || r.Pending {
 			return snapshot.ErrNotFound
 		}
-		if touch {
-			r.LastAccessedAt = time.Now()
-		}
+		resolvedID = id
 		rec = *r
 		return nil
+	}); err != nil {
+		return rec, err
 	}
 	if touch {
-		return rec, lf.store.Update(ctx, apply)
+		lf.touchAccess(resolvedID)
 	}
-	return rec, lf.store.With(ctx, apply)
+	return rec, nil
+}
+
+// touchAccess writes LastAccessedAt off the caller's path; the touch is purely LRU bookkeeping, so caller cancellation must not abort it and a failed write only warns.
+func (lf *LocalFile) touchAccess(id string) {
+	lf.touchWG.Go(func() {
+		ctx := context.Background()
+		if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+			r := idx.Snapshots[id]
+			if r == nil || r.Pending {
+				return nil
+			}
+			r.LastAccessedAt = time.Now()
+			return nil
+		}); err != nil {
+			log.WithFunc("localfile.touchAccess").Warnf(ctx, "touch LastAccessedAt for %s: %v", id, err)
+		}
+	})
+}
+
+// Close blocks until pending LastAccessedAt touches drain. CLI invokes this before process exit; tests register it via t.Cleanup so temp dirs aren't removed while a touch goroutine is mid-write.
+func (lf *LocalFile) Close() error {
+	lf.touchWG.Wait()
+	return nil
 }
 
 // snapshotRecordToConfig builds a detached SnapshotConfig from a record,
