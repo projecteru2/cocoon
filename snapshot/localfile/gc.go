@@ -21,7 +21,7 @@ import (
 // pendingGCGrace lets a slow-storage snapshot finish before GC reclaims a pending record.
 const pendingGCGrace = 24 * time.Hour
 
-// backfillSizeBytes computes DirSize for records with SizeBytes==0 (pre-PR snapshots upgraded in place) and persists the result so --snapshot-size has accurate accounting.
+// backfillSizeBytes computes DirSize for records with SizeBytes==0 (pre-PR snapshots upgraded in place) and persists via WriteRaw — caller is GC orchestrator which already holds the store lock.
 func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
 	logger := log.WithFunc("localfile.gc.backfillSizeBytes")
 	updates := make(map[string]int64)
@@ -41,7 +41,7 @@ func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[sn
 	if len(updates) == 0 {
 		return
 	}
-	if err := store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+	if err := store.WriteRaw(func(idx *snapshot.SnapshotIndex) error {
 		for id, size := range updates {
 			if r := idx.Snapshots[id]; r != nil {
 				r.SizeBytes = size

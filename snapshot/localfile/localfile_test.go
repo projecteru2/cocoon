@@ -35,7 +35,6 @@ func newTestLF(t *testing.T) *LocalFile {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	t.Cleanup(func() { _ = lf.Close() })
 	return lf
 }
 

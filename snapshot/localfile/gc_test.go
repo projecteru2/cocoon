@@ -261,7 +261,6 @@ func TestRestoreUpdatesLastAccessedAt(t *testing.T) {
 		rc.Close()
 	}
 
-	_ = lf.Close()
 	rec, err := lf.lookupRecord(ctx, id, false)
 	if err != nil {
 		t.Fatal(err)
