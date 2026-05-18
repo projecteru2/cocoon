@@ -297,8 +297,7 @@ func ValidateRoleSequence(sidecar, rec []*types.StorageConfig) error {
 	return nil
 }
 
-// ExpandRawImage truncates path up to targetSize. No-op if path is already
-// at least targetSize. Used by both backends for raw COW expansion.
+// ExpandRawImage truncates path up to targetSize; no-op if path already meets it.
 func ExpandRawImage(path string, targetSize int64) error {
 	fi, err := os.Stat(path)
 	if err != nil {
