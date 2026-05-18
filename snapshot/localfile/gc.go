@@ -21,9 +21,21 @@ import (
 // pendingGCGrace lets a slow-storage snapshot finish before GC reclaims a pending record.
 const pendingGCGrace = 24 * time.Hour
 
-// backfillSizeBytes computes DirSize for records with SizeBytes==0 and persists via WriteRaw.
+// EvictionPolicy controls LRU snapshot eviction; Enabled with zero criteria evicts all non-pending.
+type EvictionPolicy struct {
+	Enabled  bool
+	DryRun   bool
+	KeepLast int
+	MaxAge   time.Duration
+	MaxSize  int64
+}
+
+func (p EvictionPolicy) hasCriteria() bool {
+	return p.KeepLast > 0 || p.MaxAge > 0 || p.MaxSize > 0
+}
+
 func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
-	logger := log.WithFunc("localfile.gc.backfillSizeBytes")
+	logger := log.WithFunc("gc.snapshot")
 	var changed bool
 	for id, m := range records {
 		if m.sizeBytes > 0 {
@@ -51,19 +63,6 @@ func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[sn
 	}); err != nil {
 		logger.Warnf(ctx, "persist backfilled SizeBytes: %v", err)
 	}
-}
-
-// EvictionPolicy controls LRU snapshot eviction; Enabled with zero criteria evicts all non-pending.
-type EvictionPolicy struct {
-	Enabled  bool
-	DryRun   bool
-	KeepLast int
-	MaxAge   time.Duration
-	MaxSize  int64
-}
-
-func (p EvictionPolicy) hasCriteria() bool {
-	return p.KeepLast > 0 || p.MaxAge > 0 || p.MaxSize > 0
 }
 
 type snapshotMeta struct {
@@ -169,9 +168,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 					errs = append(errs, fmt.Errorf("remove snapshot %s: %w", id, err))
 					continue
 				}
-				m := records[id]
-				logger.Infof(ctx, "collected id=%s name=%s bytes=%d last_accessed=%s reason=%s",
-					id, m.name, m.sizeBytes, formatTime(m.lastAccessed), reasons[id])
+				logEvictRow(ctx, logger, "collected", id, records[id], reasons[id])
 				removed = append(removed, id)
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {
@@ -182,8 +179,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 	}
 }
 
-// pickLRU returns evict IDs keyed by reason (lru-all / lru-age / lru-keep / lru-size, joined by "+" on multi-match).
-// No sub-criteria → all records with reason "lru-all".
+// pickLRU returns evict IDs keyed by reason ("+" joins multi-match; no criteria → "lru-all").
 func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) map[string]string {
 	sorted := slices.SortedFunc(maps.Keys(records), func(a, b string) int {
 		return records[a].lastAccessed.Compare(records[b].lastAccessed)
@@ -238,27 +234,26 @@ func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) map[string]strin
 	return reasons
 }
 
-// logWouldEvict prints a preview row per dry-run LRU candidate; non-dry-run path logs inside Collect after successful removal.
 func logWouldEvict(ctx context.Context, reasons map[string]string, records map[string]snapshotMeta) {
 	if len(reasons) == 0 {
 		return
 	}
 	logger := log.WithFunc("gc.snapshot")
 	for _, id := range slices.Sorted(maps.Keys(reasons)) {
-		m := records[id]
-		logger.Infof(ctx, "would-evict id=%s name=%s bytes=%d last_accessed=%s reason=%s",
-			id, m.name, m.sizeBytes, formatTime(m.lastAccessed), reasons[id])
+		logEvictRow(ctx, logger, "would-evict", id, records[id], reasons[id])
 	}
 }
 
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return "never"
+func logEvictRow(ctx context.Context, logger *log.Fields, verb, id string, m snapshotMeta, reason string) {
+	accessed := "never"
+	if !m.lastAccessed.IsZero() {
+		accessed = m.lastAccessed.UTC().Format(time.RFC3339)
 	}
-	return t.UTC().Format(time.RFC3339)
+	logger.Infof(ctx, "%s id=%s name=%s bytes=%d last_accessed=%s reason=%s",
+		verb, id, m.name, m.sizeBytes, accessed, reason)
 }
 
-// cleanResolvedRecords drops GC-resolved records; pending only if past grace (protects in-flight Create).
+// cleanResolvedRecords drops resolved records; pending only past grace.
 func cleanResolvedRecords(store storage.Store[snapshot.SnapshotIndex], ids []string) error {
 	if len(ids) == 0 {
 		return nil
