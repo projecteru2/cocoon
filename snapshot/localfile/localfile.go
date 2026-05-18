@@ -269,7 +269,7 @@ func (lf *LocalFile) touchAccess(id string) {
 	})
 }
 
-// Close blocks until pending LastAccessedAt touches drain. CLI invokes this before process exit; tests register it via t.Cleanup so temp dirs aren't removed while a touch goroutine is mid-write.
+// Close blocks until pending LastAccessedAt touches drain.
 func (lf *LocalFile) Close() error {
 	lf.touchWG.Wait()
 	return nil
