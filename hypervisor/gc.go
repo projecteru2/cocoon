@@ -86,7 +86,7 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 			return slices.Compact(candidates)
 		},
 		Collect: func(ctx context.Context, ids []string, snap VMGCSnapshot) error {
-			return b.gcCollect(ctx, ids, snap.reasons)
+			return b.gcCollect(ctx, ids, snap)
 		},
 	}
 }
@@ -101,7 +101,7 @@ func (b *Backend) WatchPath() string {
 }
 
 // gcCollect kills leftover hypervisor processes and removes orphan dirs/records under the orchestrator's flock.
-func (b *Backend) gcCollect(ctx context.Context, ids []string, reasons map[string]string) error {
+func (b *Backend) gcCollect(ctx context.Context, ids []string, snap VMGCSnapshot) error {
 	logger := log.WithFunc("gc." + b.Typ)
 	var errs []error
 	for _, id := range ids {
@@ -118,7 +118,7 @@ func (b *Backend) gcCollect(ctx context.Context, ids []string, reasons map[strin
 			continue
 		}
 		logger.Infof(ctx, "collected id=%s runDir=%s logDir=%s reason=%s",
-			id, runDir, logDir, reasons[id])
+			id, runDir, logDir, snap.reasons[id])
 	}
 	if err := b.CleanStalePlaceholders(ctx, ids); err != nil {
 		errs = append(errs, fmt.Errorf("clean stale placeholders: %w", err))

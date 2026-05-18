@@ -303,14 +303,18 @@ func TestGCModule_RemovalFailureKeepsDBRecord(t *testing.T) {
 		}
 	}
 
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatalf("ReadDB: %v", err)
+	}
+
 	parent := lf.conf.DataDir()
 	if err := os.Chmod(parent, 0o500); err != nil {
 		t.Skipf("chmod failed: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o750) })
 
-	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
-	snap, _ := mod.ReadDB(ctx)
 	if err := mod.Collect(ctx, ids, snap); err == nil {
 		t.Fatal("expected Collect to error on chmod-protected parent")
 	}
