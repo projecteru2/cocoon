@@ -66,6 +66,29 @@ func ScanSubdirs(dir string) ([]string, error) {
 	})
 }
 
+// DirSize sums regular file sizes under dir (recursive). Missing dir → 0.
+func DirSize(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	return total, err
+}
+
 // FilterUnreferenced returns the elements of candidates not present in refs
 // or any of the optional exclude sets. Used by GC Resolve to compute deletions.
 func FilterUnreferenced(candidates []string, refs map[string]struct{}, exclude ...map[string]struct{}) []string {

@@ -158,7 +158,7 @@ cocoon
 │   ├── rm SNAPSHOT [SNAPSHOT...]  Delete snapshot(s)
 │   ├── export [flags] SNAPSHOT    Export snapshot to portable archive (or stdout)
 │   └── import [flags] [FILE]      Import snapshot from archive (or stdin)
-├── gc                             Remove unreferenced blobs and VM dirs
+├── gc [flags]                     Remove unreferenced blobs, VM dirs; --snapshot for LRU snapshot eviction
 ├── version                        Show version, revision, and build time
 └── completion [bash|zsh|fish|powershell]
 ```
@@ -830,6 +830,76 @@ State changes are detected via **fsnotify** on the VM index file (sub-second lat
 4. **Collect** — delete identified targets
 
 This ensures blobs referenced by running VMs or saved snapshots are never deleted.
+
+### Snapshot LRU Eviction
+
+Bare `cocoon gc` only reclaims **orphans** (on-disk data with no DB record) and **stale pending** records (crashed mid-Create, older than 24h). To also evict healthy snapshots by access recency, pass `--snapshot`:
+
+| Flag                 | Effect                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `--snapshot`           | Enable LRU eviction. Bare flag = evict **every** non-pending snapshot.                          |
+| `--snapshot-keep N`    | Keep at most N most-recently-accessed snapshots.                                                |
+| `--snapshot-age DUR`   | Evict snapshots last accessed before this duration (e.g. `720h` for 30d).                       |
+| `--snapshot-size SZ`   | Evict oldest snapshots until total size ≤ this (e.g. `100GB`).                                  |
+| `--snapshot-dry-run`   | Log which snapshots would be LRU-evicted; act on nothing. **Snapshot-only — orphans and other GC modules still execute.** |
+
+Sub-flags combine as union of evictions (intersection of kept) — a snapshot is kept only if it passes **every** active criterion. All sub-flags require `--snapshot`; negative values are rejected.
+
+`LastAccessedAt` is updated on `Restore`, `vm clone` (via `DataDir`), `snapshot export`, and `snapshot import` (set to creation time). `Inspect` and `list` do not count as access.
+
+```bash
+# Preview what 30-day eviction would remove (snapshot-only — other GC modules still run)
+cocoon gc --snapshot --snapshot-age=720h --snapshot-dry-run
+
+# Production: weekly cleanup, keep 50 newest within 7 days
+cocoon gc --snapshot --snapshot-age=168h --snapshot-keep=50
+
+# Cap storage at 100GB
+cocoon gc --snapshot --snapshot-size=100GB
+
+# Nuke all snapshots (dev / test reset)
+cocoon gc --snapshot
+```
+
+### Scheduled Snapshot GC
+
+`cocoon gc` is a one-shot, lock-safe operation — drive periodic execution from a systemd timer or cron. Recommended template (systemd):
+
+```ini
+# /etc/systemd/system/cocoon-gc.service
+[Unit]
+Description=Cocoon snapshot GC (LRU eviction)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cocoon gc --snapshot --snapshot-age=168h --snapshot-keep=50
+StandardOutput=journal
+StandardError=journal
+```
+
+```ini
+# /etc/systemd/system/cocoon-gc.timer
+[Unit]
+Description=Run cocoon snapshot GC daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+Unit=cocoon-gc.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable: `systemctl enable --now cocoon-gc.timer`.
+
+For cron, drop a one-liner into `/etc/cron.daily/cocoon-gc`:
+
+```sh
+#!/bin/sh
+exec /usr/local/bin/cocoon gc --snapshot --snapshot-age=168h --snapshot-keep=50
+```
 
 ## OS Images
 

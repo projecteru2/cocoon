@@ -12,6 +12,6 @@ type runner interface {
 	getName() string
 	getLocker() lock.Locker
 	readSnapshot(ctx context.Context) (any, error)
-	resolveTargets(snap any, others map[string]any) []string
+	resolveTargets(ctx context.Context, snap any, others map[string]any) []string
 	collect(ctx context.Context, ids []string) error
 }

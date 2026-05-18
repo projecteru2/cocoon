@@ -47,7 +47,7 @@ func GCModule(rootDir string) gc.Module[bridgeSnapshot] {
 			}
 			return snap, nil
 		},
-		Resolve: func(snap bridgeSnapshot, others map[string]any) []string {
+		Resolve: func(_ context.Context, snap bridgeSnapshot, others map[string]any) []string {
 			active := gc.Collect(others, gc.VMIDs)
 
 			// Build set of 8-char prefixes from active VM IDs.

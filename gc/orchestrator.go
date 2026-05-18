@@ -68,7 +68,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	// Phase 2: resolve deletion targets (cross-module via snapshots).
 	targets := make(map[string][]string)
 	for _, m := range locked {
-		if ids := m.resolveTargets(snapshots[m.getName()], snapshots); len(ids) > 0 {
+		if ids := m.resolveTargets(ctx, snapshots[m.getName()], snapshots); len(ids) > 0 {
 			targets[m.getName()] = ids
 		}
 	}

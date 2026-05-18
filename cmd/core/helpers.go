@@ -185,8 +185,8 @@ func InitBridgeNetwork(conf *config.Config, bridgeDev string) (network.Network, 
 	return p, nil
 }
 
-func InitSnapshot(conf *config.Config) (snapshot.Snapshot, error) {
-	s, err := localfile.New(conf)
+func InitSnapshot(conf *config.Config, opts ...localfile.Option) (snapshot.Snapshot, error) {
+	s, err := localfile.New(conf, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("init snapshot backend: %w", err)
 	}

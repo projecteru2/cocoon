@@ -1,0 +1,329 @@
+package localfile
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/cocoonstack/cocoon/snapshot"
+	"github.com/cocoonstack/cocoon/types"
+)
+
+func meta(ageHours int, size int64) snapshotMeta {
+	accessedAt := time.Now().Add(-time.Duration(ageHours) * time.Hour)
+	return snapshotMeta{lastAccessed: accessedAt, sizeBytes: size}
+}
+
+func TestPickLRU_NoCriteriaEvictsAll(t *testing.T) {
+	records := map[string]snapshotMeta{
+		"a": meta(1, 100),
+		"b": meta(2, 100),
+		"c": meta(3, 100),
+	}
+	got := pickLRU(records, EvictionPolicy{Enabled: true})
+	if len(got) != 3 {
+		t.Fatalf("want 3 evictions, got %v", got)
+	}
+}
+
+func TestPickLRU_KeepLast(t *testing.T) {
+	records := map[string]snapshotMeta{
+		"newest":   meta(1, 10),
+		"middle":   meta(5, 10),
+		"oldest":   meta(10, 10),
+		"oldester": meta(20, 10),
+	}
+	got := pickLRU(records, EvictionPolicy{Enabled: true, KeepLast: 2})
+	if !slices.Equal(got, []string{"oldest", "oldester"}) {
+		t.Errorf("KeepLast=2: got %v", got)
+	}
+}
+
+func TestPickLRU_KeepLastExceedsAll(t *testing.T) {
+	records := map[string]snapshotMeta{"a": meta(1, 10), "b": meta(2, 10)}
+	got := pickLRU(records, EvictionPolicy{Enabled: true, KeepLast: 10})
+	if len(got) != 0 {
+		t.Errorf("KeepLast>len: got %v, want empty", got)
+	}
+}
+
+func TestPickLRU_MaxAge(t *testing.T) {
+	records := map[string]snapshotMeta{
+		"fresh": meta(1, 10),
+		"stale": meta(48, 10),
+	}
+	got := pickLRU(records, EvictionPolicy{Enabled: true, MaxAge: 24 * time.Hour})
+	if !slices.Equal(got, []string{"stale"}) {
+		t.Errorf("MaxAge=24h: got %v", got)
+	}
+}
+
+func TestPickLRU_MaxSize(t *testing.T) {
+	records := map[string]snapshotMeta{
+		"a": meta(1, 30),
+		"b": meta(2, 30),
+		"c": meta(3, 30),
+		"d": meta(4, 30),
+	}
+	got := pickLRU(records, EvictionPolicy{Enabled: true, MaxSize: 60})
+	if !slices.Equal(got, []string{"c", "d"}) {
+		t.Errorf("MaxSize=60: got %v", got)
+	}
+}
+
+func TestPickLRU_UnionOfCriteria(t *testing.T) {
+	records := map[string]snapshotMeta{
+		"fresh-small": meta(1, 10),
+		"fresh-big":   meta(2, 100),
+		"old-small":   meta(48, 10),
+	}
+	got := pickLRU(records, EvictionPolicy{
+		Enabled: true, MaxAge: 24 * time.Hour, MaxSize: 50,
+	})
+	want := []string{"fresh-big", "old-small"}
+	if !slices.Equal(got, want) {
+		t.Errorf("union: got %v, want %v", got, want)
+	}
+}
+
+func TestPickLRU_ZeroTimeIsOldest(t *testing.T) {
+	records := map[string]snapshotMeta{
+		"recent": meta(1, 10),
+		"zero":   {lastAccessed: time.Time{}, sizeBytes: 10},
+	}
+	got := pickLRU(records, EvictionPolicy{Enabled: true, KeepLast: 1})
+	if !slices.Equal(got, []string{"zero"}) {
+		t.Errorf("zero time should be evicted first: got %v", got)
+	}
+}
+
+func TestGCModule_LRUEndToEnd(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"old1", "old2", "fresh"} {
+		id := testID(t)
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: id, Name: name},
+			makeTar(t, map[string][]byte{"cow.raw": []byte("x")})); err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+	}
+
+	pastAccess := time.Now().Add(-72 * time.Hour)
+	if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		for _, name := range []string{"old1", "old2"} {
+			r := idx.Snapshots[idx.Names[name]]
+			if r == nil {
+				return fmt.Errorf("setup: %s record missing", name)
+			}
+			r.LastAccessedAt = pastAccess
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	policy := EvictionPolicy{Enabled: true, MaxAge: 24 * time.Hour}
+	mod := gcModule(lf.conf, lf.store, lf.locker, policy)
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatalf("ReadDB: %v", err)
+	}
+	ids := mod.Resolve(ctx, snap, map[string]any{})
+	if len(ids) != 2 {
+		t.Errorf("want 2 evictions, got %v", ids)
+	}
+	if err := mod.Collect(ctx, ids); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	remaining, err := lf.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].Name != "fresh" {
+		t.Errorf("after LRU: want only 'fresh', got %v", remaining)
+	}
+	for _, name := range []string{"old1", "old2"} {
+		if _, err := lf.Inspect(ctx, name); err == nil {
+			t.Errorf("%s should be deleted", name)
+		}
+	}
+}
+
+func TestGCModule_DryRunNoEviction(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"a", "b"} {
+		id := testID(t)
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: id, Name: name},
+			makeTar(t, map[string][]byte{"x": []byte("x")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	policy := EvictionPolicy{Enabled: true, DryRun: true}
+	mod := gcModule(lf.conf, lf.store, lf.locker, policy)
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := mod.Resolve(ctx, snap, map[string]any{})
+	if len(ids) != 0 {
+		t.Errorf("dry-run should not return evictions, got %v", ids)
+	}
+}
+
+func TestGCModule_BareSnapshotEvictsAll(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"a", "b", "c"} {
+		id := testID(t)
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: id, Name: name},
+			makeTar(t, map[string][]byte{"x": []byte("x")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := mod.Resolve(ctx, snap, map[string]any{})
+	if err := mod.Collect(ctx, ids); err != nil {
+		t.Fatal(err)
+	}
+
+	remaining, err := lf.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("bare --snapshot should evict all, got %v", remaining)
+	}
+}
+
+func TestSizeAndLastAccessedAtPopulated(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	id := testID(t)
+	before := time.Now()
+	if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: id, Name: "sized"},
+		makeTar(t, map[string][]byte{"a": []byte("hello"), "b": []byte("world!!")})); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, err := lf.lookupRecord(ctx, id, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSize := int64(len("hello") + len("world!!"))
+	if rec.SizeBytes != wantSize {
+		t.Errorf("SizeBytes=%d, want %d", rec.SizeBytes, wantSize)
+	}
+	if rec.LastAccessedAt.Before(before) {
+		t.Errorf("LastAccessedAt %v not after %v", rec.LastAccessedAt, before)
+	}
+}
+
+func TestRestoreUpdatesLastAccessedAt(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	id := testID(t)
+	if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: id, Name: "touched"},
+		makeTar(t, map[string][]byte{"x": []byte("x")})); err != nil {
+		t.Fatal(err)
+	}
+
+	original := time.Now().Add(-48 * time.Hour)
+	if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		r := idx.Snapshots[id]
+		if r == nil {
+			return fmt.Errorf("setup: %s missing", id)
+		}
+		r.LastAccessedAt = original
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, rc, err := lf.Restore(ctx, "touched"); err != nil {
+		t.Fatal(err)
+	} else {
+		rc.Close()
+	}
+
+	rec, err := lf.lookupRecord(ctx, id, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rec.LastAccessedAt.After(original) {
+		t.Errorf("LastAccessedAt not updated: still %v", rec.LastAccessedAt)
+	}
+}
+
+func TestGCModule_RemovalFailureKeepsDBRecord(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses chmod restrictions")
+	}
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	ids := []string{testID(t), testID(t)}
+	for i, name := range []string{"a", "b"} {
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: ids[i], Name: name},
+			makeTar(t, map[string][]byte{"x": []byte("x")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parent := lf.conf.DataDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Skipf("chmod failed: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o750) })
+
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
+	if err := mod.Collect(ctx, ids); err == nil {
+		t.Fatal("expected Collect to error on chmod-protected parent")
+	}
+	for i, name := range []string{"a", "b"} {
+		if _, err := lf.lookupRecord(ctx, ids[i], false); err != nil {
+			t.Errorf("%s: DB record should survive removal failure, got: %v", name, err)
+		}
+	}
+}
+
+func TestGCModule_OrphanDirCleaned(t *testing.T) {
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	orphanDir := filepath.Join(lf.conf.DataDir(), "ORPHAN_ID_NO_DB")
+	if err := os.MkdirAll(orphanDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{})
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := mod.Resolve(ctx, snap, map[string]any{})
+	if !slices.Contains(ids, "ORPHAN_ID_NO_DB") {
+		t.Errorf("orphan dir should be picked, got %v", ids)
+	}
+	if err := mod.Collect(ctx, ids); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
+		t.Errorf("orphan dir should be removed, stat err: %v", err)
+	}
+}
