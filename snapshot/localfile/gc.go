@@ -21,6 +21,38 @@ import (
 // pendingGCGrace lets a slow-storage snapshot finish before GC reclaims a pending record.
 const pendingGCGrace = 24 * time.Hour
 
+// backfillSizeBytes computes DirSize for records with SizeBytes==0 (pre-PR snapshots upgraded in place) and persists the result so --snapshot-size has accurate accounting.
+func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
+	logger := log.WithFunc("localfile.gc.backfillSizeBytes")
+	updates := make(map[string]int64)
+	for id, m := range records {
+		if m.sizeBytes > 0 {
+			continue
+		}
+		actual, err := utils.DirSize(conf.SnapshotDataDir(id))
+		if err != nil {
+			logger.Warnf(ctx, "DirSize for %s: %v", id, err)
+			continue
+		}
+		m.sizeBytes = actual
+		records[id] = m
+		updates[id] = actual
+	}
+	if len(updates) == 0 {
+		return
+	}
+	if err := store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		for id, size := range updates {
+			if r := idx.Snapshots[id]; r != nil {
+				r.SizeBytes = size
+			}
+		}
+		return nil
+	}); err != nil {
+		logger.Warnf(ctx, "persist backfilled SizeBytes: %v", err)
+	}
+}
+
 // EvictionPolicy is the LRU policy passed in from CLI; Enabled+zero criteria evicts all non-pending.
 type EvictionPolicy struct {
 	Enabled  bool
@@ -55,7 +87,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 	return gc.Module[snapshotGCSnapshot]{
 		Name:   "snapshot",
 		Locker: locker,
-		ReadDB: func(_ context.Context) (snapshotGCSnapshot, error) {
+		ReadDB: func(ctx context.Context) (snapshotGCSnapshot, error) {
 			snap := snapshotGCSnapshot{policy: policy}
 			cutoff := time.Now().Add(-pendingGCGrace)
 			if err := store.ReadRaw(func(idx *snapshot.SnapshotIndex) error {
@@ -87,6 +119,9 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			var err error
 			if snap.dataDirs, err = utils.ScanSubdirs(conf.DataDir()); err != nil {
 				return snap, err
+			}
+			if policy.MaxSize > 0 {
+				backfillSizeBytes(ctx, conf, store, snap.records)
 			}
 			return snap, nil
 		},
