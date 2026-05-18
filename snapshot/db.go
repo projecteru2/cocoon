@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"errors"
+	"time"
 
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
@@ -12,8 +13,10 @@ var ErrNotFound = errors.New("snapshot not found")
 // SnapshotRecord is the persisted record for a single snapshot.
 type SnapshotRecord struct {
 	types.Snapshot
-	Pending bool   `json:"pending,omitempty"` // true while Create is in progress
-	DataDir string `json:"data_dir,omitempty"`
+	DataDir        string    `json:"data_dir,omitempty"`
+	SizeBytes      int64     `json:"size_bytes,omitempty"`
+	Pending        bool      `json:"pending,omitempty"` // true while Create is in progress
+	LastAccessedAt time.Time `json:"last_accessed_at,omitzero"`
 }
 
 // SnapshotIndex is the top-level DB structure for the snapshot module.

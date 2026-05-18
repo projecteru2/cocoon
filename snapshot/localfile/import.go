@@ -54,6 +54,11 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 	cfg.Name = cmp.Or(name, cfg.Name)
 	cfg.Description = cmp.Or(description, cfg.Description)
 
+	size, sizeErr := utils.DirSize(dataDir)
+	if sizeErr != nil {
+		return "", fmt.Errorf("compute data dir size: %w", sizeErr)
+	}
+	now := time.Now()
 	if err = lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
 		if cfg.Name != "" {
 			if existingID, ok := idx.Names[cfg.Name]; ok {
@@ -63,9 +68,11 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 		idx.Snapshots[id] = &snapshot.SnapshotRecord{
 			Snapshot: types.Snapshot{
 				SnapshotConfig: cfg,
-				CreatedAt:      time.Now(),
+				CreatedAt:      now,
 			},
-			DataDir: dataDir,
+			DataDir:        dataDir,
+			SizeBytes:      size,
+			LastAccessedAt: now,
 		}
 		if cfg.Name != "" {
 			idx.Names[cfg.Name] = id

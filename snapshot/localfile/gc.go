@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/lock"
 	"github.com/cocoonstack/cocoon/snapshot"
@@ -18,36 +20,63 @@ import (
 // pendingGCGrace lets a slow-storage snapshot finish before GC reclaims a pending record.
 const pendingGCGrace = 24 * time.Hour
 
-// snapshotGCSnapshot is the typed GC snapshot for the snapshot module.
-type snapshotGCSnapshot struct {
-	blobIDs      map[string]struct{} // union of all snapshots' ImageBlobIDs
-	snapshotIDs  map[string]struct{} // all snapshot IDs in the DB
-	dataDirs     []string            // subdirectory names under DataDir
-	stalePending []string            // IDs in stale "pending" state (crash remnants)
+// EvictionPolicy is the LRU policy passed in from CLI; Enabled+zero criteria evicts all non-pending.
+type EvictionPolicy struct {
+	Enabled  bool
+	DryRun   bool
+	KeepLast int
+	MaxAge   time.Duration
+	MaxSize  int64
 }
 
-// UsedBlobIDs implements the gc.usedBlobIDs protocol.
+func (p EvictionPolicy) hasCriteria() bool {
+	return p.KeepLast > 0 || p.MaxAge > 0 || p.MaxSize > 0
+}
+
+type snapshotMeta struct {
+	name         string
+	lastAccessed time.Time
+	sizeBytes    int64
+}
+
+type snapshotGCSnapshot struct {
+	blobIDs      map[string]struct{}
+	snapshotIDs  map[string]struct{}
+	dataDirs     []string
+	stalePending []string
+	records      map[string]snapshotMeta
+	policy       EvictionPolicy
+}
+
 func (s snapshotGCSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 
-// gcModule returns the GC module for the localfile snapshot backend.
-func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker) gc.Module[snapshotGCSnapshot] {
+func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy) gc.Module[snapshotGCSnapshot] {
 	return gc.Module[snapshotGCSnapshot]{
 		Name:   "snapshot",
 		Locker: locker,
 		ReadDB: func(_ context.Context) (snapshotGCSnapshot, error) {
-			var snap snapshotGCSnapshot
+			snap := snapshotGCSnapshot{policy: policy}
 			cutoff := time.Now().Add(-pendingGCGrace)
 			if err := store.ReadRaw(func(idx *snapshot.SnapshotIndex) error {
 				snap.blobIDs = make(map[string]struct{})
 				snap.snapshotIDs = make(map[string]struct{})
+				snap.records = make(map[string]snapshotMeta)
 				for id, rec := range idx.Snapshots {
 					if rec == nil {
 						continue
 					}
 					snap.snapshotIDs[id] = struct{}{}
 					maps.Copy(snap.blobIDs, rec.ImageBlobIDs)
-					if rec.Pending && rec.CreatedAt.Before(cutoff) {
-						snap.stalePending = append(snap.stalePending, id)
+					if rec.Pending {
+						if rec.CreatedAt.Before(cutoff) {
+							snap.stalePending = append(snap.stalePending, id)
+						}
+						continue
+					}
+					snap.records[id] = snapshotMeta{
+						name:         rec.Name,
+						lastAccessed: rec.LastAccessedAt,
+						sizeBytes:    rec.SizeBytes,
 					}
 				}
 				return nil
@@ -60,9 +89,18 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			}
 			return snap, nil
 		},
-		Resolve: func(snap snapshotGCSnapshot, _ map[string]any) []string {
+		Resolve: func(ctx context.Context, snap snapshotGCSnapshot, _ map[string]any) []string {
 			orphans := utils.FilterUnreferenced(snap.dataDirs, snap.snapshotIDs)
 			candidates := slices.Concat(orphans, snap.stalePending)
+
+			if snap.policy.Enabled {
+				evict := pickLRU(snap.records, snap.policy)
+				logEvictions(ctx, evict, snap.records, snap.policy.DryRun)
+				if !snap.policy.DryRun {
+					candidates = append(candidates, evict...)
+				}
+			}
+
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
@@ -73,7 +111,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 					errs = append(errs, err)
 				}
 			}
-			if err := cleanStalePending(store, ids); err != nil {
+			if err := cleanResolvedRecords(store, ids); err != nil {
 				errs = append(errs, err)
 			}
 			return errors.Join(errs...)
@@ -81,9 +119,90 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 	}
 }
 
-// cleanStalePending removes selected DB records stuck in stale "pending"
-// state. IDs not found (or no longer pending) are skipped.
-func cleanStalePending(store storage.Store[snapshot.SnapshotIndex], ids []string) error {
+// pickLRU returns evict IDs. No sub-criteria → all records; else union of age/keep/size.
+func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) []string {
+	type entry struct {
+		id   string
+		meta snapshotMeta
+	}
+	cands := make([]entry, 0, len(records))
+	for id, m := range records {
+		cands = append(cands, entry{id, m})
+	}
+	slices.SortFunc(cands, func(a, b entry) int {
+		return a.meta.lastAccessed.Compare(b.meta.lastAccessed)
+	})
+
+	if !p.hasCriteria() {
+		out := make([]string, len(cands))
+		for i, e := range cands {
+			out[i] = e.id
+		}
+		return out
+	}
+
+	evict := make(map[string]struct{})
+
+	if p.MaxAge > 0 {
+		cutoff := time.Now().Add(-p.MaxAge)
+		for _, e := range cands {
+			if e.meta.lastAccessed.Before(cutoff) {
+				evict[e.id] = struct{}{}
+			}
+		}
+	}
+
+	if p.KeepLast > 0 && len(cands) > p.KeepLast {
+		for _, e := range cands[:len(cands)-p.KeepLast] {
+			evict[e.id] = struct{}{}
+		}
+	}
+
+	if p.MaxSize > 0 {
+		var total int64
+		for _, e := range cands {
+			total += e.meta.sizeBytes
+		}
+		for _, e := range cands {
+			if total <= p.MaxSize {
+				break
+			}
+			evict[e.id] = struct{}{}
+			total -= e.meta.sizeBytes
+		}
+	}
+
+	return slices.Sorted(maps.Keys(evict))
+}
+
+func logEvictions(ctx context.Context, ids []string, records map[string]snapshotMeta, dryRun bool) {
+	if len(ids) == 0 {
+		return
+	}
+	logger := log.WithFunc("localfile.gc.lru")
+	verb := "evicting"
+	if dryRun {
+		verb = "would evict"
+	}
+	var freed int64
+	for _, id := range ids {
+		m := records[id]
+		freed += m.sizeBytes
+		logger.Infof(ctx, "%s id=%s name=%s last_accessed=%s size_bytes=%d",
+			verb, id, m.name, formatTime(m.lastAccessed), m.sizeBytes)
+	}
+	logger.Infof(ctx, "%s %d snapshot(s), freeing %d bytes", verb, len(ids), freed)
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// cleanResolvedRecords drops GC-resolved records; pending only if past grace (protects in-flight Create).
+func cleanResolvedRecords(store storage.Store[snapshot.SnapshotIndex], ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -92,7 +211,10 @@ func cleanStalePending(store storage.Store[snapshot.SnapshotIndex], ids []string
 		utils.CleanStaleRecords(idx.Snapshots, idx.Names, ids,
 			func(r *snapshot.SnapshotRecord) string { return r.Name },
 			func(r *snapshot.SnapshotRecord) bool {
-				return r.Pending && r.CreatedAt.Before(cutoff)
+				if r.Pending {
+					return r.CreatedAt.Before(cutoff)
+				}
+				return true
 			},
 		)
 		return nil

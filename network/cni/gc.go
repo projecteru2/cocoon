@@ -47,7 +47,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 			}
 			return snap, nil
 		},
-		Resolve: func(snap cniSnapshot, others map[string]any) []string {
+		Resolve: func(_ context.Context, snap cniSnapshot, others map[string]any) []string {
 			active := gc.Collect(others, gc.VMIDs)
 			candidates := maps.Clone(snap.dbVMIDs)
 			for _, name := range snap.netnsNames {

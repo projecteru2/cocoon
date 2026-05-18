@@ -22,7 +22,7 @@ func GCModule(rootDir string) gc.Module[bridgeSnapshot] {
 		ReadDB: func(_ context.Context) (bridgeSnapshot, error) {
 			return bridgeSnapshot{}, nil
 		},
-		Resolve: func(_ bridgeSnapshot, _ map[string]any) []string {
+		Resolve: func(_ context.Context, _ bridgeSnapshot, _ map[string]any) []string {
 			return nil
 		},
 		Collect: func(_ context.Context, _ []string) error {

@@ -15,7 +15,7 @@ type Module[S any] struct {
 	ReadDB func(ctx context.Context) (S, error)
 
 	// Resolve returns IDs to delete; others holds snapshots from peer modules (cast for cross-module analysis, e.g. VMs pinning images).
-	Resolve func(snap S, others map[string]any) []string
+	Resolve func(ctx context.Context, snap S, others map[string]any) []string
 
 	// Collect removes the given IDs (called while the lock is held).
 	Collect func(ctx context.Context, ids []string) error
@@ -29,12 +29,12 @@ func (m Module[S]) readSnapshot(ctx context.Context) (any, error) {
 	return m.ReadDB(ctx)
 }
 
-func (m Module[S]) resolveTargets(snap any, others map[string]any) []string {
+func (m Module[S]) resolveTargets(ctx context.Context, snap any, others map[string]any) []string {
 	typed, ok := snap.(S)
 	if !ok {
 		return nil
 	}
-	return m.Resolve(typed, others)
+	return m.Resolve(ctx, typed, others)
 }
 
 func (m Module[S]) collect(ctx context.Context, ids []string) error {

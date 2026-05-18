@@ -59,7 +59,7 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 			}
 			return snap, nil
 		},
-		Resolve: func(snap VMGCSnapshot, _ map[string]any) []string {
+		Resolve: func(_ context.Context, snap VMGCSnapshot, _ map[string]any) []string {
 			// "db" holds vms.json/vms.lock — exclude from orphan scan when RootDir == RunDir.
 			reserved := map[string]struct{}{"db": {}}
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)

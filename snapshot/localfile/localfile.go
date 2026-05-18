@@ -31,15 +31,20 @@ var (
 	_ snapshot.DirectoryExporter  = (*LocalFile)(nil)
 )
 
-// LocalFile implements snapshot.Snapshot using the local filesystem.
-type LocalFile struct {
-	conf   *Config
-	store  storage.Store[snapshot.SnapshotIndex]
-	locker lock.Locker
+type Option func(*LocalFile)
+
+func WithGCPolicy(p EvictionPolicy) Option {
+	return func(lf *LocalFile) { lf.gcPolicy = p }
 }
 
-// New creates a new LocalFile snapshot backend.
-func New(conf *config.Config) (*LocalFile, error) {
+type LocalFile struct {
+	conf     *Config
+	store    storage.Store[snapshot.SnapshotIndex]
+	locker   lock.Locker
+	gcPolicy EvictionPolicy
+}
+
+func New(conf *config.Config, opts ...Option) (*LocalFile, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -49,14 +54,18 @@ func New(conf *config.Config) (*LocalFile, error) {
 	}
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[snapshot.SnapshotIndex](cfg.IndexFile(), locker)
-	return &LocalFile{conf: cfg, store: store, locker: locker}, nil
+	lf := &LocalFile{conf: cfg, store: store, locker: locker}
+	for _, opt := range opts {
+		opt(lf)
+	}
+	return lf, nil
 }
 
 func (lf *LocalFile) Type() string { return typ }
 
 // DataDir returns the local data directory and snapshot config for direct file access.
 func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, types.SnapshotConfig, error) {
-	rec, err := lf.resolveRecord(ctx, ref)
+	rec, err := lf.lookupRecord(ctx, ref, true)
 	if err != nil {
 		return "", types.SnapshotConfig{}, err
 	}
@@ -109,12 +118,18 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		return "", fmt.Errorf("extract snapshot data: %w", err)
 	}
 
+	size, sizeErr := utils.DirSize(dataDir)
+	if sizeErr != nil {
+		return "", fmt.Errorf("compute data dir size: %w", sizeErr)
+	}
 	if err = lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
 		rec := idx.Snapshots[id]
 		if rec == nil {
 			return fmt.Errorf("snapshot %q disappeared from index", id)
 		}
 		rec.Pending = false
+		rec.SizeBytes = size
+		rec.LastAccessedAt = now
 		return nil
 	}); err != nil {
 		return "", fmt.Errorf("finalize snapshot: %w", err)
@@ -139,7 +154,7 @@ func (lf *LocalFile) List(ctx context.Context) ([]*types.Snapshot, error) {
 }
 
 func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, error) {
-	rec, err := lf.resolveRecord(ctx, ref)
+	rec, err := lf.lookupRecord(ctx, ref, false)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +198,7 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 }
 
 func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotConfig, io.ReadCloser, error) {
-	rec, err := lf.resolveRecord(ctx, ref)
+	rec, err := lf.lookupRecord(ctx, ref, true)
 	if err != nil {
 		return types.SnapshotConfig{}, nil, err
 	}
@@ -191,7 +206,7 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotCon
 }
 
 func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
-	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker))
+	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy))
 }
 
 // rollbackCreate removes a placeholder snapshot record from the DB.
@@ -207,10 +222,10 @@ func (lf *LocalFile) rollbackCreate(ctx context.Context, id, name string) {
 	}
 }
 
-// resolveRecord locks once, resolves ref, returns a value-copy of the non-pending record.
-func (lf *LocalFile) resolveRecord(ctx context.Context, ref string) (snapshot.SnapshotRecord, error) {
+// lookupRecord resolves ref to a non-pending record; touch=true also bumps LastAccessedAt under the same write lock.
+func (lf *LocalFile) lookupRecord(ctx context.Context, ref string, touch bool) (snapshot.SnapshotRecord, error) {
 	var rec snapshot.SnapshotRecord
-	return rec, lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
+	apply := func(idx *snapshot.SnapshotIndex) error {
 		id, err := idx.Resolve(ref)
 		if err != nil {
 			return err
@@ -219,9 +234,16 @@ func (lf *LocalFile) resolveRecord(ctx context.Context, ref string) (snapshot.Sn
 		if r == nil || r.Pending {
 			return snapshot.ErrNotFound
 		}
+		if touch {
+			r.LastAccessedAt = time.Now()
+		}
 		rec = *r
 		return nil
-	})
+	}
+	if touch {
+		return rec, lf.store.Update(ctx, apply)
+	}
+	return rec, lf.store.With(ctx, apply)
 }
 
 // snapshotRecordToConfig builds a detached SnapshotConfig from a record,
