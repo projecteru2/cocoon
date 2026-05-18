@@ -21,10 +21,10 @@ import (
 // pendingGCGrace lets a slow-storage snapshot finish before GC reclaims a pending record.
 const pendingGCGrace = 24 * time.Hour
 
-// backfillSizeBytes computes DirSize for records with SizeBytes==0 (pre-PR snapshots upgraded in place) and persists via WriteRaw — caller is GC orchestrator which already holds the store lock.
+// backfillSizeBytes computes DirSize for records with SizeBytes==0 and persists via WriteRaw.
 func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
 	logger := log.WithFunc("localfile.gc.backfillSizeBytes")
-	updates := make(map[string]int64)
+	var changed bool
 	for id, m := range records {
 		if m.sizeBytes > 0 {
 			continue
@@ -36,15 +36,15 @@ func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[sn
 		}
 		m.sizeBytes = actual
 		records[id] = m
-		updates[id] = actual
+		changed = true
 	}
-	if len(updates) == 0 {
+	if !changed {
 		return
 	}
 	if err := store.WriteRaw(func(idx *snapshot.SnapshotIndex) error {
-		for id, size := range updates {
-			if r := idx.Snapshots[id]; r != nil {
-				r.SizeBytes = size
+		for id, m := range records {
+			if r := idx.Snapshots[id]; r != nil && r.SizeBytes != m.sizeBytes {
+				r.SizeBytes = m.sizeBytes
 			}
 		}
 		return nil
@@ -53,7 +53,7 @@ func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[sn
 	}
 }
 
-// EvictionPolicy is the LRU policy passed in from CLI; Enabled+zero criteria evicts all non-pending.
+// EvictionPolicy controls LRU snapshot eviction; Enabled with zero criteria evicts all non-pending.
 type EvictionPolicy struct {
 	Enabled  bool
 	DryRun   bool
@@ -166,54 +166,42 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 
 // pickLRU returns evict IDs. No sub-criteria → all records; else union of age/keep/size.
 func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) []string {
-	type entry struct {
-		id   string
-		meta snapshotMeta
-	}
-	cands := make([]entry, 0, len(records))
-	for id, m := range records {
-		cands = append(cands, entry{id, m})
-	}
-	slices.SortFunc(cands, func(a, b entry) int {
-		return a.meta.lastAccessed.Compare(b.meta.lastAccessed)
+	sorted := slices.SortedFunc(maps.Keys(records), func(a, b string) int {
+		return records[a].lastAccessed.Compare(records[b].lastAccessed)
 	})
 
 	if !p.hasCriteria() {
-		out := make([]string, len(cands))
-		for i, e := range cands {
-			out[i] = e.id
-		}
-		return out
+		return sorted
 	}
 
 	evict := make(map[string]struct{})
 
 	if p.MaxAge > 0 {
 		cutoff := time.Now().Add(-p.MaxAge)
-		for _, e := range cands {
-			if e.meta.lastAccessed.Before(cutoff) {
-				evict[e.id] = struct{}{}
+		for _, id := range sorted {
+			if records[id].lastAccessed.Before(cutoff) {
+				evict[id] = struct{}{}
 			}
 		}
 	}
 
-	if p.KeepLast > 0 && len(cands) > p.KeepLast {
-		for _, e := range cands[:len(cands)-p.KeepLast] {
-			evict[e.id] = struct{}{}
+	if p.KeepLast > 0 && len(sorted) > p.KeepLast {
+		for _, id := range sorted[:len(sorted)-p.KeepLast] {
+			evict[id] = struct{}{}
 		}
 	}
 
 	if p.MaxSize > 0 {
 		var total int64
-		for _, e := range cands {
-			total += e.meta.sizeBytes
+		for _, id := range sorted {
+			total += records[id].sizeBytes
 		}
-		for _, e := range cands {
+		for _, id := range sorted {
 			if total <= p.MaxSize {
 				break
 			}
-			evict[e.id] = struct{}{}
-			total -= e.meta.sizeBytes
+			evict[id] = struct{}{}
+			total -= records[id].sizeBytes
 		}
 	}
 
