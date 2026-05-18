@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/docker/go-units"
-	"github.com/projecteru2/core/log"
 	"github.com/spf13/cobra"
 
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
@@ -56,11 +55,7 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 	netProvider.RegisterGC(o)
 	gc.Register(o, bridge.GCModule(conf.RootDir))
 	snapBackend.RegisterGC(o)
-	if err := o.Run(ctx); err != nil {
-		return err
-	}
-	log.WithFunc("cmd.gc").Info(ctx, "GC completed")
-	return nil
+	return o.Run(ctx)
 }
 
 func (h Handler) Version(_ *cobra.Command, _ []string) error {

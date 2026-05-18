@@ -3,9 +3,12 @@ package hypervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/projecteru2/core/log"
 
 	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/types"
@@ -27,6 +30,7 @@ func (s VMGCSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
 
 // BuildGCModule builds GC module that scans DB and dirs for orphan VMs.
 func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
+	var reasons map[string]string
 	return gc.Module[VMGCSnapshot]{
 		Name:   b.Typ,
 		Locker: b.Locker,
@@ -60,15 +64,31 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(_ context.Context, snap VMGCSnapshot, _ map[string]any) []string {
+			reasons = make(map[string]string)
 			// "db" holds vms.json/vms.lock — exclude from orphan scan when RootDir == RunDir.
 			reserved := map[string]struct{}{"db": {}}
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
 			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
+			for _, id := range snap.staleCreate {
+				reasons[id] = "stale-creating"
+			}
+			for _, id := range runOrphans {
+				if _, ok := reasons[id]; !ok {
+					reasons[id] = "orphan-runDir"
+				}
+			}
+			for _, id := range logOrphans {
+				if _, ok := reasons[id]; !ok {
+					reasons[id] = "orphan-logDir"
+				}
+			}
 			candidates := slices.Concat(runOrphans, logOrphans, snap.staleCreate)
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		Collect: b.GCCollect,
+		Collect: func(ctx context.Context, ids []string) error {
+			return b.gcCollect(ctx, ids, reasons)
+		},
 	}
 }
 
@@ -81,9 +101,9 @@ func (b *Backend) WatchPath() string {
 	return b.Conf.IndexFile()
 }
 
-// GCCollect kills leftover hypervisor processes and removes orphan dirs/records.
-// Runs under the GC orchestrator's flock — uses lock-free DB access.
-func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
+// gcCollect kills leftover hypervisor processes and removes orphan dirs/records under the orchestrator's flock.
+func (b *Backend) gcCollect(ctx context.Context, ids []string, reasons map[string]string) error {
+	logger := log.WithFunc("gc." + b.Typ)
 	var errs []error
 	for _, id := range ids {
 		runDir, logDir := b.Conf.VMRunDir(id), b.Conf.VMLogDir(id)
@@ -95,11 +115,14 @@ func (b *Backend) GCCollect(ctx context.Context, ids []string) error {
 		})
 		b.killOrphanProcess(ctx, runDir)
 		if err := RemoveVMDirs(runDir, logDir); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("remove vm %s: %w", id, err))
+			continue
 		}
+		logger.Infof(ctx, "collected id=%s runDir=%s logDir=%s reason=%s",
+			id, runDir, logDir, reasons[id])
 	}
 	if err := b.CleanStalePlaceholders(ctx, ids); err != nil {
-		errs = append(errs, err)
+		errs = append(errs, fmt.Errorf("clean stale placeholders: %w", err))
 	}
 	return errors.Join(errs...)
 }

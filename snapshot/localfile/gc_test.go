@@ -2,6 +2,7 @@ package localfile
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,10 @@ import (
 func meta(ageHours int, size int64) snapshotMeta {
 	accessedAt := time.Now().Add(-time.Duration(ageHours) * time.Hour)
 	return snapshotMeta{lastAccessed: accessedAt, sizeBytes: size}
+}
+
+func sortedKeys(m map[string]string) []string {
+	return slices.Sorted(maps.Keys(m))
 }
 
 func TestPickLRU_NoCriteriaEvictsAll(t *testing.T) {
@@ -37,8 +42,11 @@ func TestPickLRU_KeepLast(t *testing.T) {
 		"oldester": meta(20, 10),
 	}
 	got := pickLRU(records, EvictionPolicy{Enabled: true, KeepLast: 2})
-	if !slices.Equal(got, []string{"oldest", "oldester"}) {
+	if !slices.Equal(sortedKeys(got), []string{"oldest", "oldester"}) {
 		t.Errorf("KeepLast=2: got %v", got)
+	}
+	if got["oldest"] != "lru-keep" {
+		t.Errorf("reason: got %q, want lru-keep", got["oldest"])
 	}
 }
 
@@ -56,8 +64,11 @@ func TestPickLRU_MaxAge(t *testing.T) {
 		"stale": meta(48, 10),
 	}
 	got := pickLRU(records, EvictionPolicy{Enabled: true, MaxAge: 24 * time.Hour})
-	if !slices.Equal(got, []string{"stale"}) {
+	if !slices.Equal(sortedKeys(got), []string{"stale"}) {
 		t.Errorf("MaxAge=24h: got %v", got)
+	}
+	if got["stale"] != "lru-age" {
+		t.Errorf("reason: got %q, want lru-age", got["stale"])
 	}
 }
 
@@ -69,7 +80,7 @@ func TestPickLRU_MaxSize(t *testing.T) {
 		"d": meta(4, 30),
 	}
 	got := pickLRU(records, EvictionPolicy{Enabled: true, MaxSize: 60})
-	if !slices.Equal(got, []string{"c", "d"}) {
+	if !slices.Equal(sortedKeys(got), []string{"c", "d"}) {
 		t.Errorf("MaxSize=60: got %v", got)
 	}
 }
@@ -83,9 +94,8 @@ func TestPickLRU_UnionOfCriteria(t *testing.T) {
 	got := pickLRU(records, EvictionPolicy{
 		Enabled: true, MaxAge: 24 * time.Hour, MaxSize: 50,
 	})
-	want := []string{"fresh-big", "old-small"}
-	if !slices.Equal(got, want) {
-		t.Errorf("union: got %v, want %v", got, want)
+	if !slices.Equal(sortedKeys(got), []string{"fresh-big", "old-small"}) {
+		t.Errorf("union: got %v", got)
 	}
 }
 
@@ -95,8 +105,16 @@ func TestPickLRU_ZeroTimeIsOldest(t *testing.T) {
 		"zero":   {lastAccessed: time.Time{}, sizeBytes: 10},
 	}
 	got := pickLRU(records, EvictionPolicy{Enabled: true, KeepLast: 1})
-	if !slices.Equal(got, []string{"zero"}) {
+	if !slices.Equal(sortedKeys(got), []string{"zero"}) {
 		t.Errorf("zero time should be evicted first: got %v", got)
+	}
+}
+
+func TestPickLRU_NoCriteriaAllReasonAll(t *testing.T) {
+	records := map[string]snapshotMeta{"a": meta(1, 10)}
+	got := pickLRU(records, EvictionPolicy{Enabled: true})
+	if got["a"] != "lru-all" {
+		t.Errorf("reason: got %q, want lru-all", got["a"])
 	}
 }
 

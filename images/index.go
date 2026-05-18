@@ -3,6 +3,7 @@ package images
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -104,17 +105,24 @@ func GCStaleTemp(ctx context.Context, dir string, dirOnly bool) []error {
 	})
 }
 
-// GCCollectBlobs removes temp files and blob artifacts by hex ID.
+// GCCollectBlobs removes temp files and blob artifacts by hex ID; module names the gc subsystem for log routing.
 // removers are called for each hex; fs.ErrNotExist errors are ignored.
-func GCCollectBlobs(ctx context.Context, tempDir string, dirOnly bool, ids []string, removers ...func(string) error) error {
+func GCCollectBlobs(ctx context.Context, module, tempDir string, dirOnly bool, ids []string, removers ...func(string) error) error {
+	logger := log.WithFunc("gc." + module)
 	var errs []error
 	errs = append(errs, GCStaleTemp(ctx, tempDir, dirOnly)...)
 	for _, hex := range ids {
+		var blobErr error
 		for _, rm := range removers {
 			if err := rm(hex); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				errs = append(errs, err)
+				blobErr = errors.Join(blobErr, err)
 			}
 		}
+		if blobErr != nil {
+			errs = append(errs, fmt.Errorf("remove blob %s: %w", hex, blobErr))
+			continue
+		}
+		logger.Infof(ctx, "collected blob=%s reason=unreferenced", hex)
 	}
 	return errors.Join(errs...)
 }

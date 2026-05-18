@@ -84,6 +84,10 @@ type snapshotGCSnapshot struct {
 func (s snapshotGCSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 
 func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy) gc.Module[snapshotGCSnapshot] {
+	var (
+		records map[string]snapshotMeta
+		reasons map[string]string
+	)
 	return gc.Module[snapshotGCSnapshot]{
 		Name:   "snapshot",
 		Locker: locker,
@@ -126,14 +130,24 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			return snap, nil
 		},
 		Resolve: func(ctx context.Context, snap snapshotGCSnapshot, _ map[string]any) []string {
+			records = snap.records
+			reasons = make(map[string]string)
 			orphans := utils.FilterUnreferenced(snap.dataDirs, snap.snapshotIDs)
+			for _, id := range orphans {
+				reasons[id] = "orphan"
+			}
+			for _, id := range snap.stalePending {
+				reasons[id] = "stale-pending"
+			}
 			candidates := slices.Concat(orphans, snap.stalePending)
 
 			if snap.policy.Enabled {
-				evict := pickLRU(snap.records, snap.policy)
-				logEvictions(ctx, evict, snap.records, snap.policy.DryRun)
-				if !snap.policy.DryRun {
-					candidates = append(candidates, evict...)
+				lruReasons := pickLRU(snap.records, snap.policy)
+				if snap.policy.DryRun {
+					logWouldEvict(ctx, lruReasons, snap.records)
+				} else {
+					maps.Copy(reasons, lruReasons)
+					candidates = append(candidates, slices.Collect(maps.Keys(lruReasons))...)
 				}
 			}
 
@@ -141,6 +155,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			return slices.Compact(candidates)
 		},
 		Collect: func(ctx context.Context, ids []string) error {
+			logger := log.WithFunc("gc.snapshot")
 			var (
 				errs    []error
 				removed = make([]string, 0, len(ids))
@@ -154,6 +169,9 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 					errs = append(errs, fmt.Errorf("remove snapshot %s: %w", id, err))
 					continue
 				}
+				m := records[id]
+				logger.Infof(ctx, "collected id=%s name=%s bytes=%d last_accessed=%s reason=%s",
+					id, m.name, m.sizeBytes, formatTime(m.lastAccessed), reasons[id])
 				removed = append(removed, id)
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {
@@ -164,30 +182,42 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 	}
 }
 
-// pickLRU returns evict IDs. No sub-criteria → all records; else union of age/keep/size.
-func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) []string {
+// pickLRU returns evict IDs keyed by reason (lru-all / lru-age / lru-keep / lru-size, joined by "+" on multi-match).
+// No sub-criteria → all records with reason "lru-all".
+func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) map[string]string {
 	sorted := slices.SortedFunc(maps.Keys(records), func(a, b string) int {
 		return records[a].lastAccessed.Compare(records[b].lastAccessed)
 	})
 
+	reasons := make(map[string]string)
+
 	if !p.hasCriteria() {
-		return sorted
+		for _, id := range sorted {
+			reasons[id] = "lru-all"
+		}
+		return reasons
 	}
 
-	evict := make(map[string]struct{})
+	add := func(id, label string) {
+		if existing, ok := reasons[id]; ok {
+			reasons[id] = existing + "+" + label
+			return
+		}
+		reasons[id] = label
+	}
 
 	if p.MaxAge > 0 {
 		cutoff := time.Now().Add(-p.MaxAge)
 		for _, id := range sorted {
 			if records[id].lastAccessed.Before(cutoff) {
-				evict[id] = struct{}{}
+				add(id, "lru-age")
 			}
 		}
 	}
 
 	if p.KeepLast > 0 && len(sorted) > p.KeepLast {
 		for _, id := range sorted[:len(sorted)-p.KeepLast] {
-			evict[id] = struct{}{}
+			add(id, "lru-keep")
 		}
 	}
 
@@ -200,31 +230,25 @@ func pickLRU(records map[string]snapshotMeta, p EvictionPolicy) []string {
 			if total <= p.MaxSize {
 				break
 			}
-			evict[id] = struct{}{}
+			add(id, "lru-size")
 			total -= records[id].sizeBytes
 		}
 	}
 
-	return slices.Sorted(maps.Keys(evict))
+	return reasons
 }
 
-func logEvictions(ctx context.Context, ids []string, records map[string]snapshotMeta, dryRun bool) {
-	if len(ids) == 0 {
+// logWouldEvict prints a preview row per dry-run LRU candidate; non-dry-run path logs inside Collect after successful removal.
+func logWouldEvict(ctx context.Context, reasons map[string]string, records map[string]snapshotMeta) {
+	if len(reasons) == 0 {
 		return
 	}
-	logger := log.WithFunc("localfile.gc.lru")
-	verb := "evicting"
-	if dryRun {
-		verb = "would evict"
-	}
-	var freed int64
-	for _, id := range ids {
+	logger := log.WithFunc("gc.snapshot")
+	for _, id := range slices.Sorted(maps.Keys(reasons)) {
 		m := records[id]
-		freed += m.sizeBytes
-		logger.Infof(ctx, "%s id=%s name=%s last_accessed=%s size_bytes=%d",
-			verb, id, m.name, formatTime(m.lastAccessed), m.sizeBytes)
+		logger.Infof(ctx, "would-evict id=%s name=%s bytes=%d last_accessed=%s reason=%s",
+			id, m.name, m.sizeBytes, formatTime(m.lastAccessed), reasons[id])
 	}
-	logger.Infof(ctx, "%s %d snapshot(s), freeing %d bytes", verb, len(ids), freed)
 }
 
 func formatTime(t time.Time) string {

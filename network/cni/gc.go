@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/cocoonstack/cocoon/gc"
 )
 
@@ -63,6 +65,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 			return orphans
 		},
 		Collect: func(ctx context.Context, ids []string) error {
+			logger := log.WithFunc("gc.cni")
 			var errs []error
 			for _, vmID := range ids {
 				// 1. Read CNI records for this VM (lockless — orchestrator holds flock).
@@ -82,6 +85,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 				nsName := netnsName(vmID)
 				if err := deleteNetns(ctx, nsName); err != nil && !errors.Is(err, fs.ErrNotExist) {
 					errs = append(errs, fmt.Errorf("remove netns %s: %w", nsName, err))
+					continue
 				}
 
 				// 4. Clean DB records (lockless write).
@@ -95,8 +99,11 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 						return nil
 					}); err != nil {
 						errs = append(errs, fmt.Errorf("clean DB for %s: %w", vmID, err))
+						continue
 					}
 				}
+				logger.Infof(ctx, "collected id=%s netns=%s nics=%d reason=orphan",
+					vmID, nsName, len(records))
 			}
 			return errors.Join(errs...)
 		},

@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/projecteru2/core/log"
 )
@@ -25,6 +28,7 @@ func Register[S any](o *Orchestrator, m Module[S]) {
 // Run executes one GC cycle: lock all modules, snapshot, resolve, collect.
 // Fail-closed: any busy lock aborts the cycle so cross-module decisions stay consistent.
 func (o *Orchestrator) Run(ctx context.Context) error {
+	start := time.Now()
 	logger := log.WithFunc("gc.Run")
 
 	// Acquire all locks up front; hold until GC finishes.
@@ -75,14 +79,36 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	// Phase 3: collect (skip modules with no targets).
 	var errs []error
+	summary := make(map[string]int, len(locked))
+	failures := 0
 	for _, m := range locked {
 		ids := targets[m.getName()]
 		if len(ids) == 0 {
 			continue
 		}
 		if err := m.collect(ctx, ids); err != nil {
+			failures++
 			errs = append(errs, fmt.Errorf("gc %s: %w", m.getName(), err))
 		}
+		summary[m.getName()] = len(ids)
 	}
+	logger.Infof(ctx, "completed: %s (failures: %d, duration: %s)",
+		formatSummary(summary), failures, time.Since(start).Truncate(time.Millisecond))
 	return errors.Join(errs...)
+}
+
+// formatSummary renders the per-module collection counts as `m1=N m2=M`, sorted by module name.
+func formatSummary(s map[string]int) string {
+	if len(s) == 0 {
+		return "nothing to collect"
+	}
+	keys := slices.Sorted(maps.Keys(s))
+	var sb strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		fmt.Fprintf(&sb, "%s=%d", k, s[k])
+	}
+	return sb.String()
 }
