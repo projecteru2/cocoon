@@ -13,8 +13,8 @@ import (
 )
 
 func meta(ageHours int, size int64) snapshotMeta {
-	t := time.Now().Add(-time.Duration(ageHours) * time.Hour)
-	return snapshotMeta{lastAccessed: t, sizeBytes: size}
+	accessedAt := time.Now().Add(-time.Duration(ageHours) * time.Hour)
+	return snapshotMeta{lastAccessed: accessedAt, sizeBytes: size}
 }
 
 func TestPickLRU_NoCriteriaEvictsAll(t *testing.T) {

@@ -31,8 +31,10 @@ var (
 	_ snapshot.DirectoryExporter  = (*LocalFile)(nil)
 )
 
+// Option configures a LocalFile constructed via New.
 type Option func(*LocalFile)
 
+// WithGCPolicy attaches an LRU eviction policy used by RegisterGC.
 func WithGCPolicy(p EvictionPolicy) Option {
 	return func(lf *LocalFile) { lf.gcPolicy = p }
 }

@@ -3,6 +3,7 @@ package localfile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -111,13 +112,13 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			)
 			for _, id := range ids {
 				if err := os.RemoveAll(conf.SnapshotDataDir(id)); err != nil {
-					errs = append(errs, err)
+					errs = append(errs, fmt.Errorf("remove snapshot %s: %w", id, err))
 					continue
 				}
 				removed = append(removed, id)
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {
-				errs = append(errs, err)
+				errs = append(errs, fmt.Errorf("clean DB records: %w", err))
 			}
 			return errors.Join(errs...)
 		},
