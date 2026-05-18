@@ -29,8 +29,7 @@ var (
 	ErrUnsupportedBackend = errors.New("backend does not support device attach")
 )
 
-// Spec is one attach request. PCI may be a short BDF, full BDF, or a sysfs
-// path; NormalizePath canonicalizes it.
+// Spec is one attach request. PCI may be a short BDF, full BDF, or a sysfs path; NormalizePath canonicalizes it.
 type Spec struct {
 	PCI string
 	ID  string

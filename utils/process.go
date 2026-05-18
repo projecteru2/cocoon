@@ -40,8 +40,7 @@ func IsProcessAlive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// VerifyProcessCmdline matches pid against binaryName + expectArg in
-// /proc/<pid>/cmdline; falls back to IsProcessAlive on non-Linux or read errors.
+// VerifyProcessCmdline matches pid against binaryName + expectArg in /proc/<pid>/cmdline; falls back to IsProcessAlive on non-Linux or read errors.
 func VerifyProcessCmdline(pid int, binaryName, expectArg string) bool {
 	if pid <= 0 {
 		return false

@@ -8,8 +8,7 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// DirectClone clones from a local snapshot dir. Per-type: hardlink mem,
-// reflink/copy COW, plain copy metadata.
+// DirectClone clones from a local snapshot dir. Per-type: hardlink mem, reflink/copy COW, plain copy metadata.
 func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error) {
 	return fc.DirectCloneBase(ctx, vmID, vmCfg, net, snapshotConfig, srcDir, cloneSnapshotFiles, fc.cloneAfterExtract)
 }

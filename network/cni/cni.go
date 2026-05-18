@@ -38,8 +38,7 @@ type CNI struct {
 	cniConf     *libcni.CNIConfig
 }
 
-// New creates a CNI provider; conflist loading is best-effort so Delete/Inspect/List
-// still work when none are available — Add fails in that case.
+// New creates a CNI provider; conflist loading is best-effort so Delete/Inspect/List still work when none are available — Add fails in that case.
 func New(conf *config.Config) (*CNI, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")

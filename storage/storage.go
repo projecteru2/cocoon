@@ -4,8 +4,7 @@ import (
 	"context"
 )
 
-// Initer is optionally implemented by T to initialize zero-value fields
-// (e.g., nil maps) after deserialization or when the backing store is empty.
+// Initer is optionally implemented by T to initialize zero-value fields (e.g., nil maps) after deserialization or when the backing store is empty.
 type Initer interface {
 	Init()
 }

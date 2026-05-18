@@ -255,8 +255,7 @@ func (h Handler) cloneDirect(ctx context.Context, cmd *cobra.Command, conf *conf
 		fmt.Sprintf("snapshot %s (direct)", snapRef), logger)
 }
 
-// cloneFromDir runs DirectClone over an envelope-bearing dir. The dir stays
-// read-only across the call so concurrent clones of a golden image are safe.
+// cloneFromDir runs DirectClone over an envelope-bearing dir. The dir stays read-only across the call so concurrent clones of a golden image are safe.
 func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *config.Config, dir string, logger *log.Fields) error {
 	cfg, err := snapshot.ReadSnapshotEnvelope(dir)
 	if err != nil {
@@ -375,8 +374,7 @@ func (h Handler) restoreDirect(ctx context.Context, cmd *cobra.Command, snapRef,
 		fmt.Sprintf("snapshot %s", snapRef), logger)
 }
 
-// runDirectRestore is the shared tail for the snapshot-DB and --from-dir
-// restore paths: log, DirectRestore, output.
+// runDirectRestore is the shared tail for the snapshot-DB and --from-dir restore paths: log, DirectRestore, output.
 func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceLabel string, logger *log.Fields) error {
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {

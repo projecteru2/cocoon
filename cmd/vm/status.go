@@ -21,8 +21,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// statusWatchDebounce coalesces fsnotify events on the per-backend index file
-// during `vm status` polling.
+// statusWatchDebounce coalesces fsnotify events on the per-backend index file during `vm status` polling.
 const statusWatchDebounce = 200 * time.Millisecond
 
 type vmEvent struct {

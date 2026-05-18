@@ -248,8 +248,7 @@ func listWith[A any](
 	return extract(info), nil
 }
 
-// bdfFromSysfsPath returns the BDF suffix when path is under the canonical
-// sysfs PCI prefix; empty otherwise (CH may report a non-PCI host path).
+// bdfFromSysfsPath returns the BDF suffix when path is under the canonical sysfs PCI prefix; empty otherwise (CH may report a non-PCI host path).
 func bdfFromSysfsPath(p string) string {
 	bdf, ok := strings.CutPrefix(p, vfio.SysfsPCIPrefix)
 	if !ok {

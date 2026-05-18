@@ -10,8 +10,7 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// DirectClone clones from a local snapshot dir. Per-type: hardlink memory-range-*,
-// reflink/copy COW, plain copy metadata; cidata is regenerated.
+// DirectClone clones from a local snapshot dir. Per-type: hardlink memory-range-*, reflink/copy COW, plain copy metadata; cidata is regenerated.
 func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error) {
 	return ch.DirectCloneBase(ctx, vmID, vmCfg, net, snapshotConfig, srcDir, cloneSnapshotFiles, ch.cloneAfterExtract)
 }
@@ -33,14 +32,14 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 }
 
 func cloneSnapshotFiles(dstDir, srcDir string) error {
-	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, configJSONName))
 	if err != nil {
 		return fmt.Errorf("parse source config: %w", err)
 	}
 	cowFiles := identifyCOWFiles(chCfg)
 	return hypervisor.CloneSnapshotFiles(dstDir, srcDir, func(name string) hypervisor.SnapshotFileKind {
 		switch {
-		case strings.HasPrefix(name, "memory-range"):
+		case strings.HasPrefix(name, memoryRangeFile):
 			return hypervisor.SnapshotFileMemory
 		case cowFiles[name]:
 			return hypervisor.SnapshotFileCOW
@@ -50,14 +49,13 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 	})
 }
 
-// cleanSnapshotFiles enumerates by name so stale data-*.raw and cocoon.json
-// from a previous incarnation don't linger; COW files are overwritten anyway.
+// cleanSnapshotFiles enumerates by name so stale data-*.raw and cocoon.json from a previous incarnation don't linger; COW files are overwritten anyway.
 func cleanSnapshotFiles(runDir string) error {
 	return hypervisor.CleanSnapshotFiles(runDir, func(name string) bool {
 		switch {
-		case strings.HasPrefix(name, "memory-range"):
+		case strings.HasPrefix(name, memoryRangeFile):
 			return true
-		case name == "config.json" || name == "state.json":
+		case name == configJSONName || name == stateJSONName:
 			return true
 		case name == hypervisor.SnapshotMetaFile:
 			return true

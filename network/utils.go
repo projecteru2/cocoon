@@ -24,8 +24,7 @@ func ResolveQueueSize(qs int) int {
 	return cmp.Or(qs, NetQueueSize)
 }
 
-// VMIDPrefix returns the first 8 characters of a VM ID, matching the
-// truncation used by both bridge and CNI TAP device naming.
+// VMIDPrefix returns the first 8 characters of a VM ID, matching the truncation used by both bridge and CNI TAP device naming.
 func VMIDPrefix(vmID string) string {
 	if len(vmID) > vmIDPrefixLen {
 		return vmID[:vmIDPrefixLen]

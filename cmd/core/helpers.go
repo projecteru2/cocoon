@@ -277,33 +277,6 @@ func ResolveImageOwner(ctx context.Context, backends []imagebackend.Images, ref 
 	)
 }
 
-// resolveOwner returns the unique backend where found==true; notFound on zero, ambiguous wrapped on multi-match (lists matched types).
-func resolveOwner[T interface{ Type() string }](backends []T, ref string, found func(T) (bool, error), notFound, ambiguous error) (T, error) {
-	var matches []T
-	var zero T
-	for _, b := range backends {
-		ok, err := found(b)
-		if err != nil {
-			return zero, fmt.Errorf("inspect %s in %s: %w", ref, b.Type(), err)
-		}
-		if ok {
-			matches = append(matches, b)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return zero, notFound
-	case 1:
-		return matches[0], nil
-	default:
-		names := make([]string, len(matches))
-		for i, b := range matches {
-			names[i] = b.Type()
-		}
-		return zero, fmt.Errorf("%w (backends: %s)", ambiguous, strings.Join(names, ", "))
-	}
-}
-
 func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
 	cpu, _ := cmd.Flags().GetInt("cpu")
@@ -398,8 +371,7 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 	}, nil
 }
 
-// RestoreVMConfigFromFlags builds VMConfig for restore: resources from the
-// snapshot, Name/Network from the VM (CNI namespace survives restore).
+// RestoreVMConfigFromFlags builds VMConfig for restore: resources from the snapshot, Name/Network from the VM (CNI namespace survives restore).
 func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
 	if snapCfg.NICs != len(vm.NetworkConfigs) {
 		return nil, fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
@@ -444,8 +416,7 @@ func AddFormatFlag(cmd *cobra.Command) {
 	cmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
 }
 
-// AddOutputFlag adds --output/-o for lifecycle commands. Empty default keeps
-// the human-readable log output; "json" emits a parseable result on stdout.
+// AddOutputFlag adds --output/-o for lifecycle commands. Empty default keeps the human-readable log output; "json" emits a parseable result on stdout.
 func AddOutputFlag(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", `emit "json" for machine-readable output`)
 }
@@ -481,6 +452,33 @@ func FormatSize(bytes int64) string {
 
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// resolveOwner returns the unique backend where found==true; notFound on zero, ambiguous wrapped on multi-match (lists matched types).
+func resolveOwner[T interface{ Type() string }](backends []T, ref string, found func(T) (bool, error), notFound, ambiguous error) (T, error) {
+	var matches []T
+	var zero T
+	for _, b := range backends {
+		ok, err := found(b)
+		if err != nil {
+			return zero, fmt.Errorf("inspect %s in %s: %w", ref, b.Type(), err)
+		}
+		if ok {
+			matches = append(matches, b)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return zero, notFound
+	case 1:
+		return matches[0], nil
+	default:
+		names := make([]string, len(matches))
+		for i, b := range matches {
+			names[i] = b.Type()
+		}
+		return zero, fmt.Errorf("%w (backends: %s)", ambiguous, strings.Join(names, ", "))
+	}
 }
 
 // validateRefShape rejects URL/OCI ref mismatches early so backends don't surface misleading downstream errors.
@@ -572,8 +570,7 @@ func sanitizeVMName(image string) string {
 	return n
 }
 
-// parseDataDiskFlags parses --data-disk values, normalizes defaults, and
-// returns the spec list ready for hypervisor.PrepareDataDisks.
+// parseDataDiskFlags parses --data-disk values, normalizes defaults, and returns the spec list ready for hypervisor.PrepareDataDisks.
 func parseDataDiskFlags(raw []string) ([]types.DataDiskSpec, error) {
 	specs := make([]types.DataDiskSpec, 0, len(raw))
 	for _, s := range raw {

@@ -16,8 +16,7 @@ const (
 	EnvelopeVersion  = 1
 )
 
-// ErrEnvelopeMissing wraps the not-found case so callers can render a
-// dir-specific error instead of a raw open failure.
+// ErrEnvelopeMissing wraps the not-found case so callers can render a dir-specific error instead of a raw open failure.
 var ErrEnvelopeMissing = errors.New("snapshot envelope missing")
 
 // ReadSnapshotEnvelope reads <dir>/snapshot.json into a SnapshotConfig.
@@ -45,8 +44,7 @@ func MarshalEnvelope(cfg types.SnapshotConfig) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// WriteSnapshotEnvelope writes <dir>/snapshot.json atomically so a concurrent
-// reader can't see a partial write.
+// WriteSnapshotEnvelope writes <dir>/snapshot.json atomically so a concurrent reader can't see a partial write.
 func WriteSnapshotEnvelope(dir string, cfg types.SnapshotConfig) error {
 	data, err := MarshalEnvelope(cfg)
 	if err != nil {

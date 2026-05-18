@@ -27,8 +27,7 @@ func EnsureDirs(dirs ...string) error {
 	return nil
 }
 
-// FileHead returns up to n bytes from offset 0 without moving the read
-// position. Truncated at EOF, no error if shorter than n.
+// FileHead returns up to n bytes from offset 0 without moving the read position. Truncated at EOF, no error if shorter than n.
 func FileHead(f *os.File, n int) ([]byte, error) {
 	buf := make([]byte, n)
 	m, err := f.ReadAt(buf, 0)
@@ -44,8 +43,7 @@ func ValidFile(path string) bool {
 	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }
 
-// ScanFileStems returns the name-without-suffix of every file in dir whose
-// name ends with suffix. Used by GC to enumerate on-disk blobs.
+// ScanFileStems returns the name-without-suffix of every file in dir whose name ends with suffix.
 func ScanFileStems(dir, suffix string) ([]string, error) {
 	return scanDir(dir, func(e os.DirEntry) (string, bool) {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
@@ -56,7 +54,6 @@ func ScanFileStems(dir, suffix string) ([]string, error) {
 }
 
 // ScanSubdirs returns the names of all immediate subdirectories of dir.
-// Used by GC to enumerate per-VM runtime and log directories.
 func ScanSubdirs(dir string) ([]string, error) {
 	return scanDir(dir, func(e os.DirEntry) (string, bool) {
 		if e.IsDir() {
@@ -89,8 +86,7 @@ func DirSize(dir string) (int64, error) {
 	return total, err
 }
 
-// FilterUnreferenced returns the elements of candidates not present in refs
-// or any of the optional exclude sets. Used by GC Resolve to compute deletions.
+// FilterUnreferenced returns elements of candidates not present in refs or any of the optional exclude sets.
 func FilterUnreferenced(candidates []string, refs map[string]struct{}, exclude ...map[string]struct{}) []string {
 	var out []string
 	for _, s := range candidates {

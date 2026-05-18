@@ -179,3 +179,43 @@ func TestIsDataDiskFile(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildBaseCmdline(t *testing.T) {
+	// Locks the cmdline format so a refactor of the shared builder can't silently
+	// shift kernel boot parameters for either backend.
+	const (
+		chPrefix = "console=hvc0 loglevel=3"
+		fcPrefix = "console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1"
+	)
+	nics := []*types.NetworkConfig{
+		{Network: &types.Network{IP: "10.0.0.2", Gateway: "10.0.0.1", Prefix: 24}},
+	}
+
+	tests := []struct {
+		name, prefix, layers, cow string
+		nics                      []*types.NetworkConfig
+		dns                       []string
+		want                      string
+	}{
+		{
+			name: "ch no network", prefix: chPrefix, layers: "L0,L1", cow: "cow",
+			want: "console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=L0,L1 cocoon.cow=cow clocksource=kvm-clock rw",
+		},
+		{
+			name: "fc no network", prefix: fcPrefix, layers: "/dev/vda", cow: "/dev/vdb",
+			want: "console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1 boot=cocoon-overlay cocoon.layers=/dev/vda cocoon.cow=/dev/vdb clocksource=kvm-clock rw",
+		},
+		{
+			name: "ch with nic + dns", prefix: chPrefix, layers: "L", cow: "C", nics: nics, dns: []string{"1.1.1.1"},
+			want: "console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=L cocoon.cow=C clocksource=kvm-clock rw net.ifnames=0 cocoon.hostname=vm ip=10.0.0.2::10.0.0.1:255.255.255.0:vm:eth0:off:1.1.1.1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildBaseCmdline(tt.prefix, tt.layers, tt.cow, tt.nics, "vm", tt.dns)
+			if got != tt.want {
+				t.Errorf("BuildBaseCmdline mismatch:\n got: %q\nwant: %q", got, tt.want)
+			}
+		})
+	}
+}

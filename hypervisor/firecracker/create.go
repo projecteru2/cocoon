@@ -154,23 +154,14 @@ func decompressGzip(data []byte) ([]byte, error) {
 }
 
 func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
-	// Layer device paths reversed (top layer first for overlayfs lowerdir).
+	// Top layer first for overlayfs lowerdir; FC quirks (reboot=k, pci=off, i8042.noaux, 8250.nr_uarts=1) skip absent-hardware probes.
 	layerDevs := hypervisor.ReverseLayers(storageConfigs, func(idx int, _ *types.StorageConfig) string { return DevPath(idx) })
-	cowDev := DevPath(len(layerDevs))
-
-	var cmdline strings.Builder
-	// FC quirks: ttyS0 + reboot=k (i8042 reset, no ACPI), pci=off + i8042.noaux + 8250.nr_uarts=1 skip absent-hardware probes.
-	fmt.Fprintf(&cmdline,
-		"console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
-		strings.Join(layerDevs, ","), cowDev,
+	return hypervisor.BuildBaseCmdline(
+		"console=ttyS0 reboot=k loglevel=3 pci=off i8042.noaux 8250.nr_uarts=1",
+		strings.Join(layerDevs, ","),
+		DevPath(len(layerDevs)),
+		networkConfigs, vmName, dnsServers,
 	)
-
-	if len(networkConfigs) > 0 {
-		cmdline.WriteString(" net.ifnames=0")
-		cmdline.WriteString(hypervisor.BuildIPParams(networkConfigs, vmName, dnsServers))
-	}
-
-	return cmdline.String()
 }
 
 // DevPath maps idx to vda..vdz, vdaa..vdaz, vdba..vdbz, ...

@@ -12,8 +12,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// KillForRestore stops the running VM via the backend-specific terminate hook
-// and clears runtime files.
+// KillForRestore stops the running VM via the backend-specific terminate hook and clears runtime files.
 func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord, terminate func(pid int) error, runtimeFiles []string) error {
 	killErr := b.WithRunningVM(ctx, rec, terminate)
 	if killErr != nil && !errors.Is(killErr, ErrNotRunning) {
@@ -67,8 +66,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	return &info, nil
 }
 
-// RestoreSequence is the shared restore skeleton. Staging happens before
-// the kill so a preflight failure leaves the original VM running.
+// RestoreSequence is the shared restore skeleton. Staging happens before the kill so a preflight failure leaves the original VM running.
 func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec RestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -116,8 +114,7 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	return result, nil
 }
 
-// DirectRestoreSequence restores from a local snapshot directory; Populate
-// replaces the tar staging+merge step used by RestoreSequence.
+// DirectRestoreSequence restores from a local snapshot directory; Populate replaces the tar staging+merge step used by RestoreSequence.
 func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec DirectRestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err

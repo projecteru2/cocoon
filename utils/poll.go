@@ -6,8 +6,7 @@ import (
 	"time"
 )
 
-// WaitFor polls check at the given interval until it returns (true, nil),
-// returns a non-nil error, or the timeout/context expires.
+// WaitFor polls check at the given interval until it returns (true, nil), returns a non-nil error, or the timeout/context expires.
 func WaitFor(ctx context.Context, timeout, interval time.Duration, check func() (done bool, err error)) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

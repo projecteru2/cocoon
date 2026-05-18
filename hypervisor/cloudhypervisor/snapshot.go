@@ -48,7 +48,7 @@ func (ch *CloudHypervisor) Snapshot(ctx context.Context, ref string) (*types.Sna
 
 // buildSnapshotMeta mirrors config.json's disk shape (not activeDisks — diverges for cloudimg post-FirstBooted pre-restart where CH still holds cidata).
 func buildSnapshotMeta(rec *hypervisor.VMRecord, tmpDir string) (*hypervisor.SnapshotMeta, error) {
-	chCfg, err := parseCHConfig(filepath.Join(tmpDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(tmpDir, configJSONName))
 	if err != nil {
 		return nil, fmt.Errorf("parse snapshot config: %w", err)
 	}

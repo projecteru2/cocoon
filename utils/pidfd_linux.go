@@ -10,8 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// terminateWithPidfd uses pidfd_open + pidfd_send_signal for TOCTOU-safe
-// process termination. Returns false if pidfd is unavailable (kernel < 5.3).
+// terminateWithPidfd uses pidfd_open + pidfd_send_signal for TOCTOU-safe process termination. Returns false if pidfd is unavailable (kernel < 5.3).
 func terminateWithPidfd(ctx context.Context, pid int, binaryName, expectArg string, gracePeriod time.Duration) (handled bool, err error) {
 	if !VerifyProcessCmdline(pid, binaryName, expectArg) {
 		return true, nil

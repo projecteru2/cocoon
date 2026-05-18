@@ -13,8 +13,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// SnapshotMetaFile is the cocoon-owned sidecar carrying fields the hypervisor's
-// native config can't hold (Role/MountPoint/FSType/DirectIO; FC CPU/Memory).
+// SnapshotMetaFile is the cocoon-owned sidecar carrying fields the hypervisor's native config can't hold (Role/MountPoint/FSType/DirectIO; FC CPU/Memory).
 const SnapshotMetaFile = "cocoon.json"
 
 type SnapshotMeta struct {
@@ -80,8 +79,7 @@ func CloneStorageConfigs(storageConfigs []*types.StorageConfig) []*types.Storage
 	return out
 }
 
-// IsUnderDir reports whether path is strictly under dir. An empty dir returns
-// false (disables the check) rather than matching every path.
+// IsUnderDir reports whether path is strictly under dir. An empty dir returns false (disables the check) rather than matching every path.
 func IsUnderDir(path, dir string) bool {
 	if dir == "" {
 		return false
@@ -91,8 +89,7 @@ func IsUnderDir(path, dir string) bool {
 	return strings.HasPrefix(cleaned, root+string(filepath.Separator))
 }
 
-// ValidateMetaPaths rejects sidecar paths escaping cocoon-managed roots; an
-// imported snapshot's cocoon.json is otherwise untrusted.
+// ValidateMetaPaths rejects sidecar paths escaping cocoon-managed roots; an imported snapshot's cocoon.json is otherwise untrusted.
 func ValidateMetaPaths(meta *SnapshotMeta, rootDir, runDir string) error {
 	for _, sc := range meta.StorageConfigs {
 		if !IsUnderDir(sc.Path, rootDir) && !IsUnderDir(sc.Path, runDir) {
@@ -110,8 +107,7 @@ func ValidateMetaPaths(meta *SnapshotMeta, rootDir, runDir string) error {
 	return nil
 }
 
-// ReverseLayers projects Role==Layer entries through fn in reverse order
-// (topmost layer first, matching overlayfs lowerdir semantics).
+// ReverseLayers projects Role==Layer entries through fn in reverse order (topmost layer first, matching overlayfs lowerdir semantics).
 func ReverseLayers[T any](storageConfigs []*types.StorageConfig, project func(idx int, sc *types.StorageConfig) T) []T {
 	var layers []*types.StorageConfig
 	for _, sc := range storageConfigs {

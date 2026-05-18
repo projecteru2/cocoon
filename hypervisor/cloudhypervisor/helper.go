@@ -24,6 +24,9 @@ type chMemoryRestoreMode string
 const (
 	pidFileName     = "ch.pid"
 	cmdlineFileName = "cmdline"
+	configJSONName  = "config.json"
+	stateJSONName   = "state.json"
+	memoryRangeFile = "memory-range" // prefix shared by all per-region memory-range-* files in a CH snapshot
 
 	// chMemoryRestoreOnDemand uses userfaultfd (UFFD) to lazily page in
 	// guest memory from the snapshot file, avoiding a full upfront copy.
@@ -47,7 +50,7 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	if err := hypervisor.ValidateSnapshotIntegrity(srcDir, sidecar); err != nil {
 		return err
 	}
-	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, configJSONName))
 	if err != nil {
 		return fmt.Errorf("parse snapshot config: %w", err)
 	}
@@ -63,7 +66,7 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 			return fmt.Errorf("sidecar/config.json disk[%d] readonly mismatch: sidecar=%v config=%v", i, sc.RO, chCfg.Disks[i].ReadOnly)
 		}
 	}
-	if _, statErr := os.Stat(filepath.Join(srcDir, "state.json")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(srcDir, stateJSONName)); statErr != nil {
 		return fmt.Errorf("state.json missing: %w", statErr)
 	}
 	hasMemory, memErr := hasMemoryRangeFile(srcDir)
@@ -76,15 +79,14 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	return nil
 }
 
-// hasMemoryRangeFile reports whether srcDir has at least one CH
-// memory-range-* file. A missing prefix is enough to fail vm.restore.
+// hasMemoryRangeFile reports whether srcDir has at least one CH memory-range-* file. A missing prefix is enough to fail vm.restore.
 func hasMemoryRangeFile(srcDir string) (bool, error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return false, err
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "memory-range") {
+		if strings.HasPrefix(e.Name(), memoryRangeFile) {
 			return true, nil
 		}
 	}
@@ -96,8 +98,7 @@ func vmAPIOnce(ctx context.Context, hc *http.Client, endpoint string, body []byt
 	return utils.DoAPIOnce(ctx, hc, http.MethodPut, "http://localhost/api/v1/"+endpoint, body, successCodes...)
 }
 
-// vmPutJSON marshals payload and PUTs to endpoint via vmAPIOnce. Mirrors
-// firecracker.putJSON so per-endpoint helpers stay one-line wrappers.
+// vmPutJSON marshals payload and PUTs to endpoint via vmAPIOnce. Mirrors firecracker.putJSON so per-endpoint helpers stay one-line wrappers.
 func vmPutJSON[T any](ctx context.Context, hc *http.Client, endpoint, kind string, payload T, successCodes ...int) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -140,8 +141,7 @@ func isAlreadyInStateError(err error, state string) bool {
 	return strings.Contains(ae.Message, fmt.Sprintf("Invalid transition: InvalidStateTransition(%s, %s)", state, state))
 }
 
-// snapshotVM and restoreVM temporarily extend the client timeout for
-// long-running memory transfers, then restore it for subsequent calls.
+// snapshotVM and restoreVM temporarily extend the client timeout for long-running memory transfers, then restore it for subsequent calls.
 func snapshotVM(ctx context.Context, hc *http.Client, destDir string) error {
 	hc.Timeout = hypervisor.VMMemTransferTimeout
 	defer func() { hc.Timeout = utils.HTTPTimeout }()
@@ -213,8 +213,7 @@ func addCocoonNIC(ctx context.Context, hc *http.Client, nc *types.NetworkConfig)
 	return chN.ID, nil
 }
 
-// getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts
-// before hot-add and to surface attached devices through inspect.
+// getVMInfo fetches vm.info; cocoon uses it to detect tag/id conflicts before hot-add and to surface attached devices through inspect.
 func getVMInfo(ctx context.Context, hc *http.Client) (*chVMInfoResponse, error) {
 	body, err := utils.DoAPI(ctx, hc, http.MethodGet, "http://localhost/api/v1/vm.info", nil, http.StatusOK)
 	if err != nil {
