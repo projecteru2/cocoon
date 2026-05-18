@@ -50,7 +50,7 @@ func plumbingForVM(conf *config.Config, vm *types.VM) (network.Network, error) {
 		return nil, fmt.Errorf("no network backend on VM; cannot resize")
 	}
 	if backend == types.BackendCNI && vm.ResolvedNetnsPath() == "" {
-		return nil, fmt.Errorf("CNI backend but no netns; resize would target host netns")
+		return nil, fmt.Errorf("cni backend but no netns; resize would target host netns")
 	}
 	return providerForVM(conf, nil, map[string]network.Network{}, vm)
 }
