@@ -14,11 +14,11 @@ type Module[S any] struct {
 	// ReadDB reads the module's current state (called while the lock is held).
 	ReadDB func(ctx context.Context) (S, error)
 
-	// Resolve returns IDs to delete; others holds snapshots from peer modules (cast for cross-module analysis, e.g. VMs pinning images).
+	// Resolve returns IDs to delete; others holds snapshots from peer modules (cast for cross-module analysis, e.g. VMs pinning images). Map fields written here are visible to Collect via the same snap.
 	Resolve func(ctx context.Context, snap S, others map[string]any) []string
 
-	// Collect removes the given IDs (called while the lock is held).
-	Collect func(ctx context.Context, ids []string) error
+	// Collect removes the given IDs (called while the lock is held); snap is the same value Resolve saw.
+	Collect func(ctx context.Context, ids []string, snap S) error
 }
 
 // Module[S] implements runner — internal to the gc package.
@@ -37,6 +37,7 @@ func (m Module[S]) resolveTargets(ctx context.Context, snap any, others map[stri
 	return m.Resolve(ctx, typed, others)
 }
 
-func (m Module[S]) collect(ctx context.Context, ids []string) error {
-	return m.Collect(ctx, ids)
+func (m Module[S]) collect(ctx context.Context, ids []string, snap any) error {
+	typed, _ := snap.(S)
+	return m.Collect(ctx, ids, typed)
 }

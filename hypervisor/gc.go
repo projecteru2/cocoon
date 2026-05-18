@@ -22,6 +22,7 @@ type VMGCSnapshot struct {
 	staleCreate []string
 	runDirs     []string
 	logDirs     []string
+	reasons     map[string]string
 }
 
 func (s VMGCSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
@@ -30,12 +31,11 @@ func (s VMGCSnapshot) ActiveVMIDs() map[string]struct{} { return s.vmIDs }
 
 // BuildGCModule builds GC module that scans DB and dirs for orphan VMs.
 func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
-	var reasons map[string]string
 	return gc.Module[VMGCSnapshot]{
 		Name:   b.Typ,
 		Locker: b.Locker,
 		ReadDB: func(_ context.Context) (VMGCSnapshot, error) {
-			var snap VMGCSnapshot
+			snap := VMGCSnapshot{reasons: make(map[string]string)}
 			cutoff := time.Now().Add(-CreatingStateGCGrace)
 			if err := b.DB.ReadRaw(func(idx *VMIndex) error {
 				snap.blobIDs = make(map[string]struct{}, len(idx.VMs))
@@ -64,30 +64,29 @@ func (b *Backend) BuildGCModule() gc.Module[VMGCSnapshot] {
 			return snap, nil
 		},
 		Resolve: func(_ context.Context, snap VMGCSnapshot, _ map[string]any) []string {
-			reasons = make(map[string]string)
 			// "db" holds vms.json/vms.lock — exclude from orphan scan when RootDir == RunDir.
 			reserved := map[string]struct{}{"db": {}}
 			runOrphans := utils.FilterUnreferenced(snap.runDirs, snap.vmIDs, reserved)
 			logOrphans := utils.FilterUnreferenced(snap.logDirs, snap.vmIDs, reserved)
 			for _, id := range snap.staleCreate {
-				reasons[id] = "stale-creating"
+				snap.reasons[id] = "stale-creating"
 			}
 			for _, id := range runOrphans {
-				if _, ok := reasons[id]; !ok {
-					reasons[id] = "orphan-runDir"
+				if _, ok := snap.reasons[id]; !ok {
+					snap.reasons[id] = "orphan-runDir"
 				}
 			}
 			for _, id := range logOrphans {
-				if _, ok := reasons[id]; !ok {
-					reasons[id] = "orphan-logDir"
+				if _, ok := snap.reasons[id]; !ok {
+					snap.reasons[id] = "orphan-logDir"
 				}
 			}
 			candidates := slices.Concat(runOrphans, logOrphans, snap.staleCreate)
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		Collect: func(ctx context.Context, ids []string) error {
-			return b.gcCollect(ctx, ids, reasons)
+		Collect: func(ctx context.Context, ids []string, snap VMGCSnapshot) error {
+			return b.gcCollect(ctx, ids, snap.reasons)
 		},
 	}
 }

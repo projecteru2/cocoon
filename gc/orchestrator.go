@@ -86,7 +86,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if len(ids) == 0 {
 			continue
 		}
-		if err := m.collect(ctx, ids); err != nil {
+		if err := m.collect(ctx, ids, snapshots[m.getName()]); err != nil {
 			failures++
 			errs = append(errs, fmt.Errorf("gc %s: %w", m.getName(), err))
 		}

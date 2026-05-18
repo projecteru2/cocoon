@@ -77,21 +77,18 @@ type snapshotGCSnapshot struct {
 	dataDirs     []string
 	stalePending []string
 	records      map[string]snapshotMeta
+	reasons      map[string]string
 	policy       EvictionPolicy
 }
 
 func (s snapshotGCSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 
 func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy) gc.Module[snapshotGCSnapshot] {
-	var (
-		records map[string]snapshotMeta
-		reasons map[string]string
-	)
 	return gc.Module[snapshotGCSnapshot]{
 		Name:   "snapshot",
 		Locker: locker,
 		ReadDB: func(ctx context.Context) (snapshotGCSnapshot, error) {
-			snap := snapshotGCSnapshot{policy: policy}
+			snap := snapshotGCSnapshot{policy: policy, reasons: make(map[string]string)}
 			cutoff := time.Now().Add(-pendingGCGrace)
 			if err := store.ReadRaw(func(idx *snapshot.SnapshotIndex) error {
 				snap.blobIDs = make(map[string]struct{})
@@ -129,14 +126,12 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			return snap, nil
 		},
 		Resolve: func(ctx context.Context, snap snapshotGCSnapshot, _ map[string]any) []string {
-			records = snap.records
-			reasons = make(map[string]string)
 			orphans := utils.FilterUnreferenced(snap.dataDirs, snap.snapshotIDs)
 			for _, id := range orphans {
-				reasons[id] = "orphan"
+				snap.reasons[id] = "orphan"
 			}
 			for _, id := range snap.stalePending {
-				reasons[id] = "stale-pending"
+				snap.reasons[id] = "stale-pending"
 			}
 			candidates := slices.Concat(orphans, snap.stalePending)
 
@@ -145,7 +140,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 				if snap.policy.DryRun {
 					logWouldEvict(ctx, lruReasons, snap.records)
 				} else {
-					maps.Copy(reasons, lruReasons)
+					maps.Copy(snap.reasons, lruReasons)
 					candidates = append(candidates, slices.Collect(maps.Keys(lruReasons))...)
 				}
 			}
@@ -153,7 +148,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		Collect: func(ctx context.Context, ids []string) error {
+		Collect: func(ctx context.Context, ids []string, snap snapshotGCSnapshot) error {
 			logger := log.WithFunc("gc.snapshot")
 			var (
 				errs    []error
@@ -168,7 +163,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 					errs = append(errs, fmt.Errorf("remove snapshot %s: %w", id, err))
 					continue
 				}
-				logEvictRow(ctx, logger, "collected", id, records[id], reasons[id])
+				logEvictRow(ctx, logger, "collected", id, snap.records[id], snap.reasons[id])
 				removed = append(removed, id)
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {

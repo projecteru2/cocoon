@@ -154,7 +154,7 @@ func TestGCModule_LRUEndToEnd(t *testing.T) {
 	if len(ids) != 2 {
 		t.Errorf("want 2 evictions, got %v", ids)
 	}
-	if err := mod.Collect(ctx, ids); err != nil {
+	if err := mod.Collect(ctx, ids, snap); err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
 
@@ -214,7 +214,7 @@ func TestGCModule_BareSnapshotEvictsAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := mod.Resolve(ctx, snap, map[string]any{})
-	if err := mod.Collect(ctx, ids); err != nil {
+	if err := mod.Collect(ctx, ids, snap); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,7 +310,8 @@ func TestGCModule_RemovalFailureKeepsDBRecord(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o750) })
 
 	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
-	if err := mod.Collect(ctx, ids); err == nil {
+	snap, _ := mod.ReadDB(ctx)
+	if err := mod.Collect(ctx, ids, snap); err == nil {
 		t.Fatal("expected Collect to error on chmod-protected parent")
 	}
 	for i, name := range []string{"a", "b"} {
@@ -338,7 +339,7 @@ func TestGCModule_OrphanDirCleaned(t *testing.T) {
 	if !slices.Contains(ids, "ORPHAN_ID_NO_DB") {
 		t.Errorf("orphan dir should be picked, got %v", ids)
 	}
-	if err := mod.Collect(ctx, ids); err != nil {
+	if err := mod.Collect(ctx, ids, snap); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {

@@ -65,7 +65,7 @@ func GCModule(rootDir string) gc.Module[bridgeSnapshot] {
 			slices.Sort(orphans)
 			return orphans
 		},
-		Collect: func(ctx context.Context, prefixes []string) error {
+		Collect: func(ctx context.Context, prefixes []string, _ bridgeSnapshot) error {
 			logger := log.WithFunc("gc.bridge")
 
 			orphanSet := make(map[string]struct{}, len(prefixes))

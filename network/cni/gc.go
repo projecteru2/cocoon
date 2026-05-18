@@ -64,7 +64,7 @@ func (c *CNI) GCModule() gc.Module[cniSnapshot] {
 			slices.Sort(orphans)
 			return orphans
 		},
-		Collect: func(ctx context.Context, ids []string) error {
+		Collect: func(ctx context.Context, ids []string, _ cniSnapshot) error {
 			logger := log.WithFunc("gc.cni")
 			var errs []error
 			for _, vmID := range ids {
