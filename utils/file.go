@@ -27,8 +27,7 @@ func EnsureDirs(dirs ...string) error {
 	return nil
 }
 
-// FileHead returns up to n bytes from offset 0 without moving the read
-// position. Truncated at EOF, no error if shorter than n.
+// FileHead returns up to n bytes from offset 0 without moving the read position. Truncated at EOF, no error if shorter than n.
 func FileHead(f *os.File, n int) ([]byte, error) {
 	buf := make([]byte, n)
 	m, err := f.ReadAt(buf, 0)

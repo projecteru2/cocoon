@@ -87,8 +87,7 @@ type fcSnapshotLoad struct {
 	VsockOverride       *fcVsockOverride    `json:"vsock_override,omitempty"`
 }
 
-// fcNetworkOverride overrides a network interface from the snapshot
-// with a new TAP device (FC v1.14+, PR #4731).
+// fcNetworkOverride overrides a network interface from the snapshot with a new TAP device (FC v1.14+, PR #4731).
 type fcNetworkOverride struct {
 	IfaceID     string `json:"iface_id"`
 	HostDevName string `json:"host_dev_name"`

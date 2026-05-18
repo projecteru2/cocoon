@@ -37,8 +37,7 @@ func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
 	return ch.HandleStopResult(ctx, id, rec.RunDir, runtimeFiles, shutdownErr)
 }
 
-// shutdownUEFI shuts down a UEFI-boot VM via ACPI power-button with
-// poll-and-escalate handled by the shared GracefulStop helper.
+// shutdownUEFI shuts down a UEFI-boot VM via ACPI power-button with poll-and-escalate handled by the shared GracefulStop helper.
 func (ch *CloudHypervisor) shutdownUEFI(ctx context.Context, hc *http.Client, vmID, socketPath string, pid int, timeout time.Duration) error {
 	return ch.GracefulStop(ctx, vmID, pid, timeout,
 		func() error { return powerButton(ctx, hc) },

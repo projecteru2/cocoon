@@ -37,8 +37,7 @@ type StorageConfig struct {
 	DirectIO   *bool       `json:"direct_io,omitempty"`   // Role==Data only; nil inherits VM-level NoDirectIO
 }
 
-// DataDiskSpec is the user-facing description of an extra data disk parsed
-// from --data-disk. Transient — never persisted.
+// DataDiskSpec is the user-facing description of an extra data disk parsed from --data-disk. Transient — never persisted.
 type DataDiskSpec struct {
 	Name          string
 	Size          int64

@@ -19,8 +19,7 @@ type patchOptions struct {
 	noDirectIO     bool
 }
 
-// patchCHConfig patches specific fields in config.json while preserving all
-// unknown fields that CH adds internally (platform, cpus.topology, etc.).
+// patchCHConfig patches specific fields in config.json while preserving all unknown fields that CH adds internally (platform, cpus.topology, etc.).
 func patchCHConfig(path string, opts *patchOptions) error {
 	rawData, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
@@ -130,8 +129,7 @@ func isDiskPathKey(key string) bool {
 	return key == "disk_path" || key == "path"
 }
 
-// walkAndReplace recursively traverses a parsed JSON value and replaces string
-// values that are under a disk-path key and exactly match a replacement entry.
+// walkAndReplace recursively traverses a parsed JSON value and replaces string values that are under a disk-path key and exactly match a replacement entry.
 func walkAndReplace(v any, key string, replacements map[string]string) any {
 	switch val := v.(type) {
 	case map[string]any:
@@ -166,8 +164,7 @@ func setField(obj map[string]json.RawMessage, key string, value any) error {
 	return nil
 }
 
-// patchRawArray unmarshals a JSON array, applies fn to each element's raw map,
-// and returns the patched array. Validates array length == count.
+// patchRawArray unmarshals a JSON array, applies fn to each element's raw map, and returns the patched array. Validates array length == count.
 func patchRawArray(raw json.RawMessage, count int, fn func(int, map[string]json.RawMessage) error) (json.RawMessage, error) {
 	var arr []json.RawMessage
 	if err := json.Unmarshal(raw, &arr); err != nil {

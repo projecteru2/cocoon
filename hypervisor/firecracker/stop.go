@@ -35,8 +35,7 @@ func (fc *Firecracker) stopOne(ctx context.Context, id string) error {
 	return fc.HandleStopResult(ctx, id, rec.RunDir, runtimeFiles, shutdownErr)
 }
 
-// gracefulStop sends SendCtrlAltDel with poll-and-escalate handled
-// by the shared GracefulStop helper.
+// gracefulStop sends SendCtrlAltDel with poll-and-escalate handled by the shared GracefulStop helper.
 func (fc *Firecracker) gracefulStop(ctx context.Context, hc *http.Client, vmID, sockPath string, pid int, timeout time.Duration) error {
 	return fc.GracefulStop(ctx, vmID, pid, timeout,
 		func() error { return sendCtrlAltDel(ctx, hc) },

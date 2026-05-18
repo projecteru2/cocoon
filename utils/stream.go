@@ -15,8 +15,7 @@ type PipeStreamReader struct {
 	close func() error
 }
 
-// NewPipeStreamReader pairs pr with the producer's done channel so Close
-// surfaces background errors and runs cleanup exactly once.
+// NewPipeStreamReader pairs pr with the producer's done channel so Close surfaces background errors and runs cleanup exactly once.
 func NewPipeStreamReader(pr *io.PipeReader, done <-chan error, cleanup func()) *PipeStreamReader {
 	return &PipeStreamReader{
 		PipeReader: pr,

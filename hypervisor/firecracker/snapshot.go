@@ -42,8 +42,7 @@ func (fc *Firecracker) Snapshot(ctx context.Context, ref string) (*types.Snapsho
 	})
 }
 
-// buildSnapshotMeta rewrites kernel path to vmlinuz so clones get the portable
-// artifact instead of the FC-specific vmlinux cache.
+// buildSnapshotMeta rewrites kernel path to vmlinuz so clones get the portable artifact instead of the FC-specific vmlinux cache.
 func buildSnapshotMeta(rec *hypervisor.VMRecord, _ string) (*hypervisor.SnapshotMeta, error) {
 	meta := &hypervisor.SnapshotMeta{
 		CPU:            rec.Config.CPU,

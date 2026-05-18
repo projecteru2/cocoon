@@ -24,8 +24,7 @@ type pullLayerResult struct {
 	initrdPath string // non-empty if this layer contains an initrd
 }
 
-// pull downloads an OCI image, extracts boot files, and converts each layer
-// to EROFS concurrently.
+// pull downloads an OCI image, extracts boot files, and converts each layer to EROFS concurrently.
 func pull(ctx context.Context, conf *Config, store storage.Store[imageIndex], imageRef string, tracker progress.Tracker) error {
 	logger := log.WithFunc("oci.pull")
 

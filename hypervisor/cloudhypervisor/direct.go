@@ -10,8 +10,7 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// DirectClone clones from a local snapshot dir. Per-type: hardlink memory-range-*,
-// reflink/copy COW, plain copy metadata; cidata is regenerated.
+// DirectClone clones from a local snapshot dir. Per-type: hardlink memory-range-*, reflink/copy COW, plain copy metadata; cidata is regenerated.
 func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error) {
 	return ch.DirectCloneBase(ctx, vmID, vmCfg, net, snapshotConfig, srcDir, cloneSnapshotFiles, ch.cloneAfterExtract)
 }
@@ -50,8 +49,7 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 	})
 }
 
-// cleanSnapshotFiles enumerates by name so stale data-*.raw and cocoon.json
-// from a previous incarnation don't linger; COW files are overwritten anyway.
+// cleanSnapshotFiles enumerates by name so stale data-*.raw and cocoon.json from a previous incarnation don't linger; COW files are overwritten anyway.
 func cleanSnapshotFiles(runDir string) error {
 	return hypervisor.CleanSnapshotFiles(runDir, func(name string) bool {
 		switch {

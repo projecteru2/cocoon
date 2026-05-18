@@ -25,8 +25,7 @@ const (
 
 var _ images.Images = (*OCI)(nil)
 
-// OCI implements the images.Images interface using OCI container images
-// converted to EROFS filesystems for use with Cloud Hypervisor.
+// OCI implements the images.Images interface using OCI container images converted to EROFS filesystems for use with Cloud Hypervisor.
 type OCI struct {
 	conf      *Config
 	store     storage.Store[imageIndex]

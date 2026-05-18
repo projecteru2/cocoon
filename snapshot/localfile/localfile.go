@@ -165,8 +165,7 @@ func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, 
 	return &s, nil
 }
 
-// Delete processes each id atomically (rm dir → DB update). A mid-loop
-// failure leaves any rm-OK-then-DB-fail id as a stale DB record; GC reclaims it.
+// Delete processes each id atomically (rm dir → DB update). A mid-loop failure leaves any rm-OK-then-DB-fail id as a stale DB record; GC reclaims it.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
@@ -249,8 +248,7 @@ func (lf *LocalFile) lookupRecord(ctx context.Context, ref string, touch bool) (
 	return rec, lf.store.With(ctx, apply)
 }
 
-// snapshotRecordToConfig builds a detached SnapshotConfig from a record,
-// deep-copying ImageBlobIDs so the caller can use it after the lock is released.
+// snapshotRecordToConfig builds a detached SnapshotConfig from a record, deep-copying ImageBlobIDs so the caller can use it after the lock is released.
 func snapshotRecordToConfig(rec snapshot.SnapshotRecord) types.SnapshotConfig {
 	cfg := rec.SnapshotConfig
 	cfg.ImageBlobIDs = maps.Clone(rec.ImageBlobIDs)

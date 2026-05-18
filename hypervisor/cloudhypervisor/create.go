@@ -88,8 +88,7 @@ func (ch *CloudHypervisor) prepareCloudimg(ctx context.Context, vmID string, vmC
 	return configs, nil
 }
 
-// generateCidata writes the NoCloud cidata image. storageConfigs lets cidata
-// pick up Role==Data disks for auto-mount via /dev/disk/by-id/virtio-<serial>.
+// generateCidata writes the NoCloud cidata image. storageConfigs lets cidata pick up Role==Data disks for auto-mount via /dev/disk/by-id/virtio-<serial>.
 func (ch *CloudHypervisor) generateCidata(vmID string, vmCfg *types.VMConfig, networkConfigs []*types.NetworkConfig, storageConfigs []*types.StorageConfig) error {
 	dns, err := ch.conf.DNSServers()
 	if err != nil {

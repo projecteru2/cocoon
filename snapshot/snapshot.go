@@ -8,14 +8,12 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-// Direct is an optional interface for snapshot backends that expose
-// the local data directory for per-file handling (hardlink, reflink, etc.).
+// Direct is an optional interface for snapshot backends that expose the local data directory for per-file handling (hardlink, reflink, etc.).
 type Direct interface {
 	DataDir(ctx context.Context, ref string) (string, types.SnapshotConfig, error)
 }
 
-// CompressedExporter is an optional interface for backends that support
-// exporting with compression (e.g. gzip). The default Export produces raw tar.
+// CompressedExporter is an optional interface for backends that support exporting with compression (e.g. gzip). The default Export produces raw tar.
 type CompressedExporter interface {
 	ExportCompressed(ctx context.Context, ref string) (io.ReadCloser, error)
 }

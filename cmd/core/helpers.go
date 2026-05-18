@@ -398,8 +398,7 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 	}, nil
 }
 
-// RestoreVMConfigFromFlags builds VMConfig for restore: resources from the
-// snapshot, Name/Network from the VM (CNI namespace survives restore).
+// RestoreVMConfigFromFlags builds VMConfig for restore: resources from the snapshot, Name/Network from the VM (CNI namespace survives restore).
 func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
 	if snapCfg.NICs != len(vm.NetworkConfigs) {
 		return nil, fmt.Errorf("nic count mismatch: vm has %d, snapshot has %d",
@@ -444,8 +443,7 @@ func AddFormatFlag(cmd *cobra.Command) {
 	cmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
 }
 
-// AddOutputFlag adds --output/-o for lifecycle commands. Empty default keeps
-// the human-readable log output; "json" emits a parseable result on stdout.
+// AddOutputFlag adds --output/-o for lifecycle commands. Empty default keeps the human-readable log output; "json" emits a parseable result on stdout.
 func AddOutputFlag(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", `emit "json" for machine-readable output`)
 }
@@ -572,8 +570,7 @@ func sanitizeVMName(image string) string {
 	return n
 }
 
-// parseDataDiskFlags parses --data-disk values, normalizes defaults, and
-// returns the spec list ready for hypervisor.PrepareDataDisks.
+// parseDataDiskFlags parses --data-disk values, normalizes defaults, and returns the spec list ready for hypervisor.PrepareDataDisks.
 func parseDataDiskFlags(raw []string) ([]types.DataDiskSpec, error) {
 	specs := make([]types.DataDiskSpec, 0, len(raw))
 	for _, s := range raw {

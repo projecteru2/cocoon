@@ -32,8 +32,7 @@ type dataEntry struct {
 	numClusters int
 }
 
-// fat12Builder constructs a FAT12 image in memory (FAT + root dir only)
-// and streams the full image on writeTo.
+// fat12Builder constructs a FAT12 image in memory (FAT + root dir only) and streams the full image on writeTo.
 type fat12Builder struct {
 	label       string
 	fat         []byte      // single FAT copy (written twice)

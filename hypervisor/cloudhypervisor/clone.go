@@ -239,8 +239,7 @@ func hasCidataRole(sc *types.StorageConfig) bool {
 	return sc.Role == types.StorageRoleCidata
 }
 
-// restorePatchStorageConfigs strips ensureCloneCidata's appended cidata when
-// the snapshot lacked one, so patchCHConfig matches chCfg.Disks; cidata gets hot-plugged.
+// restorePatchStorageConfigs strips ensureCloneCidata's appended cidata when the snapshot lacked one, so patchCHConfig matches chCfg.Disks; cidata gets hot-plugged.
 func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoot, windows, hadCidataInSnapshot bool) []*types.StorageConfig {
 	if directBoot || windows || hadCidataInSnapshot {
 		return storageConfigs
@@ -304,8 +303,7 @@ func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageCo
 	return m
 }
 
-// hotSwapNets removes NICs with stale MAC (from snapshot binary state) and
-// adds fresh ones. Must run between vm.restore and vm.resume (VM paused).
+// hotSwapNets removes NICs with stale MAC (from snapshot binary state) and adds fresh ones. Must run between vm.restore and vm.resume (VM paused).
 func hotSwapNets(ctx context.Context, hc *http.Client, oldNets []chNet, networkConfigs []*types.NetworkConfig) error {
 	logger := log.WithFunc("cloudhypervisor.hotSwapNets")
 	for _, oldNet := range oldNets {

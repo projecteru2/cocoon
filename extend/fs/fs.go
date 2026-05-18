@@ -34,8 +34,7 @@ type Spec struct {
 	QueueSize int
 }
 
-// Attached is the inspect-time view of one fs device read from the
-// running VM's CH config.
+// Attached is the inspect-time view of one fs device read from the running VM's CH config.
 type Attached struct {
 	ID     string `json:"id"`
 	Tag    string `json:"tag"`

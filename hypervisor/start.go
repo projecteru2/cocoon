@@ -11,8 +11,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// StartAll runs startOne for each ref and batch-flips the succeeded set
-// to Running so a partial batch doesn't leave half-Running state.
+// StartAll runs startOne for each ref and batch-flips the succeeded set to Running so a partial batch doesn't leave half-Running state.
 func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {

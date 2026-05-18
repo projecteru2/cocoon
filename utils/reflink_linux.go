@@ -11,8 +11,7 @@ import (
 // ficlone is the ioctl number for btrfs/xfs/bcachefs CoW file cloning.
 const ficlone = 0x40049409
 
-// ReflinkCopy copies a single file, preferring FICLONE (O(1) CoW on
-// btrfs/xfs/bcachefs) and falling back to SparseCopy on any error.
+// ReflinkCopy copies a single file, preferring FICLONE (O(1) CoW on btrfs/xfs/bcachefs) and falling back to SparseCopy on any error.
 func ReflinkCopy(dst, src string) error {
 	if err := tryFiclone(dst, src); err == nil {
 		return nil

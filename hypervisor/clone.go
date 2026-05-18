@@ -10,8 +10,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// CloneSetup is the shared pre-clone sequence: validate CPU, reserve a
-// placeholder, ensure dirs, return a cleanup that rolls back both.
+// CloneSetup is the shared pre-clone sequence: validate CPU, reserve a placeholder, ensure dirs, return a cleanup that rolls back both.
 func (b *Backend) CloneSetup(ctx context.Context, vmID string, vmCfg *types.VMConfig, snapshotConfig *types.SnapshotConfig) (runDir, logDir string, now time.Time, cleanup func(), err error) {
 	if err = ValidateHostCPU(vmCfg.CPU); err != nil {
 		return "", "", time.Time{}, nil, err
@@ -35,8 +34,7 @@ func (b *Backend) CloneSetup(ctx context.Context, vmID string, vmCfg *types.VMCo
 	return runDir, logDir, now, cleanup, nil
 }
 
-// DirectCloneBase clones from a local snapshot directory. Used when the
-// snapshot lives on the same host (no tar streaming needed).
+// DirectCloneBase clones from a local snapshot directory. Used when the snapshot lives on the same host (no tar streaming needed).
 func (b *Backend) DirectCloneBase(
 	ctx context.Context, vmID string, vmCfg *types.VMConfig,
 	net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string,
@@ -60,8 +58,7 @@ func (b *Backend) DirectCloneBase(
 	return afterExtract(ctx, vmID, vmCfg, net, runDir, logDir, now)
 }
 
-// CloneFromStream clones from a tar stream into a fresh runDir. Used when
-// the snapshot arrives over the network (cross-node clone).
+// CloneFromStream clones from a tar stream into a fresh runDir. Used when the snapshot arrives over the network (cross-node clone).
 func (b *Backend) CloneFromStream(
 	ctx context.Context, vmID string, vmCfg *types.VMConfig,
 	net types.NetSetup, snapshotConfig *types.SnapshotConfig, snapshot io.Reader,

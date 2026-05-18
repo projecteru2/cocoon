@@ -5,8 +5,7 @@ import (
 	"maps"
 )
 
-// LookupCopy returns a shallow copy at key. Pointer/slice/map fields inside T
-// still alias the original — callers must not mutate them without deep-copying.
+// LookupCopy returns a shallow copy at key. Pointer/slice/map fields inside T still alias the original — callers must not mutate them without deep-copying.
 func LookupCopy[T any](m map[string]*T, key string) (T, error) {
 	v := m[key]
 	if v == nil {
