@@ -36,7 +36,6 @@ type GCModuleConfig[I any] struct {
 }
 
 // BuildGCModule constructs a gc.Module from the config.
-// This eliminates the near-identical GCModule() methods in oci/ and cloudimg/.
 func BuildGCModule[I any](cfg GCModuleConfig[I]) gc.Module[ImageGCSnapshot] {
 	return gc.Module[ImageGCSnapshot]{
 		Name:   cfg.Name,

@@ -18,8 +18,7 @@ const (
 	FSTypeNone = "none"
 )
 
-// dataDiskNameRe caps length at 20 to match Linux's
-// /dev/disk/by-id/virtio-<first 20 chars> truncation.
+// dataDiskNameRe caps length at 20 to match Linux's /dev/disk/by-id/virtio-<first 20 chars> truncation.
 var dataDiskNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,19}$`)
 
 // StorageRole classifies a disk's purpose in the VM. Required on every

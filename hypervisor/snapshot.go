@@ -107,8 +107,7 @@ func ValidateMetaPaths(meta *SnapshotMeta, rootDir, runDir string) error {
 	return nil
 }
 
-// ReverseLayers projects Role==Layer entries through fn in reverse order
-// (topmost layer first, matching overlayfs lowerdir semantics).
+// ReverseLayers projects Role==Layer entries through fn in reverse order (topmost layer first, matching overlayfs lowerdir semantics).
 func ReverseLayers[T any](storageConfigs []*types.StorageConfig, project func(idx int, sc *types.StorageConfig) T) []T {
 	var layers []*types.StorageConfig
 	for _, sc := range storageConfigs {

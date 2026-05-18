@@ -276,8 +276,7 @@ func generateShortName(name string, seq int) [11]byte {
 	return result
 }
 
-// makeLFNEntries creates VFAT long-filename directory entries in disk order
-// (highest sequence number first, immediately before the SFN entry).
+// makeLFNEntries creates VFAT long-filename directory entries in disk order (highest sequence number first, immediately before the SFN entry).
 func makeLFNEntries(name string, shortName [11]byte) [][]byte {
 	runes := utf16.Encode([]rune(name))
 	chksum := lfnChecksum(shortName)

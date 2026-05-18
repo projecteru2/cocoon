@@ -53,8 +53,7 @@ func (ch *CloudHypervisor) forceTerminate(ctx context.Context, hc *http.Client, 
 	return utils.TerminateProcess(ctx, pid, ch.conf.BinaryName(), socketPath, ch.conf.TerminateGracePeriod())
 }
 
-// isDirectBoot returns true when the VM was started with a direct kernel boot
-// (OCI images). False means UEFI boot (cloudimg).
+// isDirectBoot returns true when the VM was started with a direct kernel boot (OCI images). False means UEFI boot (cloudimg).
 func isDirectBoot(boot *types.BootConfig) bool {
 	return boot != nil && boot.KernelPath != ""
 }
