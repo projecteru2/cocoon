@@ -104,14 +104,19 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		Collect: func(ctx context.Context, ids []string) error {
-			var errs []error
+		Collect: func(_ context.Context, ids []string) error {
+			var (
+				errs    []error
+				removed = make([]string, 0, len(ids))
+			)
 			for _, id := range ids {
 				if err := os.RemoveAll(conf.SnapshotDataDir(id)); err != nil {
 					errs = append(errs, err)
+					continue
 				}
+				removed = append(removed, id)
 			}
-			if err := cleanResolvedRecords(store, ids); err != nil {
+			if err := cleanResolvedRecords(store, removed); err != nil {
 				errs = append(errs, err)
 			}
 			return errors.Join(errs...)

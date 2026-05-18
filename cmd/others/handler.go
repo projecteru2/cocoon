@@ -73,7 +73,14 @@ func parseSnapshotPolicy(cmd *cobra.Command) (localfile.EvictionPolicy, error) {
 	keep, _ := cmd.Flags().GetInt("snapshot-keep")
 	age, _ := cmd.Flags().GetDuration("snapshot-age")
 	sizeStr, _ := cmd.Flags().GetString("snapshot-size")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	dryRun, _ := cmd.Flags().GetBool("snapshot-dry-run")
+
+	if keep < 0 {
+		return localfile.EvictionPolicy{}, fmt.Errorf("--snapshot-keep must be >= 0, got %d", keep)
+	}
+	if age < 0 {
+		return localfile.EvictionPolicy{}, fmt.Errorf("--snapshot-age must be >= 0, got %s", age)
+	}
 
 	var size int64
 	if sizeStr != "" {
@@ -81,12 +88,14 @@ func parseSnapshotPolicy(cmd *cobra.Command) (localfile.EvictionPolicy, error) {
 		if err != nil {
 			return localfile.EvictionPolicy{}, fmt.Errorf("--snapshot-size %q: %w", sizeStr, err)
 		}
+		if n < 0 {
+			return localfile.EvictionPolicy{}, fmt.Errorf("--snapshot-size must be >= 0, got %s", sizeStr)
+		}
 		size = n
 	}
 
-	hasSubFlag := keep > 0 || age > 0 || size > 0
-	if hasSubFlag && !enabled {
-		return localfile.EvictionPolicy{}, fmt.Errorf("--snapshot-keep/age/size requires --snapshot")
+	if !enabled && (keep > 0 || age > 0 || size > 0 || dryRun) {
+		return localfile.EvictionPolicy{}, fmt.Errorf("--snapshot-keep/age/size/dry-run requires --snapshot")
 	}
 
 	return localfile.EvictionPolicy{

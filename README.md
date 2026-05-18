@@ -837,19 +837,19 @@ Bare `cocoon gc` only reclaims **orphans** (on-disk data with no DB record) and 
 
 | Flag                 | Effect                                                                                          |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `--snapshot`         | Enable LRU eviction. Bare flag = evict **every** non-pending snapshot.                          |
-| `--snapshot-keep N`  | Keep at most N most-recently-accessed snapshots.                                                |
-| `--snapshot-age DUR` | Evict snapshots last accessed before this duration (e.g. `720h` for 30d).                       |
-| `--snapshot-size SZ` | Evict oldest snapshots until total size ≤ this (e.g. `100GB`).                                  |
-| `--dry-run`          | Log what would be evicted; act on nothing.                                                      |
+| `--snapshot`           | Enable LRU eviction. Bare flag = evict **every** non-pending snapshot.                          |
+| `--snapshot-keep N`    | Keep at most N most-recently-accessed snapshots.                                                |
+| `--snapshot-age DUR`   | Evict snapshots last accessed before this duration (e.g. `720h` for 30d).                       |
+| `--snapshot-size SZ`   | Evict oldest snapshots until total size ≤ this (e.g. `100GB`).                                  |
+| `--snapshot-dry-run`   | Log which snapshots would be LRU-evicted; act on nothing. **Snapshot-only — orphans and other GC modules still execute.** |
 
-Sub-flags combine as union of evictions (intersection of kept) — a snapshot is kept only if it passes **every** active criterion. Without `--snapshot` the sub-flags are rejected.
+Sub-flags combine as union of evictions (intersection of kept) — a snapshot is kept only if it passes **every** active criterion. All sub-flags require `--snapshot`; negative values are rejected.
 
 `LastAccessedAt` is updated on `Restore`, `vm clone` (via `DataDir`), `snapshot export`, and `snapshot import` (set to creation time). `Inspect` and `list` do not count as access.
 
 ```bash
-# Preview what 30-day eviction would remove
-cocoon gc --snapshot --snapshot-age=720h --dry-run
+# Preview what 30-day eviction would remove (snapshot-only — other GC modules still run)
+cocoon gc --snapshot --snapshot-age=720h --snapshot-dry-run
 
 # Production: weekly cleanup, keep 50 newest within 7 days
 cocoon gc --snapshot --snapshot-age=168h --snapshot-keep=50

@@ -270,6 +270,38 @@ func TestRestoreUpdatesLastAccessedAt(t *testing.T) {
 	}
 }
 
+func TestGCModule_RemovalFailureKeepsDBRecord(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses chmod restrictions")
+	}
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	ids := []string{testID(t), testID(t)}
+	for i, name := range []string{"a", "b"} {
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: ids[i], Name: name},
+			makeTar(t, map[string][]byte{"x": []byte("x")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parent := lf.conf.DataDir()
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Skipf("chmod failed: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o750) })
+
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
+	if err := mod.Collect(ctx, ids); err == nil {
+		t.Fatal("expected Collect to error on chmod-protected parent")
+	}
+	for i, name := range []string{"a", "b"} {
+		if _, err := lf.lookupRecord(ctx, ids[i], false); err != nil {
+			t.Errorf("%s: DB record should survive removal failure, got: %v", name, err)
+		}
+	}
+}
+
 func TestGCModule_OrphanDirCleaned(t *testing.T) {
 	lf := newTestLF(t)
 	ctx := t.Context()

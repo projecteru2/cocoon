@@ -24,7 +24,7 @@ func Commands(h Actions) []*cobra.Command {
 	gcCmd.Flags().Int("snapshot-keep", 0, "keep at most N most-recently-accessed snapshots (requires --snapshot)")
 	gcCmd.Flags().Duration("snapshot-age", 0, "evict snapshots last accessed before this duration, e.g. 720h (requires --snapshot)")
 	gcCmd.Flags().String("snapshot-size", "", "evict oldest snapshots until total size ≤ this, e.g. 100GB (requires --snapshot)")
-	gcCmd.Flags().Bool("dry-run", false, "log what would be evicted without acting")
+	gcCmd.Flags().Bool("snapshot-dry-run", false, "log which snapshots would be LRU-evicted without acting (requires --snapshot; does NOT cover other GC modules)")
 	return []*cobra.Command{
 		gcCmd,
 		{
