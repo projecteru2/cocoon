@@ -24,6 +24,8 @@ type chMemoryRestoreMode string
 const (
 	pidFileName     = "ch.pid"
 	cmdlineFileName = "cmdline"
+	configJSONName  = "config.json"
+	stateJSONName   = "state.json"
 
 	// chMemoryRestoreOnDemand uses userfaultfd (UFFD) to lazily page in
 	// guest memory from the snapshot file, avoiding a full upfront copy.
@@ -47,7 +49,7 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 	if err := hypervisor.ValidateSnapshotIntegrity(srcDir, sidecar); err != nil {
 		return err
 	}
-	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, configJSONName))
 	if err != nil {
 		return fmt.Errorf("parse snapshot config: %w", err)
 	}
@@ -63,7 +65,7 @@ func validateSnapshotIntegrity(srcDir string, sidecar []*types.StorageConfig) er
 			return fmt.Errorf("sidecar/config.json disk[%d] readonly mismatch: sidecar=%v config=%v", i, sc.RO, chCfg.Disks[i].ReadOnly)
 		}
 	}
-	if _, statErr := os.Stat(filepath.Join(srcDir, "state.json")); statErr != nil {
+	if _, statErr := os.Stat(filepath.Join(srcDir, stateJSONName)); statErr != nil {
 		return fmt.Errorf("state.json missing: %w", statErr)
 	}
 	hasMemory, memErr := hasMemoryRangeFile(srcDir)

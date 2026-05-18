@@ -90,6 +90,17 @@ func PrefixToNetmask(prefix int) string {
 	return net.IP(mask).String()
 }
 
+// BuildBaseCmdline composes the cocoon-shared cmdline: prefix (backend-specific console+quirks) + boot/layers/cow + per-NIC ip= params.
+func BuildBaseCmdline(prefix, layers, cow string, networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw", prefix, layers, cow)
+	if len(networkConfigs) > 0 {
+		b.WriteString(" net.ifnames=0")
+		b.WriteString(BuildIPParams(networkConfigs, vmName, dnsServers))
+	}
+	return b.String()
+}
+
 func BuildIPParams(networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
 	var params strings.Builder
 	fmt.Fprintf(&params, " cocoon.hostname=%s", vmName)

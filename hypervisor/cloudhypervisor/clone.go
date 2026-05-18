@@ -34,7 +34,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 	networkConfigs := net.NetworkConfigs
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
-	chConfigPath := filepath.Join(runDir, "config.json")
+	chConfigPath := filepath.Join(runDir, configJSONName)
 	chCfg, err := parseCHConfig(chConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("parse CH config: %w", err)
@@ -89,7 +89,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		return nil, fmt.Errorf("patch CH config: %w", err)
 	}
 
-	stateJSONPath := filepath.Join(runDir, "state.json")
+	stateJSONPath := filepath.Join(runDir, stateJSONName)
 	if err = patchStateJSON(stateJSONPath, stateReplacements); err != nil {
 		return nil, fmt.Errorf("patch state.json: %w", err)
 	}
@@ -277,18 +277,12 @@ func updateCOWPath(configs []*types.StorageConfig, newCOWPath string) error {
 }
 
 func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types.NetworkConfig, vmName string, dnsServers []string) string {
-	var cmdline strings.Builder
-	fmt.Fprintf(&cmdline,
-		"console=hvc0 loglevel=3 boot=cocoon-overlay cocoon.layers=%s cocoon.cow=%s clocksource=kvm-clock rw",
-		strings.Join(ReverseLayerSerials(storageConfigs), ","), CowSerial,
+	return hypervisor.BuildBaseCmdline(
+		"console=hvc0 loglevel=3",
+		strings.Join(ReverseLayerSerials(storageConfigs), ","),
+		CowSerial,
+		networkConfigs, vmName, dnsServers,
 	)
-
-	if len(networkConfigs) > 0 {
-		cmdline.WriteString(" net.ifnames=0")
-		cmdline.WriteString(hypervisor.BuildIPParams(networkConfigs, vmName, dnsServers))
-	}
-
-	return cmdline.String()
 }
 
 // buildStateReplacements maps source disk paths → clone paths for state.json patching; slices to min length so an appended cidata doesn't desync (MACs go via NIC hot-swap).

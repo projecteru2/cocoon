@@ -32,7 +32,7 @@ func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCf
 }
 
 func cloneSnapshotFiles(dstDir, srcDir string) error {
-	chCfg, err := parseCHConfig(filepath.Join(srcDir, "config.json"))
+	chCfg, err := parseCHConfig(filepath.Join(srcDir, configJSONName))
 	if err != nil {
 		return fmt.Errorf("parse source config: %w", err)
 	}
@@ -55,7 +55,7 @@ func cleanSnapshotFiles(runDir string) error {
 		switch {
 		case strings.HasPrefix(name, "memory-range"):
 			return true
-		case name == "config.json" || name == "state.json":
+		case name == configJSONName || name == stateJSONName:
 			return true
 		case name == hypervisor.SnapshotMetaFile:
 			return true
