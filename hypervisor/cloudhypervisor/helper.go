@@ -26,6 +26,7 @@ const (
 	cmdlineFileName = "cmdline"
 	configJSONName  = "config.json"
 	stateJSONName   = "state.json"
+	memoryRangeFile = "memory-range" // prefix shared by all per-region memory-range-* files in a CH snapshot
 
 	// chMemoryRestoreOnDemand uses userfaultfd (UFFD) to lazily page in
 	// guest memory from the snapshot file, avoiding a full upfront copy.
@@ -85,7 +86,7 @@ func hasMemoryRangeFile(srcDir string) (bool, error) {
 		return false, err
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "memory-range") {
+		if strings.HasPrefix(e.Name(), memoryRangeFile) {
 			return true, nil
 		}
 	}

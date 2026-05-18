@@ -39,7 +39,7 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 	cowFiles := identifyCOWFiles(chCfg)
 	return hypervisor.CloneSnapshotFiles(dstDir, srcDir, func(name string) hypervisor.SnapshotFileKind {
 		switch {
-		case strings.HasPrefix(name, "memory-range"):
+		case strings.HasPrefix(name, memoryRangeFile):
 			return hypervisor.SnapshotFileMemory
 		case cowFiles[name]:
 			return hypervisor.SnapshotFileCOW
@@ -53,7 +53,7 @@ func cloneSnapshotFiles(dstDir, srcDir string) error {
 func cleanSnapshotFiles(runDir string) error {
 	return hypervisor.CleanSnapshotFiles(runDir, func(name string) bool {
 		switch {
-		case strings.HasPrefix(name, "memory-range"):
+		case strings.HasPrefix(name, memoryRangeFile):
 			return true
 		case name == configJSONName || name == stateJSONName:
 			return true
