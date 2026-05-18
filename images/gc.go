@@ -69,8 +69,8 @@ func BuildGCModule[I any](cfg GCModuleConfig[I]) gc.Module[ImageGCSnapshot] {
 			slices.Sort(candidates)
 			return slices.Compact(candidates)
 		},
-		Collect: func(ctx context.Context, ids []string) error {
-			return GCCollectBlobs(ctx, cfg.TempDir, cfg.DirOnly, ids, cfg.Removers...)
+		Collect: func(ctx context.Context, ids []string, _ ImageGCSnapshot) error {
+			return GCCollectBlobs(ctx, cfg.Name, cfg.TempDir, cfg.DirOnly, ids, cfg.Removers...)
 		},
 	}
 }

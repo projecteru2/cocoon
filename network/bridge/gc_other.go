@@ -25,7 +25,7 @@ func GCModule(rootDir string) gc.Module[bridgeSnapshot] {
 		Resolve: func(_ context.Context, _ bridgeSnapshot, _ map[string]any) []string {
 			return nil
 		},
-		Collect: func(_ context.Context, _ []string) error {
+		Collect: func(_ context.Context, _ []string, _ bridgeSnapshot) error {
 			return nil
 		},
 	}

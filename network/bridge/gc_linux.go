@@ -65,8 +65,8 @@ func GCModule(rootDir string) gc.Module[bridgeSnapshot] {
 			slices.Sort(orphans)
 			return orphans
 		},
-		Collect: func(ctx context.Context, prefixes []string) error {
-			logger := log.WithFunc("bridge.gc.Collect")
+		Collect: func(ctx context.Context, prefixes []string, _ bridgeSnapshot) error {
+			logger := log.WithFunc("gc.bridge")
 
 			orphanSet := make(map[string]struct{}, len(prefixes))
 			for _, p := range prefixes {
@@ -89,7 +89,7 @@ func GCModule(rootDir string) gc.Module[bridgeSnapshot] {
 				if err := netlink.LinkDel(l); err != nil {
 					logger.Warnf(ctx, "delete orphan TAP %s: %v", name, err)
 				} else {
-					logger.Infof(ctx, "collected orphan TAP %s", name)
+					logger.Infof(ctx, "collected id=%s iface=%s reason=orphan-tap", prefix, name)
 				}
 			}
 			return nil
