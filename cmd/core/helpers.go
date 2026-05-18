@@ -277,33 +277,6 @@ func ResolveImageOwner(ctx context.Context, backends []imagebackend.Images, ref 
 	)
 }
 
-// resolveOwner returns the unique backend where found==true; notFound on zero, ambiguous wrapped on multi-match (lists matched types).
-func resolveOwner[T interface{ Type() string }](backends []T, ref string, found func(T) (bool, error), notFound, ambiguous error) (T, error) {
-	var matches []T
-	var zero T
-	for _, b := range backends {
-		ok, err := found(b)
-		if err != nil {
-			return zero, fmt.Errorf("inspect %s in %s: %w", ref, b.Type(), err)
-		}
-		if ok {
-			matches = append(matches, b)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return zero, notFound
-	case 1:
-		return matches[0], nil
-	default:
-		names := make([]string, len(matches))
-		for i, b := range matches {
-			names[i] = b.Type()
-		}
-		return zero, fmt.Errorf("%w (backends: %s)", ambiguous, strings.Join(names, ", "))
-	}
-}
-
 func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
 	cpu, _ := cmd.Flags().GetInt("cpu")
@@ -479,6 +452,33 @@ func FormatSize(bytes int64) string {
 
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// resolveOwner returns the unique backend where found==true; notFound on zero, ambiguous wrapped on multi-match (lists matched types).
+func resolveOwner[T interface{ Type() string }](backends []T, ref string, found func(T) (bool, error), notFound, ambiguous error) (T, error) {
+	var matches []T
+	var zero T
+	for _, b := range backends {
+		ok, err := found(b)
+		if err != nil {
+			return zero, fmt.Errorf("inspect %s in %s: %w", ref, b.Type(), err)
+		}
+		if ok {
+			matches = append(matches, b)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return zero, notFound
+	case 1:
+		return matches[0], nil
+	default:
+		names := make([]string, len(matches))
+		for i, b := range matches {
+			names[i] = b.Type()
+		}
+		return zero, fmt.Errorf("%w (backends: %s)", ambiguous, strings.Join(names, ", "))
+	}
 }
 
 // validateRefShape rejects URL/OCI ref mismatches early so backends don't surface misleading downstream errors.
