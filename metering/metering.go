@@ -1,0 +1,64 @@
+// Package metering emits append-only VM/snapshot lifecycle endpoints
+// for downstream usage/billing pipelines. cocoon emits raw signals only;
+// tenant attribution and pricing are layered above.
+package metering
+
+import (
+	"context"
+	"time"
+)
+
+// Kind identifies a lifecycle endpoint; downstream pairs *.start with *.stop by id.
+type Kind string
+
+// Reason annotates why an endpoint was emitted.
+type Reason string
+
+const (
+	KindVMComputeStart   Kind = "vm.compute.start"
+	KindVMComputeStop    Kind = "vm.compute.stop"
+	KindVMStorageStart   Kind = "vm.storage.start"
+	KindVMStorageStop    Kind = "vm.storage.stop"
+	KindSnapStorageStart Kind = "snap.storage.start"
+	KindSnapStorageStop  Kind = "snap.storage.stop"
+
+	ReasonBoot          Reason = "boot"
+	ReasonRestart       Reason = "restart"
+	ReasonClone         Reason = "clone"
+	ReasonRestore       Reason = "restore"
+	ReasonHibernateWake Reason = "hibernate-wake"
+	ReasonStopUser      Reason = "stop-user"
+	ReasonStopCrash     Reason = "stop-crash"
+	ReasonVMRemove      Reason = "vm-rm"
+	ReasonSnapRemove    Reason = "snap-rm"
+)
+
+// Shape is the resource snapshot at the moment an Entry is emitted.
+type Shape struct {
+	CPU          int   `json:"cpu,omitempty"`
+	MemBytes     int64 `json:"mem_bytes,omitempty"`
+	StorageBytes int64 `json:"storage_bytes,omitempty"`
+}
+
+// Entry is one append-only lifecycle event.
+type Entry struct {
+	Kind             Kind      `json:"kind"`
+	VMID             string    `json:"vm_id,omitempty"`
+	SnapshotID       string    `json:"snapshot_id,omitempty"`
+	SourceSnapshotID string    `json:"source_snapshot_id,omitempty"`
+	Reason           Reason    `json:"reason,omitempty"`
+	Hypervisor       string    `json:"hypervisor,omitempty"`
+	Shape            Shape     `json:"shape"`
+	EmittedAt        time.Time `json:"emitted_at"`
+}
+
+// Recorder accepts lifecycle entries; implementations must be safe for concurrent use.
+type Recorder interface {
+	Emit(context.Context, Entry)
+}
+
+// NopRecorder discards every entry; zero value is usable.
+type NopRecorder struct{}
+
+// Emit is a no-op.
+func (NopRecorder) Emit(context.Context, Entry) {}
