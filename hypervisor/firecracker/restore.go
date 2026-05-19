@@ -14,12 +14,13 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
+func (fc *Firecracker) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader, sourceSnapshotID string) (*types.VM, error) {
 	return fc.RestoreSequence(ctx, vmRef, hypervisor.RestoreSpec{
-		VMCfg:     vmCfg,
-		Snapshot:  snapshot,
-		Preflight: fc.preflightRestore,
-		Kill:      fc.killForRestore,
+		VMCfg:            vmCfg,
+		Snapshot:         snapshot,
+		SourceSnapshotID: sourceSnapshotID,
+		Preflight:        fc.preflightRestore,
+		Kill:             fc.killForRestore,
 		// Lock writable disks so recoverStaleBackup heals stale data-*.raw.cocoon-clone-backup
 		// before restore overwrites them; otherwise a future clone renames backup over restored data.
 		Wrap: func(rec *hypervisor.VMRecord, inner func() error) error {

@@ -7,6 +7,7 @@ import (
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/metering"
 	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
@@ -25,8 +26,8 @@ type CloudHypervisor struct {
 	conf *Config
 }
 
-// New creates a CloudHypervisor backend.
-func New(conf *config.Config) (*CloudHypervisor, error) {
+// New creates a CloudHypervisor backend. rec may be nil; the backend falls back to NopRecorder for emit calls.
+func New(conf *config.Config, rec metering.Recorder) (*CloudHypervisor, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -38,10 +39,11 @@ func New(conf *config.Config) (*CloudHypervisor, error) {
 	store := storejson.New[hypervisor.VMIndex](cfg.IndexFile(), locker)
 	return &CloudHypervisor{
 		Backend: &hypervisor.Backend{
-			Typ:    typ,
-			Conf:   cfg,
-			DB:     store,
-			Locker: locker,
+			Typ:      typ,
+			Conf:     cfg,
+			DB:       store,
+			Locker:   locker,
+			Metering: rec,
 		},
 		conf: cfg,
 	}, nil

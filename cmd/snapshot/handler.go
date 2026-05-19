@@ -35,7 +35,7 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("find VM %s: %w", vmRef, err)
 	}
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func (h Handler) Inspect(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	logger := log.WithFunc("cmd.snapshot.export")
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func (h Handler) Import(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	logger := log.WithFunc("cmd.snapshot.import")
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -295,7 +295,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	logger := log.WithFunc("cmd.snapshot.rm")
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}

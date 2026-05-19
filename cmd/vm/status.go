@@ -47,7 +47,7 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	}
 	format, _ := cmd.Flags().GetString("format")
 
-	hypers, hyperErr := cmdcore.InitAllHypervisors(conf)
+	hypers, hyperErr := cmdcore.InitAllHypervisors(ctx, conf)
 	if hyperErr != nil {
 		return hyperErr
 	}

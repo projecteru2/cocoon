@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/storage"
 	"github.com/cocoonstack/cocoon/types"
 )
@@ -57,10 +58,11 @@ type BackendConfig interface {
 
 // Backend provides shared store operations for hypervisor backends.
 type Backend struct {
-	Typ    string
-	Conf   BackendConfig
-	DB     storage.Store[VMIndex]
-	Locker lock.Locker
+	Typ      string
+	Conf     BackendConfig
+	DB       storage.Store[VMIndex]
+	Locker   lock.Locker
+	Metering metering.Recorder
 }
 
 // LaunchSpec is the per-call input to Backend.LaunchVMProcess. Shared
@@ -75,24 +77,26 @@ type LaunchSpec struct {
 
 // RestoreSpec carries the backend-specific hooks for Backend.RestoreSequence.
 type RestoreSpec struct {
-	VMCfg        *types.VMConfig
-	Snapshot     io.Reader
-	Preflight    func(stagingDir string, rec *VMRecord) error
-	Kill         func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap         func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
-	BeforeMerge  func(rec *VMRecord) error                  // e.g. FC removes stale COW
-	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+	VMCfg            *types.VMConfig
+	Snapshot         io.Reader
+	SourceSnapshotID string // for metering lineage; emitted on the restore close+open events
+	Preflight        func(stagingDir string, rec *VMRecord) error
+	Kill             func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap             func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
+	BeforeMerge      func(rec *VMRecord) error                  // e.g. FC removes stale COW
+	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
 // DirectRestoreSpec is RestoreSpec for a local srcDir rather than a tar; Populate replaces staging+merge.
 type DirectRestoreSpec struct {
-	VMCfg        *types.VMConfig
-	SrcDir       string
-	Preflight    func(srcDir string, rec *VMRecord) error
-	Kill         func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap         func(rec *VMRecord, fn func() error) error
-	Populate     func(rec *VMRecord, srcDir string) error
-	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+	VMCfg            *types.VMConfig
+	SrcDir           string
+	SourceSnapshotID string
+	Preflight        func(srcDir string, rec *VMRecord) error
+	Kill             func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap             func(rec *VMRecord, fn func() error) error
+	Populate         func(rec *VMRecord, srcDir string) error
+	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
 // CreateSpec carries CreateSequence inputs; Prepare returns final storage configs (COW + data disks).

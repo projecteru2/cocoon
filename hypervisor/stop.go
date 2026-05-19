@@ -8,6 +8,7 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -57,10 +58,15 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			return loadErr
 		}
 		sockPath := SocketPath(rec.RunDir)
+		// stoppedByUs distinguishes "we just killed a live process" from "the DB
+		// record was still Running but the process had already crashed"; the
+		// former yields ReasonStopUser, the latter ReasonStopCrash.
+		stoppedByUs := false
 		if runningErr := b.WithRunningVM(ctx, &rec, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}
+			stoppedByUs = true
 			return stopOne(ctx, id)
 		}); runningErr != nil && !errors.Is(runningErr, ErrNotRunning) {
 			return fmt.Errorf("stop before delete: %w", runningErr)
@@ -89,15 +95,52 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 		if rmErr := RemoveVMDirs(rec.RunDir, rec.LogDir); rmErr != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", rmErr)
 		}
-		return b.DB.Update(ctx, func(idx *VMIndex) error {
+		var (
+			shape              metering.Shape
+			hadRunningInterval bool
+		)
+		// Capture state and shape inside the same transaction that deletes the
+		// record so a concurrent UpdateStates can't shift the truth between read
+		// and emit.
+		if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 			r := idx.VMs[id]
 			if r == nil {
 				return ErrNotFound
 			}
+			hadRunningInterval = r.State == types.VMStateRunning
+			shape = shapeFromConfig(r.Config)
 			delete(idx.Names, r.Config.Name)
 			delete(idx.VMs, id)
 			return nil
+		}); err != nil {
+			return err
+		}
+		now := time.Now()
+		// DeleteAll bypasses StopAll, so the compute.stop event must be emitted
+		// here whenever the record carried an open Running interval.
+		if hadRunningInterval {
+			reason := metering.ReasonStopCrash
+			if stoppedByUs {
+				reason = metering.ReasonStopUser
+			}
+			b.meter().Emit(ctx, metering.Entry{
+				Kind:       metering.KindVMComputeStop,
+				VMID:       id,
+				Reason:     reason,
+				Hypervisor: b.Typ,
+				Shape:      shape,
+				EmittedAt:  now,
+			})
+		}
+		b.meter().Emit(ctx, metering.Entry{
+			Kind:       metering.KindVMStorageStop,
+			VMID:       id,
+			Reason:     metering.ReasonVMRemove,
+			Hypervisor: b.Typ,
+			Shape:      shape,
+			EmittedAt:  now,
 		})
+		return nil
 	})
 }
 

@@ -13,12 +13,13 @@ func (fc *Firecracker) DirectClone(ctx context.Context, vmID string, vmCfg *type
 	return fc.DirectCloneBase(ctx, vmID, vmCfg, net, snapshotConfig, srcDir, cloneSnapshotFiles, fc.cloneAfterExtract)
 }
 
-func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
+func (fc *Firecracker) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir, sourceSnapshotID string) (*types.VM, error) {
 	return fc.DirectRestoreSequence(ctx, vmRef, hypervisor.DirectRestoreSpec{
-		VMCfg:     vmCfg,
-		SrcDir:    srcDir,
-		Preflight: fc.preflightRestore,
-		Kill:      fc.killForRestore,
+		VMCfg:            vmCfg,
+		SrcDir:           srcDir,
+		SourceSnapshotID: sourceSnapshotID,
+		Preflight:        fc.preflightRestore,
+		Kill:             fc.killForRestore,
 		// Lock writable disks so recoverStaleBackup heals stale data-*.raw.cocoon-clone-backup
 		// before restore overwrites them; otherwise a future clone renames backup over restored data.
 		Wrap: func(rec *hypervisor.VMRecord, inner func() error) error {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/storage"
 	"github.com/cocoonstack/cocoon/utils"
@@ -67,6 +68,7 @@ func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[sn
 
 type snapshotMeta struct {
 	name         string
+	hypervisor   string
 	lastAccessed time.Time
 	sizeBytes    int64
 }
@@ -83,7 +85,7 @@ type snapshotGCSnapshot struct {
 
 func (s snapshotGCSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 
-func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy) gc.Module[snapshotGCSnapshot] {
+func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy, recorder metering.Recorder) gc.Module[snapshotGCSnapshot] {
 	return gc.Module[snapshotGCSnapshot]{
 		Name:   "snapshot",
 		Locker: locker,
@@ -108,6 +110,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 					}
 					snap.records[id] = snapshotMeta{
 						name:         rec.Name,
+						hypervisor:   rec.Hypervisor,
 						lastAccessed: rec.LastAccessedAt,
 						sizeBytes:    rec.SizeBytes,
 					}
@@ -150,6 +153,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 		},
 		Collect: func(ctx context.Context, ids []string, snap snapshotGCSnapshot) error {
 			logger := log.WithFunc("gc.snapshot")
+			meter := metering.OrNop(recorder)
 			var (
 				errs    []error
 				removed = make([]string, 0, len(ids))
@@ -165,6 +169,17 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 				}
 				logEvictRow(ctx, logger, "collected", id, snap.records[id], snap.reasons[id])
 				removed = append(removed, id)
+				// Only emit stop for real records that had a corresponding start;
+				// orphan dirs and stale-pending IDs never opened a snap.storage interval.
+				if m, ok := snap.records[id]; ok {
+					meter.Emit(ctx, metering.Entry{
+						Kind:       metering.KindSnapStorageStop,
+						SnapshotID: id,
+						Reason:     metering.ReasonSnapRemove,
+						Hypervisor: m.hypervisor,
+						EmittedAt:  time.Now(),
+					})
+				}
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {
 				errs = append(errs, fmt.Errorf("clean DB records: %w", err))

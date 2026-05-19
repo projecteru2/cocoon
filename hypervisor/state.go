@@ -11,6 +11,7 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -88,17 +89,20 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 }
 
 // UpdateStates batch-updates the State field for ids; sets StartedAt/StoppedAt as appropriate.
+// Emits metering vm.compute.stop on Running→Stopped transitions; other state transitions do not emit.
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	now := time.Now()
-	return b.DB.Update(ctx, func(idx *VMIndex) error {
+	var stopped []metering.Entry
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		for _, id := range ids {
 			r := idx.VMs[id]
 			if r == nil {
 				continue
 			}
+			oldState := r.State
 			r.State = state
 			r.UpdatedAt = now
 			switch state {
@@ -106,10 +110,28 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 				r.StartedAt = &now
 			case types.VMStateStopped:
 				r.StoppedAt = &now
+				// Only emit when we actually closed a Running interval; idempotent
+				// stops (already-Stopped, Error→Stopped) would create phantom intervals.
+				if oldState == types.VMStateRunning {
+					stopped = append(stopped, metering.Entry{
+						Kind:       metering.KindVMComputeStop,
+						VMID:       id,
+						Reason:     metering.ReasonStopUser,
+						Hypervisor: b.Typ,
+						Shape:      shapeFromConfig(r.Config),
+						EmittedAt:  now,
+					})
+				}
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	for _, e := range stopped {
+		b.meter().Emit(ctx, e)
+	}
+	return nil
 }
 
 // MarkError flips a single VM's state to VMStateError, logging on persist failure.
@@ -120,24 +142,60 @@ func (b *Backend) MarkError(ctx context.Context, id string) {
 }
 
 // BatchMarkStarted flips ids to VMStateRunning and stamps FirstBooted=true in one DB write.
+// Caller MUST pass only ids that were actually launched in this call (no-op
+// already-Running VMs must be filtered out by the caller). If the DB still
+// shows Running when an id arrives here, it's a stale-running record whose
+// process had crashed; close that orphan interval with reason stop-crash
+// before opening the fresh interval (no precise crash time available — use
+// the relaunch boundary).
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	now := time.Now()
-	return b.DB.Update(ctx, func(idx *VMIndex) error {
+	var emits []metering.Entry
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		for _, id := range ids {
 			r := idx.VMs[id]
 			if r == nil {
 				continue
 			}
+			shape := shapeFromConfig(r.Config)
+			if r.State == types.VMStateRunning {
+				emits = append(emits, metering.Entry{
+					Kind:       metering.KindVMComputeStop,
+					VMID:       id,
+					Reason:     metering.ReasonStopCrash,
+					Hypervisor: b.Typ,
+					Shape:      shape,
+					EmittedAt:  now,
+				})
+			}
+			reason := metering.ReasonBoot
+			if r.FirstBooted {
+				reason = metering.ReasonRestart
+			}
+			emits = append(emits, metering.Entry{
+				Kind:       metering.KindVMComputeStart,
+				VMID:       id,
+				Reason:     reason,
+				Hypervisor: b.Typ,
+				Shape:      shape,
+				EmittedAt:  now,
+			})
 			r.State = types.VMStateRunning
 			r.StartedAt = &now
 			r.UpdatedAt = now
 			r.FirstBooted = true
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	for _, e := range emits {
+		b.meter().Emit(ctx, e)
+	}
+	return nil
 }
 
 // CleanStalePlaceholders removes "creating" records past GC grace period.

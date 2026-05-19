@@ -52,7 +52,7 @@ func (h Handler) Start(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (h Handler) Stop(cmd *cobra.Command, args []string) error {
 		conf.StopTimeoutSeconds = timeout
 	}
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}

@@ -17,17 +17,17 @@ func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, 
 	return ch.StartAll(ctx, refs, ch.startOne)
 }
 
-func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
+func (ch *CloudHypervisor) startOne(ctx context.Context, id string) (bool, error) {
 	rec, err := ch.PrepareStart(ctx, id, runtimeFiles)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if rec == nil {
-		return nil
+		return false, nil // already running — no-op
 	}
 	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
 		ch.MarkError(ctx, id)
-		return fmt.Errorf("storage invariants violated: %w", vErr)
+		return false, fmt.Errorf("storage invariants violated: %w", vErr)
 	}
 
 	sockPath := hypervisor.SocketPath(rec.RunDir)
@@ -39,9 +39,9 @@ func (ch *CloudHypervisor) startOne(ctx context.Context, id string) error {
 
 	if _, err = ch.launchProcess(ctx, rec, sockPath, args, rec.ResolvedNetnsPath()); err != nil {
 		ch.MarkError(ctx, id)
-		return fmt.Errorf("launch VM: %w", err)
+		return false, fmt.Errorf("launch VM: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, socketPath string, args []string, netnsPath string) (int, error) {

@@ -7,6 +7,7 @@ import (
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
 	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/metering"
 	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
@@ -26,8 +27,8 @@ type Firecracker struct {
 	conf *Config
 }
 
-// New creates a Firecracker backend.
-func New(conf *config.Config) (*Firecracker, error) {
+// New creates a Firecracker backend. rec may be nil; the backend falls back to NopRecorder for emit calls.
+func New(conf *config.Config, rec metering.Recorder) (*Firecracker, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -39,10 +40,11 @@ func New(conf *config.Config) (*Firecracker, error) {
 	store := storejson.New[hypervisor.VMIndex](cfg.IndexFile(), locker)
 	return &Firecracker{
 		Backend: &hypervisor.Backend{
-			Typ:    typ,
-			Conf:   cfg,
-			DB:     store,
-			Locker: locker,
+			Typ:      typ,
+			Conf:     cfg,
+			DB:       store,
+			Locker:   locker,
+			Metering: rec,
 		},
 		conf: cfg,
 	}, nil

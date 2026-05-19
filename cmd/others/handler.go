@@ -35,7 +35,7 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	snapBackend, err := cmdcore.InitSnapshot(conf, localfile.WithGCPolicy(policy))
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf, localfile.WithGCPolicy(policy))
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func (h Handler) GC(cmd *cobra.Command, _ []string) error {
 		b.RegisterGC(o)
 	}
 	// Register ALL hypervisor backends so GC protects blobs from both CH and FC VMs.
-	hypers, hyperErr := cmdcore.InitAllHypervisors(conf)
+	hypers, hyperErr := cmdcore.InitAllHypervisors(ctx, conf)
 	if hyperErr != nil {
 		return hyperErr
 	}

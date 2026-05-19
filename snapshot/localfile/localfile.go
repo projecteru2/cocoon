@@ -14,6 +14,7 @@ import (
 	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/lock"
 	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/storage"
 	storejson "github.com/cocoonstack/cocoon/storage/json"
@@ -43,10 +44,12 @@ type LocalFile struct {
 	conf     *Config
 	store    storage.Store[snapshot.SnapshotIndex]
 	locker   lock.Locker
+	metering metering.Recorder
 	gcPolicy EvictionPolicy
 }
 
-func New(conf *config.Config, opts ...Option) (*LocalFile, error) {
+// New builds a LocalFile snapshot backend; rec may be nil and falls back to NopRecorder on emit.
+func New(conf *config.Config, rec metering.Recorder, opts ...Option) (*LocalFile, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -56,11 +59,16 @@ func New(conf *config.Config, opts ...Option) (*LocalFile, error) {
 	}
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[snapshot.SnapshotIndex](cfg.IndexFile(), locker)
-	lf := &LocalFile{conf: cfg, store: store, locker: locker}
+	lf := &LocalFile{conf: cfg, store: store, locker: locker, metering: rec}
 	for _, opt := range opts {
 		opt(lf)
 	}
 	return lf, nil
+}
+
+// meter returns lf.metering or NopRecorder so emit sites don't repeat nil checks.
+func (lf *LocalFile) meter() metering.Recorder {
+	return metering.OrNop(lf.metering)
 }
 
 func (lf *LocalFile) Type() string { return typ }
@@ -74,7 +82,7 @@ func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, types.Sna
 	return rec.DataDir, snapshotRecordToConfig(rec), nil
 }
 
-// Create stores a snapshot from stream via placeholder→extract→finalize so a mid-flight crash leaves only a pending record for GC.
+// Create stores a snapshot from stream via placeholder→extract→finalize so a mid-flight crash leaves only a pending record for GC; emits metering snap.storage.start on success.
 func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (_ string, err error) {
 	id := cfg.ID
 	if id == "" {
@@ -138,6 +146,13 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		return "", fmt.Errorf("finalize snapshot: %w", err)
 	}
 
+	lf.meter().Emit(ctx, metering.Entry{
+		Kind:       metering.KindSnapStorageStart,
+		SnapshotID: id,
+		Hypervisor: cfg.Hypervisor,
+		Shape:      metering.Shape{StorageBytes: size},
+		EmittedAt:  finalizedAt,
+	})
 	return id, nil
 }
 
@@ -166,6 +181,7 @@ func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, 
 }
 
 // Delete processes each id atomically (rm dir → DB update). A mid-loop failure leaves any rm-OK-then-DB-fail id as a stale DB record; GC reclaims it.
+// Delete removes snapshots by ref; emits metering snap.storage.stop per deleted id.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
@@ -181,11 +197,13 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 		if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
 			return deleted, fmt.Errorf("remove data dir %s: %w", id, err)
 		}
+		var hypType string
 		if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
 			rec := idx.Snapshots[id]
 			if rec == nil {
 				return nil
 			}
+			hypType = rec.Hypervisor
 			if rec.Name != "" {
 				delete(idx.Names, rec.Name)
 			}
@@ -194,6 +212,13 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 		}); err != nil {
 			return deleted, fmt.Errorf("delete DB record %s: %w", id, err)
 		}
+		lf.meter().Emit(ctx, metering.Entry{
+			Kind:       metering.KindSnapStorageStop,
+			SnapshotID: id,
+			Reason:     metering.ReasonSnapRemove,
+			Hypervisor: hypType,
+			EmittedAt:  time.Now(),
+		})
 		deleted = append(deleted, id)
 	}
 	return deleted, nil
@@ -208,7 +233,7 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotCon
 }
 
 func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
-	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy))
+	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy, lf.metering))
 }
 
 // rollbackCreate removes a placeholder snapshot record from the DB.

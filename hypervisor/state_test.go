@@ -1,0 +1,386 @@
+package hypervisor
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/metering"
+	storejson "github.com/cocoonstack/cocoon/storage/json"
+	"github.com/cocoonstack/cocoon/types"
+)
+
+// stubBackendConfig satisfies BackendConfig for tests that only exercise the
+// metering wiring; unused methods panic so accidental dependence shows up loud.
+type stubBackendConfig struct{}
+
+func (stubBackendConfig) BinaryName() string  { panic("BinaryName: not implemented in stub") }
+func (stubBackendConfig) PIDFileName() string { panic("PIDFileName: not implemented in stub") }
+func (stubBackendConfig) TerminateGracePeriod() time.Duration {
+	panic("TerminateGracePeriod: not implemented in stub")
+}
+
+func (stubBackendConfig) SocketWaitTimeout() time.Duration {
+	panic("SocketWaitTimeout: not implemented in stub")
+}
+func (stubBackendConfig) EffectivePoolSize() int { return 1 }
+func (stubBackendConfig) IndexFile() string      { panic("IndexFile: not implemented in stub") }
+func (stubBackendConfig) RunDir() string         { panic("RunDir: not implemented in stub") }
+func (stubBackendConfig) LogDir() string         { panic("LogDir: not implemented in stub") }
+func (stubBackendConfig) VMRunDir(string) string { panic("VMRunDir: not implemented in stub") }
+func (stubBackendConfig) VMLogDir(string) string { panic("VMLogDir: not implemented in stub") }
+
+func newMeteringTestBackend(t *testing.T) (*Backend, *metering.CaptureRecorder) {
+	t.Helper()
+	dir := t.TempDir()
+	locker := flock.New(filepath.Join(dir, "index.lock"))
+	store := storejson.New[VMIndex](filepath.Join(dir, "index.json"), locker)
+	cap := &metering.CaptureRecorder{}
+	return &Backend{
+		Typ:      "test-hv",
+		Conf:     stubBackendConfig{},
+		DB:       store,
+		Locker:   locker,
+		Metering: cap,
+	}, cap
+}
+
+func seedVMRecord(t *testing.T, b *Backend, id string, cpu int, mem, storage int64, firstBooted bool) {
+	t.Helper()
+	if err := b.DB.Update(t.Context(), func(idx *VMIndex) error {
+		idx.VMs[id] = &VMRecord{
+			VM: types.VM{
+				ID:          id,
+				Hypervisor:  b.Typ,
+				Config:      types.VMConfig{Config: types.Config{CPU: cpu, Memory: mem, Storage: storage}},
+				FirstBooted: firstBooted,
+			},
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+}
+
+func TestBatchMarkStartedEmitsComputeStart(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 2, 4<<30, 10<<30, false)
+
+	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
+		t.Fatalf("BatchMarkStarted: %v", err)
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.Kind != metering.KindVMComputeStart {
+		t.Errorf("got kind %q, want %q", e.Kind, metering.KindVMComputeStart)
+	}
+	if e.Reason != metering.ReasonBoot {
+		t.Errorf("got reason %q, want boot for first-time start", e.Reason)
+	}
+	if e.VMID != "vm1" || e.Hypervisor != "test-hv" {
+		t.Errorf("identity wrong: %+v", e)
+	}
+	if e.Shape.CPU != 2 || e.Shape.MemBytes != 4<<30 || e.Shape.StorageBytes != 10<<30 {
+		t.Errorf("shape wrong: %+v", e.Shape)
+	}
+}
+
+func TestBatchMarkStartedReasonRestartWhenAlreadyBooted(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
+
+	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
+		t.Fatalf("BatchMarkStarted: %v", err)
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 || entries[0].Reason != metering.ReasonRestart {
+		t.Errorf("got %+v, want one entry with reason restart", entries)
+	}
+}
+
+func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
+
+	// Created→Stopped: no Running interval to close, must not emit.
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
+		t.Fatalf("UpdateStates(stopped from created): %v", err)
+	}
+	if got := cap.Entries(); len(got) != 0 {
+		t.Errorf("Created→Stopped emitted %d; want 0 (no Running interval to close)", len(got))
+	}
+
+	// Stopped→Running: not a stop, must not emit.
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
+		t.Fatalf("UpdateStates(running): %v", err)
+	}
+	if got := cap.Entries(); len(got) != 0 {
+		t.Errorf("Stopped→Running emitted %d; want 0", len(got))
+	}
+
+	// Running→Stopped: this is the only path that closes a Running interval.
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
+		t.Fatalf("UpdateStates(stopped): %v", err)
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop {
+		t.Fatalf("got %+v, want one compute.stop", entries)
+	}
+
+	// Stopped→Stopped: idempotent, must not duplicate the event.
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
+		t.Fatalf("UpdateStates(stopped idempotent): %v", err)
+	}
+	if got := cap.Entries(); len(got) != 1 {
+		t.Errorf("Stopped→Stopped should not re-emit; got %d entries total", len(got))
+	}
+
+	// Set Running again, then go through Error (not Stopped). Error must not emit.
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
+		t.Fatalf("UpdateStates(running again): %v", err)
+	}
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
+		t.Fatalf("UpdateStates(error): %v", err)
+	}
+	if got := cap.Entries(); len(got) != 1 {
+		t.Errorf("Error state must not emit; got %d entries total", len(got))
+	}
+}
+
+func TestFinalizeCloneEmitsCloneEntries(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, false)
+
+	info := &types.VM{
+		ID:         "vm1",
+		Hypervisor: b.Typ,
+		State:      types.VMStateRunning,
+		Config:     types.VMConfig{Config: types.Config{CPU: 2, Memory: 2 << 30, Storage: 20 << 30}},
+	}
+	if err := b.FinalizeClone(ctx, "vm1", info, nil, nil, "snap-source"); err != nil {
+		t.Fatalf("FinalizeClone: %v", err)
+	}
+	entries := cap.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 (storage.start + compute.start)", len(entries))
+	}
+	for _, e := range entries {
+		if e.Reason != metering.ReasonClone {
+			t.Errorf("kind %s reason %q, want clone", e.Kind, e.Reason)
+		}
+		if e.SourceSnapshotID != "snap-source" {
+			t.Errorf("kind %s source_snapshot_id %q, want snap-source", e.Kind, e.SourceSnapshotID)
+		}
+	}
+	if entries[0].Kind != metering.KindVMStorageStart || entries[1].Kind != metering.KindVMComputeStart {
+		t.Errorf("ordering wrong: %s then %s", entries[0].Kind, entries[1].Kind)
+	}
+}
+
+func seedRunningVM(t *testing.T, b *Backend, id string, cpu int, mem, storage int64) {
+	t.Helper()
+	seedVMRecord(t, b, id, cpu, mem, storage, true)
+	if err := b.DB.Update(t.Context(), func(idx *VMIndex) error {
+		idx.VMs[id].State = types.VMStateRunning
+		return nil
+	}); err != nil {
+		t.Fatalf("set running: %v", err)
+	}
+}
+
+func TestDirectRestoreSequenceEmitsComputeStopThenTransition(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+
+	newCfg := &types.VMConfig{Config: types.Config{CPU: 4, Memory: 4 << 30, Storage: 30 << 30}}
+	spec := DirectRestoreSpec{
+		VMCfg:            newCfg,
+		SrcDir:           t.TempDir(),
+		SourceSnapshotID: "snap-src",
+		Preflight:        func(string, *VMRecord) error { return nil },
+		Kill:             func(context.Context, string, *VMRecord) error { return nil },
+		Populate:         func(*VMRecord, string) error { return nil },
+		AfterExtract: func(_ context.Context, vmID string, vmCfg *types.VMConfig, _ *VMRecord) (*types.VM, error) {
+			return &types.VM{ID: vmID, Hypervisor: b.Typ, State: types.VMStateRunning, Config: *vmCfg}, nil
+		},
+	}
+	if _, err := b.DirectRestoreSequence(ctx, "vm1", spec); err != nil {
+		t.Fatalf("DirectRestoreSequence: %v", err)
+	}
+
+	entries := cap.Entries()
+	// compute.stop on kill; storage.stop + storage.start + compute.start on success.
+	if len(entries) != 4 {
+		t.Fatalf("got %d entries, want 4", len(entries))
+	}
+	wantOrder := []metering.Kind{
+		metering.KindVMComputeStop,
+		metering.KindVMStorageStop, metering.KindVMStorageStart, metering.KindVMComputeStart,
+	}
+	for i, want := range wantOrder {
+		if entries[i].Kind != want {
+			t.Errorf("entries[%d].Kind = %s, want %s", i, entries[i].Kind, want)
+		}
+		if entries[i].Reason != metering.ReasonRestore {
+			t.Errorf("entries[%d].Reason = %q, want restore", i, entries[i].Reason)
+		}
+		if entries[i].SourceSnapshotID != "snap-src" {
+			t.Errorf("entries[%d].SourceSnapshotID = %q, want snap-src", i, entries[i].SourceSnapshotID)
+		}
+	}
+	// compute.stop and storage.stop carry the old shape; the open pair carries the new shape.
+	for i := range 2 {
+		if entries[i].Shape.CPU != 2 {
+			t.Errorf("close entry %d cpu=%d, want 2 (old shape)", i, entries[i].Shape.CPU)
+		}
+	}
+	for i := 2; i < 4; i++ {
+		if entries[i].Shape.CPU != 4 {
+			t.Errorf("open entry %d cpu=%d, want 4 (new shape)", i, entries[i].Shape.CPU)
+		}
+	}
+}
+
+func TestDirectRestoreSequenceEmitsOnlyComputeStopOnPopulateFailure(t *testing.T) {
+	// Storage must stay open when restore fails after kill — the on-disk files
+	// are still the old shape and vm rm will close it later with reason vm-rm.
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+
+	spec := DirectRestoreSpec{
+		VMCfg:            &types.VMConfig{Config: types.Config{CPU: 4, Memory: 4 << 30, Storage: 30 << 30}},
+		SrcDir:           t.TempDir(),
+		SourceSnapshotID: "snap-src",
+		Preflight:        func(string, *VMRecord) error { return nil },
+		Kill:             func(context.Context, string, *VMRecord) error { return nil },
+		Populate:         func(*VMRecord, string) error { return fmt.Errorf("populate boom") },
+		AfterExtract: func(_ context.Context, _ string, _ *types.VMConfig, _ *VMRecord) (*types.VM, error) {
+			t.Fatal("AfterExtract should not run when Populate fails")
+			return nil, nil
+		},
+	}
+	if _, err := b.DirectRestoreSequence(ctx, "vm1", spec); err == nil {
+		t.Fatal("expected error from populate failure")
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1 (compute.stop only; storage stays open)", len(entries))
+	}
+	if entries[0].Kind != metering.KindVMComputeStop {
+		t.Errorf("entries[0].Kind = %s, want compute.stop", entries[0].Kind)
+	}
+}
+
+func TestStartAllOnlyEmitsForActuallyLaunched(t *testing.T) {
+	// Three records distinguish the three cases that must end up correctly in
+	// the ledger:
+	//   - vm-stopped: DB Stopped, process dead → launched=true → emit
+	//   - vm-running: DB Running, process alive → launched=false → no emit
+	//   - vm-stale:   DB Running, process dead, relaunched → launched=true → emit
+	// The bug being locked down: an earlier impl had BatchMarkStarted skip
+	// anything with r.State==Running, which silently dropped vm-stale.
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm-stopped", 1, 1<<30, 10<<30, false)
+	seedRunningVM(t, b, "vm-running", 1, 1<<30, 10<<30)
+	seedRunningVM(t, b, "vm-stale", 2, 2<<30, 20<<30)
+
+	startOne := func(_ context.Context, id string) (bool, error) {
+		switch id {
+		case "vm-stopped", "vm-stale":
+			return true, nil
+		case "vm-running":
+			return false, nil
+		}
+		return false, fmt.Errorf("unexpected id: %s", id)
+	}
+
+	succeeded, err := b.StartAll(ctx, []string{"vm-stopped", "vm-running", "vm-stale"}, startOne)
+	if err != nil {
+		t.Fatalf("StartAll: %v", err)
+	}
+	if len(succeeded) != 3 {
+		t.Errorf("succeeded %v, want 3", succeeded)
+	}
+
+	entries := cap.Entries()
+	// vm-stopped → 1 entry (compute.start)
+	// vm-running → 0 entries (no-op)
+	// vm-stale   → 2 entries (compute.stop reason=stop-crash + compute.start reason=restart)
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3 (vm-stopped: start; vm-stale: stop-crash + start; vm-running: none)", len(entries))
+	}
+	byVM := map[string][]metering.Entry{}
+	for _, e := range entries {
+		byVM[e.VMID] = append(byVM[e.VMID], e)
+	}
+	if got := byVM["vm-running"]; len(got) != 0 {
+		t.Errorf("vm-running emitted %d entries; want 0", len(got))
+	}
+	if got := byVM["vm-stopped"]; len(got) != 1 || got[0].Kind != metering.KindVMComputeStart || got[0].Reason != metering.ReasonBoot {
+		t.Errorf("vm-stopped: got %+v, want 1× compute.start reason=boot", got)
+	}
+	stale := byVM["vm-stale"]
+	if len(stale) != 2 {
+		t.Fatalf("vm-stale: got %d entries, want 2 (stop-crash close + restart open)", len(stale))
+	}
+	if stale[0].Kind != metering.KindVMComputeStop || stale[0].Reason != metering.ReasonStopCrash {
+		t.Errorf("vm-stale[0]: got kind=%s reason=%q, want compute.stop reason=stop-crash", stale[0].Kind, stale[0].Reason)
+	}
+	if stale[1].Kind != metering.KindVMComputeStart || stale[1].Reason != metering.ReasonRestart {
+		t.Errorf("vm-stale[1]: got kind=%s reason=%q, want compute.start reason=restart", stale[1].Kind, stale[1].Reason)
+	}
+}
+
+func TestFinalizeCreateEmitsStorageStart(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	// FinalizeCreate requires an existing placeholder.
+	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, false)
+
+	info := &types.VM{
+		ID:         "vm1",
+		Hypervisor: b.Typ,
+		Config:     types.VMConfig{Config: types.Config{CPU: 2, Memory: 2 << 30, Storage: 20 << 30}},
+	}
+	if err := b.FinalizeCreate(ctx, "vm1", info, nil, nil); err != nil {
+		t.Fatalf("FinalizeCreate: %v", err)
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	if e.Kind != metering.KindVMStorageStart || e.VMID != "vm1" || e.Reason != metering.ReasonBoot {
+		t.Errorf("got %+v, want storage.start vm1 reason boot", e)
+	}
+	if e.Shape.StorageBytes != 20<<30 {
+		t.Errorf("got storage %d, want %d", e.Shape.StorageBytes, int64(20<<30))
+	}
+}
+
+func TestEmitNilSafeWithoutRecorder(t *testing.T) {
+	// b.Metering left nil — meter() must return NopRecorder so emit doesn't panic.
+	dir := t.TempDir()
+	locker := flock.New(filepath.Join(dir, "index.lock"))
+	store := storejson.New[VMIndex](filepath.Join(dir, "index.json"), locker)
+	b := &Backend{Typ: "test-hv", DB: store, Locker: locker}
+
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, false)
+	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
+		t.Errorf("BatchMarkStarted with nil Metering panicked/failed: %v", err)
+	}
+}

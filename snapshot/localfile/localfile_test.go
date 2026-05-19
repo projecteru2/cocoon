@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/cocoonstack/cocoon/config"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
@@ -30,8 +31,14 @@ func testID(t *testing.T) string {
 // newTestLF creates a LocalFile backed by a temp directory.
 func newTestLF(t *testing.T) *LocalFile {
 	t.Helper()
+	return newTestLFWithRecorder(t, metering.NopRecorder{})
+}
+
+// newTestLFWithRecorder lets tests inject a CaptureRecorder for emit assertions.
+func newTestLFWithRecorder(t *testing.T, rec metering.Recorder) *LocalFile {
+	t.Helper()
 	dir := t.TempDir()
-	lf, err := New(&config.Config{RootDir: dir})
+	lf, err := New(&config.Config{RootDir: dir}, rec)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -64,7 +71,7 @@ func makeTar(t *testing.T, files map[string][]byte) *bytes.Buffer {
 
 func TestNew(t *testing.T) {
 	dir := t.TempDir()
-	lf, err := New(&config.Config{RootDir: dir})
+	lf, err := New(&config.Config{RootDir: dir}, metering.NopRecorder{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -74,13 +81,83 @@ func TestNew(t *testing.T) {
 }
 
 func TestNew_NilConfig(t *testing.T) {
-	_, err := New(nil)
+	_, err := New(nil, metering.NopRecorder{})
 	if err == nil {
 		t.Fatal("expected error for nil config")
 	}
 }
 
 // Create
+
+func TestCreateAndDeleteEmitMetering(t *testing.T) {
+	cap := &metering.CaptureRecorder{}
+	lf := newTestLFWithRecorder(t, cap)
+	ctx := t.Context()
+
+	id, err := lf.Create(ctx, &types.SnapshotConfig{
+		ID:         testID(t),
+		Name:       "metered-snap",
+		Hypervisor: "cloud-hypervisor",
+	}, makeTar(t, map[string][]byte{"cow.raw": []byte("disk")}))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	entries := cap.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("after Create: got %d entries, want 1", len(entries))
+	}
+	if entries[0].Kind != metering.KindSnapStorageStart || entries[0].SnapshotID != id ||
+		entries[0].Hypervisor != "cloud-hypervisor" || entries[0].Shape.StorageBytes <= 0 {
+		t.Errorf("snap.storage.start entry wrong: %+v", entries[0])
+	}
+
+	if _, err := lf.Delete(ctx, []string{id}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	entries = cap.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("after Delete: got %d entries, want 2", len(entries))
+	}
+	if entries[1].Kind != metering.KindSnapStorageStop || entries[1].SnapshotID != id ||
+		entries[1].Reason != metering.ReasonSnapRemove || entries[1].Hypervisor != "cloud-hypervisor" {
+		t.Errorf("snap.storage.stop entry wrong: %+v", entries[1])
+	}
+}
+
+func TestImportEmitsSnapStorageStart(t *testing.T) {
+	cap := &metering.CaptureRecorder{}
+	lf := newTestLFWithRecorder(t, cap)
+	ctx := t.Context()
+
+	envelope, err := snapshot.MarshalEnvelope(types.SnapshotConfig{
+		ID:         "src-snap",
+		Name:       "src-name",
+		Hypervisor: "cloud-hypervisor",
+	})
+	if err != nil {
+		t.Fatalf("MarshalEnvelope: %v", err)
+	}
+	stream := makeTar(t, map[string][]byte{
+		snapshot.SnapshotJSONName: envelope,
+		"cow.raw":                 []byte("disk-data"),
+	})
+
+	id, err := lf.Import(ctx, stream, "imported", "from test")
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	entries := cap.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1 (snap.storage.start)", len(entries))
+	}
+	e := entries[0]
+	if e.Kind != metering.KindSnapStorageStart || e.SnapshotID != id ||
+		e.Hypervisor != "cloud-hypervisor" || e.Shape.StorageBytes <= 0 {
+		t.Errorf("entry wrong: %+v", e)
+	}
+}
 
 func TestCreate(t *testing.T) {
 	lf := newTestLF(t)

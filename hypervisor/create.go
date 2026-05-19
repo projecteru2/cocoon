@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -49,8 +50,9 @@ func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 }
 
 // FinalizeCreate writes a populated VM record to DB, replacing the placeholder.
+// Emits metering vm.storage.start once the record is persisted.
 func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}) error {
-	return b.DB.Update(ctx, func(idx *VMIndex) error {
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		existing, err := idx.GetRecord(id)
 		if err != nil {
 			return err
@@ -63,7 +65,18 @@ func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM,
 			LogDir:       existing.LogDir,
 		}
 		return nil
+	}); err != nil {
+		return err
+	}
+	b.meter().Emit(ctx, metering.Entry{
+		Kind:       metering.KindVMStorageStart,
+		VMID:       id,
+		Reason:     metering.ReasonBoot,
+		Hypervisor: b.Typ,
+		Shape:      shapeFromConfig(info.Config),
+		EmittedAt:  time.Now(),
 	})
+	return nil
 }
 
 // CreateSequence is the shared placeholder→finalize create skeleton; a mid-flight crash rolls back DB + rundir so GC has nothing to reconcile.

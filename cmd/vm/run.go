@@ -84,7 +84,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		return h.cloneFromDir(ctx, cmd, conf, fromDir, logger)
 	}
 
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		conf.UseFirecracker = snapInfo.Hypervisor == string(config.HypervisorFirecracker)
 	}
 
-	hyper, err := cmdcore.InitHypervisor(conf)
+	hyper, err := cmdcore.InitHypervisor(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("find VM %s: %w", vmRef, err)
 	}
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 
 	logger.Infof(ctx, "restoring VM %s from snapshot %s ...", vmRef, snapRef)
 
-	result, err := hyper.Restore(ctx, vmRef, vmCfg, stream)
+	result, err := hyper.Restore(ctx, vmRef, vmCfg, stream, snapInfo.ID)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
@@ -242,7 +242,7 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 	if err != nil {
 		return err
 	}
-	return h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dir,
+	return h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dir, cfg.ID,
 		fmt.Sprintf("dir %s", dir), logger)
 }
 
@@ -267,7 +267,7 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if cfg.Hypervisor != "" {
 		localConf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
 	}
-	hyper, err := cmdcore.InitHypervisor(&localConf)
+	hyper, err := cmdcore.InitHypervisor(ctx, &localConf)
 	if err != nil {
 		return err
 	}
@@ -366,21 +366,21 @@ func (h Handler) restoreDirect(ctx context.Context, cmd *cobra.Command, snapRef,
 	if !ok {
 		return false, nil
 	}
-	dataDir, _, err := da.DataDir(ctx, snapRef)
+	dataDir, snapCfg, err := da.DataDir(ctx, snapRef)
 	if err != nil {
 		return true, fmt.Errorf("open snapshot: %w", err)
 	}
-	return true, h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dataDir,
+	return true, h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dataDir, snapCfg.ID,
 		fmt.Sprintf("snapshot %s", snapRef), logger)
 }
 
 // runDirectRestore is the shared tail for the snapshot-DB and --from-dir restore paths: log, DirectRestore, output.
-func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceLabel string, logger *log.Fields) error {
+func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceSnapshotID, sourceLabel string, logger *log.Fields) error {
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {
 		logger.Infof(ctx, "restoring VM %s from %s (direct) ...", vmRef, sourceLabel)
 	}
-	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, srcDir)
+	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, srcDir, sourceSnapshotID)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}

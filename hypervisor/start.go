@@ -5,20 +5,41 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/projecteru2/core/log"
 
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// StartAll runs startOne for each ref and batch-flips the succeeded set to Running so a partial batch doesn't leave half-Running state.
-func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) error) ([]string, error) {
+// StartAll runs startOne for each ref and batch-flips the actually-launched set to Running.
+// startOne returns (launched, err): launched=true iff a fresh process was started;
+// false means PrepareStart was a no-op (truly already running). Only launched ids
+// reach BatchMarkStarted, so an already-running VM doesn't open a duplicate interval
+// while a stale-running record that was actually relaunched still does.
+func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) (bool, error)) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	succeeded, forEachErr := b.ForEachVM(ctx, ids, "Start", startOne)
-	if batchErr := b.BatchMarkStarted(ctx, succeeded); batchErr != nil {
+	var (
+		mu       sync.Mutex
+		launched []string
+	)
+	wrapped := func(ctx context.Context, id string) error {
+		wasLaunched, sErr := startOne(ctx, id)
+		if sErr != nil {
+			return sErr
+		}
+		if wasLaunched {
+			mu.Lock()
+			launched = append(launched, id)
+			mu.Unlock()
+		}
+		return nil
+	}
+	succeeded, forEachErr := b.ForEachVM(ctx, ids, "Start", wrapped)
+	if batchErr := b.BatchMarkStarted(ctx, launched); batchErr != nil {
 		log.WithFunc(b.Typ+".Start").Warnf(ctx, "batch state update: %v", batchErr)
 	}
 	return succeeded, forEachErr

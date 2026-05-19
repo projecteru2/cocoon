@@ -33,14 +33,18 @@ import (
 )
 
 var hypervisorFactories = []hypervisorFactory{
-	{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
-	{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
+	{config.HypervisorCH, func(ctx context.Context, c *config.Config) (hypervisor.Hypervisor, error) {
+		return cloudhypervisor.New(c, MeteringRecorder(ctx, c))
+	}},
+	{config.HypervisorFirecracker, func(ctx context.Context, c *config.Config) (hypervisor.Hypervisor, error) {
+		return firecracker.New(c, MeteringRecorder(ctx, c))
+	}},
 }
 
 // hypervisorFactory keeps backend lookup and iteration order together.
 type hypervisorFactory struct {
 	typ  config.HypervisorType
-	ctor func(*config.Config) (hypervisor.Hypervisor, error)
+	ctor func(context.Context, *config.Config) (hypervisor.Hypervisor, error)
 }
 
 // BaseHandler provides shared config access for all command handlers.
@@ -84,7 +88,7 @@ func InitBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Imag
 	if err != nil {
 		return nil, nil, err
 	}
-	hyper, err := InitHypervisor(conf)
+	hyper, err := InitHypervisor(ctx, conf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -111,22 +115,22 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 	return ociStore, cloudimgStore, nil
 }
 
-func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
+func InitHypervisor(ctx context.Context, conf *config.Config) (hypervisor.Hypervisor, error) {
 	ctor := findHypervisorFactory(conf.Hypervisor())
 	if ctor == nil {
 		return nil, fmt.Errorf("unknown hypervisor type: %s", conf.Hypervisor())
 	}
-	h, err := ctor(conf)
+	h, err := ctor(ctx, conf)
 	if err != nil {
 		return nil, fmt.Errorf("init hypervisor: %w", err)
 	}
 	return h, nil
 }
 
-func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
+func InitAllHypervisors(ctx context.Context, conf *config.Config) ([]hypervisor.Hypervisor, error) {
 	result := make([]hypervisor.Hypervisor, 0, len(hypervisorFactories))
 	for _, f := range hypervisorFactories {
-		h, err := f.ctor(conf)
+		h, err := f.ctor(ctx, conf)
 		if err != nil {
 			return nil, fmt.Errorf("init %s for GC: %w", f.typ, err)
 		}
@@ -136,7 +140,7 @@ func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
 }
 
 func FindHypervisor(ctx context.Context, conf *config.Config, ref string) (hypervisor.Hypervisor, error) {
-	hypers, err := InitAllHypervisors(conf)
+	hypers, err := InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +189,8 @@ func InitBridgeNetwork(conf *config.Config, bridgeDev string) (network.Network, 
 	return p, nil
 }
 
-func InitSnapshot(conf *config.Config, opts ...localfile.Option) (snapshot.Snapshot, error) {
-	s, err := localfile.New(conf, opts...)
+func InitSnapshot(ctx context.Context, conf *config.Config, opts ...localfile.Option) (snapshot.Snapshot, error) {
+	s, err := localfile.New(conf, MeteringRecorder(ctx, conf), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("init snapshot backend: %w", err)
 	}
@@ -509,7 +513,7 @@ func digestPullRef(image, digest, imageType string) string {
 	return ref.Context().String() + "@" + digest
 }
 
-func findHypervisorFactory(typ config.HypervisorType) func(*config.Config) (hypervisor.Hypervisor, error) {
+func findHypervisorFactory(typ config.HypervisorType) func(context.Context, *config.Config) (hypervisor.Hypervisor, error) {
 	for _, f := range hypervisorFactories {
 		if f.typ == typ {
 			return f.ctor
