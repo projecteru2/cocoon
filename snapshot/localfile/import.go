@@ -54,6 +54,10 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 	cfg.Name = cmp.Or(name, cfg.Name)
 	cfg.Description = cmp.Or(description, cfg.Description)
 
+	if err = cfg.Validate(); err != nil {
+		return "", err
+	}
+
 	size, sizeErr := utils.DirSize(dataDir)
 	if sizeErr != nil {
 		return "", fmt.Errorf("compute data dir size: %w", sizeErr)

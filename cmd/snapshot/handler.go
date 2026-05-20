@@ -41,6 +41,9 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
 
+	if err = (&types.SnapshotConfig{Name: name}).Validate(); err != nil {
+		return err
+	}
 	if name != "" {
 		if _, inspectErr := snapBackend.Inspect(ctx, name); inspectErr == nil {
 			return fmt.Errorf("snapshot name %q already exists", name)
@@ -250,6 +253,10 @@ func (h Handler) Import(cmd *cobra.Command, args []string) error {
 
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
+
+	if err = (&types.SnapshotConfig{Name: name}).Validate(); err != nil {
+		return err
+	}
 
 	var r io.Reader
 	if len(args) > 0 {

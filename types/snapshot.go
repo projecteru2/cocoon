@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // SnapshotConfig carries the parameters for creating a snapshot.
 // The hypervisor fills ID, Image, ImageBlobIDs, Hypervisor, and resource fields; the CLI adds Name and Description.
@@ -13,6 +16,14 @@ type SnapshotConfig struct {
 	ImageBlobIDs map[string]struct{} `json:"image_blob_ids,omitempty"` // blob hex set for GC pinning
 	Hypervisor   string              `json:"hypervisor,omitempty"`     // originating backend ("cloud-hypervisor" or "firecracker")
 	NICs         int                 `json:"nics,omitempty"`
+}
+
+// Validate checks SnapshotConfig caller-controlled fields. Empty Name is allowed (name is optional).
+func (cfg *SnapshotConfig) Validate() error {
+	if cfg.Name != "" && !validName.MatchString(cfg.Name) {
+		return fmt.Errorf("snapshot name %q is invalid: must match %s (max 63 chars)", cfg.Name, validName.String())
+	}
+	return nil
 }
 
 // Snapshot is the public record for a snapshot.
