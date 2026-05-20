@@ -83,7 +83,9 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	case runErr == nil:
 		return nil, nil // already running
 	case errors.Is(runErr, ErrNotRunning):
-		// expected — proceed to start
+		if rec.State == types.VMStateRunning {
+			b.closeStaleComputeInterval(ctx, &rec)
+		}
 	default:
 		return nil, fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}

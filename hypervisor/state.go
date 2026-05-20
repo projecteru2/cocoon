@@ -88,7 +88,7 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 	})
 }
 
-// UpdateStates batch-updates State + StartedAt/StoppedAt; emits vm.compute.stop on Running→{Stopped,Error}.
+// UpdateStates batch-updates State + StartedAt/StoppedAt; only Running→Stopped emits compute.stop (Error paths can't prove the process is dead).
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
@@ -114,9 +114,6 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 				}
 			case types.VMStateError:
 				r.StoppedAt = &now
-				if oldState == types.VMStateRunning {
-					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopCrash, shapeFromConfig(r.Config), now))
-				}
 			}
 		}
 		return nil
@@ -185,4 +182,23 @@ func (b *Backend) CleanStalePlaceholders(_ context.Context, ids []string) error 
 		)
 		return nil
 	})
+}
+
+// closeStaleComputeInterval flips Running→Stopped and emits stop-crash; precondition: caller confirmed the process is dead.
+func (b *Backend) closeStaleComputeInterval(ctx context.Context, rec *VMRecord) {
+	now := time.Now()
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		r := idx.VMs[rec.ID]
+		if r == nil || r.State != types.VMStateRunning {
+			return nil
+		}
+		r.State = types.VMStateStopped
+		r.StoppedAt = &now
+		r.UpdatedAt = now
+		return nil
+	}); err != nil {
+		log.WithFunc(b.Typ+".closeStaleComputeInterval").Warnf(ctx, "flip %s to stopped: %v", rec.ID, err)
+		return
+	}
+	b.Metering.Emit(ctx, b.makeEntry(metering.KindVMComputeStop, rec.ID, metering.ReasonStopCrash, shapeFromConfig(rec.Config), now))
 }

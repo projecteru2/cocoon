@@ -28,23 +28,18 @@ type stubBackendConfig struct {
 	indexLock string
 }
 
-func (stubBackendConfig) BinaryName() string  { panic("BinaryName: not implemented in stub") }
-func (stubBackendConfig) PIDFileName() string { panic("PIDFileName: not implemented in stub") }
-func (stubBackendConfig) TerminateGracePeriod() time.Duration {
-	panic("TerminateGracePeriod: not implemented in stub")
-}
-
-func (stubBackendConfig) SocketWaitTimeout() time.Duration {
-	panic("SocketWaitTimeout: not implemented in stub")
-}
-func (stubBackendConfig) EffectivePoolSize() int { return 1 }
-func (c stubBackendConfig) IndexFile() string    { return c.indexFile }
-func (c stubBackendConfig) IndexLock() string    { return c.indexLock }
-func (stubBackendConfig) EnsureDirs() error      { return nil }
-func (stubBackendConfig) RunDir() string         { panic("RunDir: not implemented in stub") }
-func (stubBackendConfig) LogDir() string         { panic("LogDir: not implemented in stub") }
-func (stubBackendConfig) VMRunDir(string) string { panic("VMRunDir: not implemented in stub") }
-func (stubBackendConfig) VMLogDir(string) string { panic("VMLogDir: not implemented in stub") }
+func (stubBackendConfig) BinaryName() string                  { return "stub-vmm" }
+func (stubBackendConfig) PIDFileName() string                 { return "stub.pid" }
+func (stubBackendConfig) TerminateGracePeriod() time.Duration { return time.Second }
+func (stubBackendConfig) SocketWaitTimeout() time.Duration    { return time.Second }
+func (stubBackendConfig) EffectivePoolSize() int              { return 1 }
+func (c stubBackendConfig) IndexFile() string                 { return c.indexFile }
+func (c stubBackendConfig) IndexLock() string                 { return c.indexLock }
+func (stubBackendConfig) EnsureDirs() error                   { return nil }
+func (stubBackendConfig) RunDir() string                      { panic("RunDir: not implemented in stub") }
+func (stubBackendConfig) LogDir() string                      { panic("LogDir: not implemented in stub") }
+func (stubBackendConfig) VMRunDir(string) string              { panic("VMRunDir: not implemented in stub") }
+func (stubBackendConfig) VMLogDir(string) string              { panic("VMLogDir: not implemented in stub") }
 
 func newMeteringTestBackend(t *testing.T) (*Backend, *metering.CaptureRecorder) {
 	t.Helper()
@@ -119,7 +114,7 @@ func TestBatchMarkStartedReasonRestartWhenAlreadyBooted(t *testing.T) {
 	}
 }
 
-func TestUpdateStatesEmitsOnRunningToStoppedOrError(t *testing.T) {
+func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 	b, cap := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
@@ -128,7 +123,7 @@ func TestUpdateStatesEmitsOnRunningToStoppedOrError(t *testing.T) {
 		t.Fatalf("UpdateStates(stopped from created): %v", err)
 	}
 	if got := cap.Entries(); len(got) != 0 {
-		t.Errorf("Created→Stopped emitted %d; want 0 (no Running interval to close)", len(got))
+		t.Errorf("Created→Stopped emitted %d; want 0", len(got))
 	}
 
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
@@ -146,36 +141,52 @@ func TestUpdateStatesEmitsOnRunningToStoppedOrError(t *testing.T) {
 		t.Fatalf("Running→Stopped: got %+v, want one compute.stop reason=user", entries)
 	}
 
-	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
-		t.Fatalf("UpdateStates(stopped idempotent): %v", err)
-	}
-	if got := cap.Entries(); len(got) != 1 {
-		t.Errorf("Stopped→Stopped should not re-emit; got %d entries total", len(got))
-	}
-
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
 		t.Fatalf("UpdateStates(running again): %v", err)
 	}
+	cap.Reset()
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
 		t.Fatalf("UpdateStates(error): %v", err)
 	}
-	entries = cap.Entries()
-	if len(entries) != 2 || entries[1].Kind != metering.KindVMComputeStop || entries[1].Reason != metering.ReasonStopCrash {
-		t.Fatalf("Running→Error: got %+v, want compute.stop reason=stop-crash as 2nd entry", entries)
+	if got := cap.Entries(); len(got) != 0 {
+		t.Errorf("Running→Error must not emit; got %d entries", len(got))
 	}
+}
 
-	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
-		t.Fatalf("UpdateStates(error idempotent): %v", err)
+func TestPrepareStartClosesStaleInterval(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+	dir := t.TempDir()
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		idx.VMs["vm1"].RunDir = dir
+		idx.VMs["vm1"].LogDir = dir
+		return nil
+	}); err != nil {
+		t.Fatalf("set dirs: %v", err)
 	}
-	if got := cap.Entries(); len(got) != 2 {
-		t.Errorf("Error→Error must not re-emit; got %d entries total", len(got))
+	cap.Reset()
+
+	rec, err := b.PrepareStart(ctx, "vm1", nil)
+	if err != nil {
+		t.Fatalf("PrepareStart: %v", err)
 	}
-	seedVMRecord(t, b, "vm2", 1, 1<<30, 10<<30, false)
-	if err := b.UpdateStates(ctx, []string{"vm2"}, types.VMStateError); err != nil {
-		t.Fatalf("UpdateStates(vm2 error from created): %v", err)
+	if rec == nil {
+		t.Fatal("PrepareStart returned nil (treated as already-running)")
 	}
-	if got := cap.Entries(); len(got) != 2 {
-		t.Errorf("Created→Error must not emit; got %d entries total", len(got))
+	entries := cap.Entries()
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopCrash {
+		t.Fatalf("got %+v, want one compute.stop reason=stop-crash", entries)
+	}
+	loaded, err := b.LoadRecord(ctx, "vm1")
+	if err != nil {
+		t.Fatalf("LoadRecord: %v", err)
+	}
+	if loaded.State != types.VMStateStopped {
+		t.Errorf("State=%s, want Stopped", loaded.State)
+	}
+	if loaded.StoppedAt == nil {
+		t.Error("StoppedAt nil")
 	}
 }
 
