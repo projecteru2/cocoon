@@ -66,7 +66,6 @@ func New(conf *config.Config, rec metering.Recorder, opts ...Option) (*LocalFile
 	return lf, nil
 }
 
-// meter returns lf.metering or NopRecorder so emit sites don't repeat nil checks.
 func (lf *LocalFile) meter() metering.Recorder {
 	return metering.OrNop(lf.metering)
 }
@@ -180,8 +179,7 @@ func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, 
 	return &s, nil
 }
 
-// Delete processes each id atomically (rm dir → DB update). A mid-loop failure leaves any rm-OK-then-DB-fail id as a stale DB record; GC reclaims it.
-// Delete removes snapshots by ref; emits metering snap.storage.stop per deleted id.
+// Delete removes each ref atomically (rm dir → DB update) and emits snap.storage.stop per deleted id; a mid-loop rm-OK-then-DB-fail leaves a stale DB record that GC reclaims.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
@@ -202,11 +200,7 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 	return deleted, nil
 }
 
-// deleteOne removes one snapshot's data dir + DB record. Idempotent under
-// concurrent rm of the same id: if a rival process won the race to delete
-// the record, the Update closure sees a nil rec, we still report success to
-// the caller (data is gone), but we skip emit so the rival's stop event is
-// the only one in the ledger (no phantom with an empty Hypervisor).
+// deleteOne removes one snapshot atomically; idempotent under concurrent rm — if the rival wins the DB race we report success (data is gone) but skip emit, so the ledger holds exactly one stop event per snapshot.
 func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 	if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
 		return fmt.Errorf("remove data dir %s: %w", id, err)

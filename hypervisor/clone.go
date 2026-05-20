@@ -35,7 +35,7 @@ func (b *Backend) CloneSetup(ctx context.Context, vmID string, vmCfg *types.VMCo
 	return runDir, logDir, now, cleanup, nil
 }
 
-// AfterExtractFn finalizes a cloned VM after snapshot files are in place; sourceSnapshotID flows through to the metering Entry so downstream can trace lineage.
+// AfterExtractFn finalizes a cloned VM after snapshot files are in place; sourceSnapshotID flows through for metering lineage.
 type AfterExtractFn func(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time, sourceSnapshotID string) (*types.VM, error)
 
 // DirectCloneBase clones from a local snapshot directory. Used when the snapshot lives on the same host (no tar streaming needed).
@@ -85,9 +85,7 @@ func (b *Backend) CloneFromStream(
 	return afterExtract(ctx, vmID, vmCfg, net, runDir, logDir, now, snapshotConfig.ID)
 }
 
-// FinalizeClone updates the cloned VM's record in place after restore-and-resume.
-// Emits metering vm.storage.start + vm.compute.start with reason clone so the
-// new VM has an opening interval even though it skipped Create/BatchMarkStarted.
+// FinalizeClone persists the cloned VM record and emits the open-interval pair (storage.start + compute.start, reason=clone).
 func (b *Backend) FinalizeClone(ctx context.Context, vmID string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}, sourceSnapshotID string) error {
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		r, err := idx.GetRecord(vmID)
@@ -104,25 +102,6 @@ func (b *Backend) FinalizeClone(ctx context.Context, vmID string, info *types.VM
 	}); err != nil {
 		return err
 	}
-	now := time.Now()
-	shape := shapeFromConfig(info.Config)
-	b.meter().Emit(ctx, metering.Entry{
-		Kind:             metering.KindVMStorageStart,
-		VMID:             vmID,
-		SourceSnapshotID: sourceSnapshotID,
-		Reason:           metering.ReasonClone,
-		Hypervisor:       b.Typ,
-		Shape:            shape,
-		EmittedAt:        now,
-	})
-	b.meter().Emit(ctx, metering.Entry{
-		Kind:             metering.KindVMComputeStart,
-		VMID:             vmID,
-		SourceSnapshotID: sourceSnapshotID,
-		Reason:           metering.ReasonClone,
-		Hypervisor:       b.Typ,
-		Shape:            shape,
-		EmittedAt:        now,
-	})
+	b.emitOpenInterval(ctx, info, metering.ReasonClone, sourceSnapshotID, time.Now())
 	return nil
 }

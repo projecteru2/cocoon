@@ -49,8 +49,7 @@ func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 	}
 }
 
-// FinalizeCreate writes a populated VM record to DB, replacing the placeholder.
-// Emits metering vm.storage.start once the record is persisted.
+// FinalizeCreate persists the populated VM record (replacing the placeholder) and emits metering vm.storage.start.
 func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}) error {
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		existing, err := idx.GetRecord(id)
@@ -68,14 +67,7 @@ func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM,
 	}); err != nil {
 		return err
 	}
-	b.meter().Emit(ctx, metering.Entry{
-		Kind:       metering.KindVMStorageStart,
-		VMID:       id,
-		Reason:     metering.ReasonBoot,
-		Hypervisor: b.Typ,
-		Shape:      shapeFromConfig(info.Config),
-		EmittedAt:  time.Now(),
-	})
+	b.meter().Emit(ctx, b.makeEntry(metering.KindVMStorageStart, id, metering.ReasonBoot, shapeFromConfig(info.Config), time.Now()))
 	return nil
 }
 

@@ -40,9 +40,7 @@ func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, 
 	return vmID, &rec, nil
 }
 
-// FinalizeRestore updates DB and assembles the returned VM after restore. Metering
-// emit lives in RestoreSequence/DirectRestoreSequence so the prior compute interval
-// is closed at the kill boundary, not only on full-restore success.
+// FinalizeRestore updates DB and assembles the returned VM; metering lives in (Direct)RestoreSequence so the close fires at the kill boundary, not only on full success.
 func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord, pid int) (*types.VM, error) {
 	now := time.Now()
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
@@ -69,10 +67,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	return &info, nil
 }
 
-// emitRestoreComputeStop closes only the prior compute interval at the kill boundary.
-// Storage is NOT closed here because the on-disk files survive: a downstream restore
-// failure leaves the VM in Error state with its old storage intact, and vm rm will
-// later close the storage interval with reason vm-rm.
+// emitRestoreComputeStop closes only the compute interval at the kill boundary; storage stays open so a restore failure leaves on-disk files intact for vm rm to close later.
 func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldShape metering.Shape, sourceSnapshotID string) {
 	b.meter().Emit(ctx, metering.Entry{
 		Kind: metering.KindVMComputeStop, VMID: vmID, SourceSnapshotID: sourceSnapshotID,
@@ -80,21 +75,14 @@ func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldSh
 	})
 }
 
-// emitRestoreSuccess emits the storage shape transition and reopens the compute
-// interval; called only after the restore sequence has fully succeeded.
+// emitRestoreSuccess closes the old storage interval and opens fresh storage+compute; called only after restore fully succeeds.
 func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
 	now := time.Now()
-	newShape := shapeFromConfig(vm.Config)
 	b.meter().Emit(ctx, metering.Entry{
 		Kind: metering.KindVMStorageStop, VMID: vm.ID, SourceSnapshotID: sourceSnapshotID,
 		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
 	})
-	for _, kind := range []metering.Kind{metering.KindVMStorageStart, metering.KindVMComputeStart} {
-		b.meter().Emit(ctx, metering.Entry{
-			Kind: kind, VMID: vm.ID, SourceSnapshotID: sourceSnapshotID,
-			Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: newShape, EmittedAt: now,
-		})
-	}
+	b.emitOpenInterval(ctx, vm, metering.ReasonRestore, sourceSnapshotID, now)
 }
 
 // RestoreSequence is the shared restore skeleton. Staging happens before the kill so a preflight failure leaves the original VM running.
@@ -120,10 +108,6 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	if killErr := spec.Kill(ctx, vmID, rec); killErr != nil {
 		return nil, killErr
 	}
-	// kill succeeded → the prior compute interval is over regardless of restore
-	// outcome; emit compute.stop immediately. Storage stays open: if restore
-	// fails the on-disk files are still the old shape and vm rm later closes
-	// the storage interval with reason vm-rm.
 	b.emitRestoreComputeStop(ctx, vmID, oldShape, spec.SourceSnapshotID)
 
 	var result *types.VM

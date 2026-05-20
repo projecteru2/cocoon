@@ -58,9 +58,7 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			return loadErr
 		}
 		sockPath := SocketPath(rec.RunDir)
-		// stoppedByUs distinguishes "we just killed a live process" from "the DB
-		// record was still Running but the process had already crashed"; the
-		// former yields ReasonStopUser, the latter ReasonStopCrash.
+		// stoppedByUs distinguishes user-stop (ReasonStopUser) from orphan-crash cleanup (ReasonStopCrash).
 		stoppedByUs := false
 		if runningErr := b.WithRunningVM(ctx, &rec, func(_ int) error {
 			if !force {
@@ -99,9 +97,7 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			shape              metering.Shape
 			hadRunningInterval bool
 		)
-		// Capture state and shape inside the same transaction that deletes the
-		// record so a concurrent UpdateStates can't shift the truth between read
-		// and emit.
+		// Capture in the same transaction as delete so a concurrent UpdateStates can't shift the truth.
 		if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 			r := idx.VMs[id]
 			if r == nil {
@@ -115,31 +111,11 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 		}); err != nil {
 			return err
 		}
-		now := time.Now()
-		// DeleteAll bypasses StopAll, so the compute.stop event must be emitted
-		// here whenever the record carried an open Running interval.
-		if hadRunningInterval {
-			reason := metering.ReasonStopCrash
-			if stoppedByUs {
-				reason = metering.ReasonStopUser
-			}
-			b.meter().Emit(ctx, metering.Entry{
-				Kind:       metering.KindVMComputeStop,
-				VMID:       id,
-				Reason:     reason,
-				Hypervisor: b.Typ,
-				Shape:      shape,
-				EmittedAt:  now,
-			})
+		computeReason := metering.ReasonStopCrash
+		if stoppedByUs {
+			computeReason = metering.ReasonStopUser
 		}
-		b.meter().Emit(ctx, metering.Entry{
-			Kind:       metering.KindVMStorageStop,
-			VMID:       id,
-			Reason:     metering.ReasonVMRemove,
-			Hypervisor: b.Typ,
-			Shape:      shape,
-			EmittedAt:  now,
-		})
+		b.emitDeleteClose(ctx, id, shape, computeReason, hadRunningInterval)
 		return nil
 	})
 }

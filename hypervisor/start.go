@@ -12,11 +12,8 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// StartAll runs startOne for each ref and batch-flips the actually-launched set to Running.
-// startOne returns (launched, err): launched=true iff a fresh process was started;
-// false means PrepareStart was a no-op (truly already running). Only launched ids
-// reach BatchMarkStarted, so an already-running VM doesn't open a duplicate interval
-// while a stale-running record that was actually relaunched still does.
+// StartAll runs startOne per ref; only ids that returned launched=true reach BatchMarkStarted,
+// so already-running no-ops don't open duplicate intervals.
 func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) (bool, error)) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {

@@ -11,14 +11,13 @@ type CaptureRecorder struct {
 	entries []Entry
 }
 
-// Emit appends e to the buffer.
 func (r *CaptureRecorder) Emit(_ context.Context, e Entry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.entries = append(r.entries, e)
 }
 
-// Entries returns a snapshot copy of accumulated entries.
+// Entries returns a snapshot copy so callers can mutate freely.
 func (r *CaptureRecorder) Entries() []Entry {
 	r.mu.Lock()
 	defer r.mu.Unlock()

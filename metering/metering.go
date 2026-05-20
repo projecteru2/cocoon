@@ -60,7 +60,6 @@ type Recorder interface {
 // NopRecorder discards every entry; zero value is usable.
 type NopRecorder struct{}
 
-// Emit is a no-op.
 func (NopRecorder) Emit(context.Context, Entry) {}
 
 // OrNop returns r unchanged when non-nil, NopRecorder otherwise so emit sites never have to nil-check.

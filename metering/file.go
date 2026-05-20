@@ -9,12 +9,8 @@ import (
 	"github.com/projecteru2/core/log"
 )
 
-// POSIX guarantees a single write(2) to an O_APPEND file is atomic relative
-// to other writes from any process; concatenating JSON+newline into one Write
-// keeps the ledger valid even when multiple cocoon CLI processes append
-// concurrently. (Mutex below only serializes the writes from a single process.)
-
 // FileRecorder appends JSON-encoded entries (one per line) to a file under sync.Mutex.
+// POSIX guarantees single write(2) to O_APPEND is atomic across processes; the mutex serializes the in-process writes.
 type FileRecorder struct {
 	mu sync.Mutex
 	f  *os.File
@@ -30,7 +26,7 @@ func NewFileRecorder(ctx context.Context, path string) Recorder {
 	return &FileRecorder{f: f}
 }
 
-// Emit marshals e and appends one line atomically; write errors are logged and swallowed so the caller's state machine is never blocked.
+// Emit logs and swallows write errors so the caller's state machine is never blocked.
 func (r *FileRecorder) Emit(ctx context.Context, e Entry) {
 	data, err := json.Marshal(e)
 	if err != nil {

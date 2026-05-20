@@ -35,37 +35,6 @@ func (p EvictionPolicy) hasCriteria() bool {
 	return p.KeepLast > 0 || p.MaxAge > 0 || p.MaxSize > 0
 }
 
-func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
-	logger := log.WithFunc("gc.snapshot")
-	var changed bool
-	for id, m := range records {
-		if m.sizeBytes > 0 {
-			continue
-		}
-		actual, err := utils.DirSize(conf.SnapshotDataDir(id))
-		if err != nil {
-			logger.Warnf(ctx, "DirSize for %s: %v", id, err)
-			continue
-		}
-		m.sizeBytes = actual
-		records[id] = m
-		changed = true
-	}
-	if !changed {
-		return
-	}
-	if err := store.WriteRaw(func(idx *snapshot.SnapshotIndex) error {
-		for id, m := range records {
-			if r := idx.Snapshots[id]; r != nil && r.SizeBytes != m.sizeBytes {
-				r.SizeBytes = m.sizeBytes
-			}
-		}
-		return nil
-	}); err != nil {
-		logger.Warnf(ctx, "persist backfilled SizeBytes: %v", err)
-	}
-}
-
 type snapshotMeta struct {
 	name         string
 	hypervisor   string
@@ -261,6 +230,38 @@ func logEvictRow(ctx context.Context, logger *log.Fields, verb, id string, m sna
 	}
 	logger.Infof(ctx, "%s id=%s name=%s bytes=%d last_accessed=%s reason=%s",
 		verb, id, m.name, m.sizeBytes, accessed, reason)
+}
+
+// backfillSizeBytes fills in sizeBytes for any record whose SizeBytes wasn't persisted, then writes the resolved values back so future GC runs can skip the du.
+func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
+	logger := log.WithFunc("gc.snapshot")
+	var changed bool
+	for id, m := range records {
+		if m.sizeBytes > 0 {
+			continue
+		}
+		actual, err := utils.DirSize(conf.SnapshotDataDir(id))
+		if err != nil {
+			logger.Warnf(ctx, "DirSize for %s: %v", id, err)
+			continue
+		}
+		m.sizeBytes = actual
+		records[id] = m
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	if err := store.WriteRaw(func(idx *snapshot.SnapshotIndex) error {
+		for id, m := range records {
+			if r := idx.Snapshots[id]; r != nil && r.SizeBytes != m.sizeBytes {
+				r.SizeBytes = m.sizeBytes
+			}
+		}
+		return nil
+	}); err != nil {
+		logger.Warnf(ctx, "persist backfilled SizeBytes: %v", err)
+	}
 }
 
 // cleanResolvedRecords drops resolved records; pending only past grace.

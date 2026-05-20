@@ -88,8 +88,7 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 	})
 }
 
-// UpdateStates batch-updates the State field for ids; sets StartedAt/StoppedAt as appropriate.
-// Emits metering vm.compute.stop on Running→Stopped transitions; other state transitions do not emit.
+// UpdateStates batch-updates State + StartedAt/StoppedAt; emits metering vm.compute.stop only on Running→Stopped.
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
@@ -110,17 +109,9 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 				r.StartedAt = &now
 			case types.VMStateStopped:
 				r.StoppedAt = &now
-				// Only emit when we actually closed a Running interval; idempotent
-				// stops (already-Stopped, Error→Stopped) would create phantom intervals.
+				// Only Running→Stopped closes a real interval; idempotent stops would emit a phantom.
 				if oldState == types.VMStateRunning {
-					stopped = append(stopped, metering.Entry{
-						Kind:       metering.KindVMComputeStop,
-						VMID:       id,
-						Reason:     metering.ReasonStopUser,
-						Hypervisor: b.Typ,
-						Shape:      shapeFromConfig(r.Config),
-						EmittedAt:  now,
-					})
+					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopUser, shapeFromConfig(r.Config), now))
 				}
 			}
 		}
@@ -128,9 +119,7 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 	}); err != nil {
 		return err
 	}
-	for _, e := range stopped {
-		b.meter().Emit(ctx, e)
-	}
+	b.emitAll(ctx, stopped)
 	return nil
 }
 
@@ -141,13 +130,9 @@ func (b *Backend) MarkError(ctx context.Context, id string) {
 	}
 }
 
-// BatchMarkStarted flips ids to VMStateRunning and stamps FirstBooted=true in one DB write.
-// Caller MUST pass only ids that were actually launched in this call (no-op
-// already-Running VMs must be filtered out by the caller). If the DB still
-// shows Running when an id arrives here, it's a stale-running record whose
-// process had crashed; close that orphan interval with reason stop-crash
-// before opening the fresh interval (no precise crash time available — use
-// the relaunch boundary).
+// BatchMarkStarted flips ids to VMStateRunning. Caller MUST pass only actually-launched ids;
+// an id arriving here with DB State==Running is a stale-running record (process had crashed) —
+// close that orphan with reason stop-crash before opening the fresh interval.
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -162,27 +147,13 @@ func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 			}
 			shape := shapeFromConfig(r.Config)
 			if r.State == types.VMStateRunning {
-				emits = append(emits, metering.Entry{
-					Kind:       metering.KindVMComputeStop,
-					VMID:       id,
-					Reason:     metering.ReasonStopCrash,
-					Hypervisor: b.Typ,
-					Shape:      shape,
-					EmittedAt:  now,
-				})
+				emits = append(emits, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopCrash, shape, now))
 			}
 			reason := metering.ReasonBoot
 			if r.FirstBooted {
 				reason = metering.ReasonRestart
 			}
-			emits = append(emits, metering.Entry{
-				Kind:       metering.KindVMComputeStart,
-				VMID:       id,
-				Reason:     reason,
-				Hypervisor: b.Typ,
-				Shape:      shape,
-				EmittedAt:  now,
-			})
+			emits = append(emits, b.makeEntry(metering.KindVMComputeStart, id, reason, shape, now))
 			r.State = types.VMStateRunning
 			r.StartedAt = &now
 			r.UpdatedAt = now
@@ -192,9 +163,7 @@ func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	}); err != nil {
 		return err
 	}
-	for _, e := range emits {
-		b.meter().Emit(ctx, e)
-	}
+	b.emitAll(ctx, emits)
 	return nil
 }
 
