@@ -65,6 +65,11 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 	if err != nil {
 		return nil, err
 	}
+	// One /proc scan up-front; per-VM orphan check filters this cache instead of re-walking /proc N times.
+	procScan, scanErr := utils.ScanProcsByBinary(b.Conf.BinaryName())
+	if scanErr != nil {
+		return nil, fmt.Errorf("refuse delete: /proc scan errored: %w (resolve the host issue and retry)", scanErr)
+	}
 	return b.ForEachVM(ctx, ids, "Delete", func(ctx context.Context, id string) error {
 		rec, loadErr := b.LoadRecord(ctx, id)
 		if loadErr != nil {
@@ -91,12 +96,7 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			}
 			return fmt.Errorf("refuse delete: api socket %s still responsive (suspected orphan vmm; kill the vmm process then retry)", sockPath)
 		}
-		// Catches workers/siblings the pidfile-based stop didn't see; fail-closed on scan error so we never wipe rundir while VMM state is unknown.
-		scanned, scanErr := utils.FindVMMByCmdline(b.Conf.BinaryName(), sockPath)
-		if scanErr != nil {
-			return fmt.Errorf("refuse delete: VM %s /proc scan errored: %w (resolve the host issue and retry)", id, scanErr)
-		}
-		for _, pid := range scanned {
+		for _, pid := range procScan.Find(sockPath) {
 			if termErr := utils.TerminateProcess(ctx, pid, b.Conf.BinaryName(), sockPath, b.Conf.TerminateGracePeriod()); termErr != nil {
 				return fmt.Errorf("terminate orphan VMM pid=%d for VM %s: %w", pid, id, termErr)
 			}

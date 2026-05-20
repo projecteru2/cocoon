@@ -21,12 +21,28 @@ func (b *Backend) Inspect(ctx context.Context, ref string) (*types.VM, error) {
 	})
 }
 
+// List snapshots all records under the DB lock then runs ToVM (which does file IO) outside the lock so concurrent writers don't queue behind status polls. Mutable map fields are cloned inside the lock to avoid a concurrent-read race with RecordSnapshot etc.
 func (b *Backend) List(ctx context.Context) ([]*types.VM, error) {
-	var result []*types.VM
-	return result, b.DB.With(ctx, func(idx *VMIndex) error {
-		result = utils.MapValues(idx.VMs, b.ToVM)
+	var recs []*VMRecord
+	if err := b.DB.With(ctx, func(idx *VMIndex) error {
+		recs = make([]*VMRecord, 0, len(idx.VMs))
+		for _, r := range idx.VMs {
+			if r == nil {
+				continue
+			}
+			cp := *r
+			cp.SnapshotIDs = maps.Clone(r.SnapshotIDs)
+			recs = append(recs, &cp)
+		}
 		return nil
-	})
+	}); err != nil {
+		return nil, err
+	}
+	result := make([]*types.VM, len(recs))
+	for i, r := range recs {
+		result[i] = b.ToVM(r)
+	}
+	return result, nil
 }
 
 func (b *Backend) ToVM(rec *VMRecord) *types.VM {
