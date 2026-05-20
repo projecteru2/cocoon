@@ -10,12 +10,7 @@ import (
 )
 
 func (fc *Firecracker) Console(ctx context.Context, ref string) (io.ReadWriteCloser, error) {
-	id, err := fc.ResolveRef(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-
-	rec, err := fc.LoadRecord(ctx, id)
+	id, rec, err := fc.ResolveAndLoad(ctx, ref)
 	if err != nil {
 		return nil, err
 	}

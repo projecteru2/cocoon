@@ -59,25 +59,11 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 		return "", fmt.Errorf("compute data dir size: %w", sizeErr)
 	}
 	now := time.Now()
-	if err = lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
-		if cfg.Name != "" {
-			if existingID, ok := idx.Names[cfg.Name]; ok {
-				return fmt.Errorf("snapshot name %q already in use by %s", cfg.Name, existingID)
-			}
-		}
-		idx.Snapshots[id] = &snapshot.SnapshotRecord{
-			Snapshot: types.Snapshot{
-				SnapshotConfig: cfg,
-				CreatedAt:      now,
-			},
-			DataDir:        dataDir,
-			SizeBytes:      size,
-			LastAccessedAt: now,
-		}
-		if cfg.Name != "" {
-			idx.Names[cfg.Name] = id
-		}
-		return nil
+	if err = lf.insertRecord(ctx, id, cfg.Name, &snapshot.SnapshotRecord{
+		Snapshot:       types.Snapshot{SnapshotConfig: cfg, CreatedAt: now},
+		DataDir:        dataDir,
+		SizeBytes:      size,
+		LastAccessedAt: now,
 	}); err != nil {
 		return "", err
 	}

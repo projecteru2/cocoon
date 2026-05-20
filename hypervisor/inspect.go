@@ -73,6 +73,23 @@ func (b *Backend) LoadRecord(ctx context.Context, id string) (VMRecord, error) {
 	})
 }
 
+// ResolveAndLoad combines ResolveRef + LoadRecord under a single DB lock.
+func (b *Backend) ResolveAndLoad(ctx context.Context, ref string) (string, VMRecord, error) {
+	var (
+		id  string
+		rec VMRecord
+	)
+	return id, rec, b.DB.With(ctx, func(idx *VMIndex) error {
+		var err error
+		id, err = idx.Resolve(ref)
+		if err != nil {
+			return err
+		}
+		rec, err = utils.LookupCopy(idx.VMs, id)
+		return err
+	})
+}
+
 func vsockBound(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

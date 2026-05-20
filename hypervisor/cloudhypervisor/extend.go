@@ -202,11 +202,7 @@ func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*
 }
 
 func (ch *CloudHypervisor) runningVMClientWithRecord(ctx context.Context, vmRef string) (*http.Client, string, hypervisor.VMRecord, error) {
-	vmID, err := ch.ResolveRef(ctx, vmRef)
-	if err != nil {
-		return nil, "", hypervisor.VMRecord{}, err
-	}
-	rec, err := ch.LoadRecord(ctx, vmID)
+	vmID, rec, err := ch.ResolveAndLoad(ctx, vmRef)
 	if err != nil {
 		return nil, "", hypervisor.VMRecord{}, err
 	}
