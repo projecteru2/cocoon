@@ -88,29 +88,28 @@ func NewBackend(typ string, conf BackendConfig, rec metering.Recorder) (*Backend
 	}, nil
 }
 
-// LaunchSpec is the per-call input to Backend.LaunchVMProcess. Shared
-// BinaryName / SocketWaitTimeout come from BackendConfig.
+// LaunchSpec is the per-call input to Backend.LaunchVMProcess.
 type LaunchSpec struct {
 	Cmd       *exec.Cmd
 	PIDPath   string
 	SockPath  string
-	NetnsPath string // empty = host netns
-	OnFail    func() // optional cleanup on any error path
+	NetnsPath string
+	OnFail    func()
 }
 
-// RestoreSpec carries the backend-specific hooks for Backend.RestoreSequence.
+// RestoreSpec carries backend hooks for Backend.RestoreSequence.
 type RestoreSpec struct {
 	VMCfg            *types.VMConfig
 	Snapshot         io.Reader
-	SourceSnapshotID string // for metering lineage; emitted on the restore close+open events
+	SourceSnapshotID string
 	Preflight        func(stagingDir string, rec *VMRecord) error
 	Kill             func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap             func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
-	BeforeMerge      func(rec *VMRecord) error                  // e.g. FC removes stale COW
+	Wrap             func(rec *VMRecord, fn func() error) error
+	BeforeMerge      func(rec *VMRecord) error
 	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// DirectRestoreSpec is RestoreSpec for a local srcDir rather than a tar; Populate replaces staging+merge.
+// DirectRestoreSpec is RestoreSpec for a local srcDir; Populate replaces staging+merge.
 type DirectRestoreSpec struct {
 	VMCfg            *types.VMConfig
 	SrcDir           string
@@ -122,20 +121,20 @@ type DirectRestoreSpec struct {
 	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// StartSpec carries StartSequence inputs: Launch builds + exec the VMM, PostLaunch is optional config-via-REST that the backend rolls back via AbortLaunch on failure.
+// StartSpec carries StartSequence inputs.
 type StartSpec struct {
 	RuntimeFiles []string
 	Launch       func(ctx context.Context, rec *VMRecord, sockPath string) (int, error)
 	PostLaunch   func(ctx context.Context, rec *VMRecord, sockPath string, pid int) error
 }
 
-// StopSpec carries StopOneSequence inputs: Shutdown picks the backend-specific path (force vs graceful) once WithRunningVM confirms the process is live.
+// StopSpec carries StopOneSequence inputs.
 type StopSpec struct {
 	RuntimeFiles []string
 	Shutdown     func(ctx context.Context, rec *VMRecord, sockPath string, pid int) error
 }
 
-// CreateSpec carries CreateSequence inputs; Prepare returns final storage configs (COW + data disks).
+// CreateSpec carries CreateSequence inputs.
 type CreateSpec struct {
 	VMCfg          *types.VMConfig
 	StorageConfigs []*types.StorageConfig

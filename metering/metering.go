@@ -1,6 +1,4 @@
-// Package metering emits append-only VM/snapshot lifecycle endpoints
-// for downstream usage/billing pipelines. cocoon emits raw signals only;
-// tenant attribution and pricing are layered above.
+// Package metering emits append-only VM/snapshot lifecycle endpoints; tenant attribution lives upstream.
 package metering
 
 import (

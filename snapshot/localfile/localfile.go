@@ -80,7 +80,7 @@ func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, types.Sna
 	return rec.DataDir, snapshotRecordToConfig(rec), nil
 }
 
-// Create stores a snapshot from stream via placeholder→extract→finalize so a mid-flight crash leaves only a pending record for GC; emits metering snap.storage.start on success.
+// Create stores a snapshot via placeholder→extract→finalize; a mid-flight crash leaves a pending record for GC.
 func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (_ string, err error) {
 	id := cfg.ID
 	if id == "" {
@@ -172,7 +172,7 @@ func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, 
 	return &s, nil
 }
 
-// Delete removes each ref atomically (rm dir → DB update) and emits snap.storage.stop per deleted id; a mid-loop rm-OK-then-DB-fail leaves a stale DB record that GC reclaims.
+// Delete removes each ref (rm dir → DB update); a mid-loop rm-OK-then-DB-fail leaves a stale DB record for GC.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
@@ -205,7 +205,7 @@ func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy, lf.metering))
 }
 
-// deleteOne removes one snapshot atomically; idempotent under concurrent rm — if the rival wins the DB race we report success (data is gone) but skip emit, so the ledger holds exactly one stop event per snapshot.
+// deleteOne is idempotent under concurrent rm; the rival's emit is skipped so the ledger keeps exactly one stop per snapshot.
 func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 	if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
 		return fmt.Errorf("remove data dir %s: %w", id, err)

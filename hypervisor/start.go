@@ -13,7 +13,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// StartAll runs startOne per ref; only ids that returned launched=true reach BatchMarkStarted, so already-running no-ops don't open duplicate intervals.
+// StartAll runs startOne per ref; only launched=true ids reach BatchMarkStarted.
 func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) (bool, error)) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
@@ -95,7 +95,7 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	return &rec, nil
 }
 
-// LaunchVMProcess starts spec.Cmd and waits for the API socket; any post-Start error kills the process + removes the PID file. Caller reaps via cmd.Wait().
+// LaunchVMProcess starts spec.Cmd and waits for the API socket; any post-Start error kills the process + removes the PID file.
 func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int, err error) {
 	started := false
 	pidWritten := false

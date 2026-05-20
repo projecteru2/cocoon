@@ -59,7 +59,7 @@ func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(conte
 	return succeeded, forEachErr
 }
 
-// DeleteAll removes VMs by ref; dir cleanup runs before DB delete so a failed cleanup leaves a retry-able record (vs an orphan rundir with no index entry).
+// DeleteAll removes VMs by ref; dir cleanup before DB delete keeps a failed cleanup retry-able.
 func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stopOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/projecteru2/core/log"
 )
 
-// FileRecorder appends JSON-encoded entries one per line; POSIX makes single write(2) to O_APPEND atomic across processes, so the mutex only serializes in-process writes.
+// FileRecorder appends JSON-encoded entries one per line under sync.Mutex; cross-process atomicity comes from O_APPEND.
 type FileRecorder struct {
 	mu sync.Mutex
 	f  *os.File
@@ -25,7 +25,7 @@ func NewFileRecorder(ctx context.Context, path string) Recorder {
 	return &FileRecorder{f: f}
 }
 
-// Emit logs and swallows write errors so the caller's state machine is never blocked.
+// Emit logs and swallows write errors to never block callers.
 func (r *FileRecorder) Emit(ctx context.Context, e Entry) {
 	data, err := json.Marshal(e)
 	if err != nil {

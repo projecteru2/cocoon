@@ -224,7 +224,7 @@ func logEvictRow(ctx context.Context, logger *log.Fields, verb, id string, m sna
 		verb, id, m.name, m.sizeBytes, accessed, reason)
 }
 
-// backfillSizeBytes fills in sizeBytes for any record whose SizeBytes wasn't persisted, then writes the resolved values back so future GC runs can skip the du.
+// backfillSizeBytes computes + persists SizeBytes for records missing it so future GC skips du.
 func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
 	logger := log.WithFunc("gc.snapshot")
 	var changed bool

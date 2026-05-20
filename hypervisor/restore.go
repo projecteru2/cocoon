@@ -15,7 +15,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// KillForRestore stops the running VM via the backend-specific terminate hook and clears runtime files.
 func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord, terminate func(pid int) error, runtimeFiles []string) error {
 	killErr := b.WithRunningVM(ctx, rec, terminate)
 	if killErr != nil && !errors.Is(killErr, ErrNotRunning) {
@@ -26,7 +25,6 @@ func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord
 	return nil
 }
 
-// ResolveForRestore resolves vmRef and validates the VM is running.
 func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, *VMRecord, error) {
 	vmID, err := b.ResolveRef(ctx, vmRef)
 	if err != nil {
@@ -42,7 +40,6 @@ func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, 
 	return vmID, &rec, nil
 }
 
-// FinalizeRestore updates DB and assembles the returned VM.
 func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord, pid int) (*types.VM, error) {
 	now := time.Now()
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
@@ -69,7 +66,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	return &info, nil
 }
 
-// RestoreSequence is the shared restore skeleton. Staging happens before the kill so a preflight failure leaves the original VM running.
+// RestoreSequence is the shared restore skeleton (preflight before kill).
 func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec RestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -120,7 +117,7 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	return result, nil
 }
 
-// DirectRestoreSequence restores from a local snapshot directory; Populate replaces the tar staging+merge step used by RestoreSequence.
+// DirectRestoreSequence restores from a local snapshot directory.
 func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec DirectRestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -179,7 +176,7 @@ func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldSh
 	})
 }
 
-// emitRestoreSuccess closes the old storage interval and opens fresh storage+compute; called only after restore fully succeeds.
+// emitRestoreSuccess closes old storage and opens fresh storage+compute.
 func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
 	now := time.Now()
 	b.Metering.Emit(ctx, metering.Entry{
@@ -189,7 +186,6 @@ func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape
 	b.emitOpenInterval(ctx, vm, metering.ReasonRestore, sourceSnapshotID, now)
 }
 
-// PrepareStagingDir extracts the snapshot tar into a sibling staging dir.
 func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cleanup func(), err error) {
 	stagingDir = runDir + ".restore-staging"
 	if err = os.RemoveAll(stagingDir); err != nil {
