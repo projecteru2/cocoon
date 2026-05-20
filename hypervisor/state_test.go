@@ -126,12 +126,10 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 		t.Errorf("Created→Stopped emitted %d; want 0", len(got))
 	}
 
-	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
-		t.Fatalf("UpdateStates(running): %v", err)
+	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
+		t.Fatalf("BatchMarkStarted: %v", err)
 	}
-	if got := rec.Entries(); len(got) != 0 {
-		t.Errorf("Stopped→Running emitted %d; want 0", len(got))
-	}
+	rec.Reset()
 
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped): %v", err)
@@ -141,8 +139,8 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 		t.Fatalf("Running→Stopped: got %+v, want one compute.stop reason=user", entries)
 	}
 
-	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
-		t.Fatalf("UpdateStates(running again): %v", err)
+	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
+		t.Fatalf("BatchMarkStarted (relaunch): %v", err)
 	}
 	rec.Reset()
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
@@ -150,6 +148,15 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 	}
 	if got := rec.Entries(); len(got) != 0 {
 		t.Errorf("Running→Error must not emit; got %d entries", len(got))
+	}
+}
+
+func TestUpdateStatesRunningIsRejected(t *testing.T) {
+	b, _ := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, false)
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err == nil {
+		t.Fatal("UpdateStates(Running) must return an error to steer callers to BatchMarkStarted")
 	}
 }
 
@@ -488,8 +495,11 @@ func TestDeleteAfterErrorEmitsOnlyStorageStop(t *testing.T) {
 	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, true)
-	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
-		t.Fatalf("UpdateStates(running): %v", err)
+	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
+		t.Fatalf("BatchMarkStarted: %v", err)
+	}
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
+		t.Fatalf("UpdateStates(stopped): %v", err)
 	}
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
 		t.Fatalf("UpdateStates(error): %v", err)

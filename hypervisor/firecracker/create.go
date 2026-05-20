@@ -57,6 +57,15 @@ func (fc *Firecracker) prepareOCI(ctx context.Context, vmID string, vmCfg *types
 	return storageConfigs, nil
 }
 
+// DevPath maps idx to vda..vdz, vdaa..vdaz, vdba..vdbz, ...
+func DevPath(idx int) string {
+	const letters = 26
+	if idx < letters {
+		return fmt.Sprintf("/dev/vd%c", 'a'+idx)
+	}
+	return fmt.Sprintf("/dev/vd%c%c", 'a'+(idx/letters)-1, 'a'+idx%letters)
+}
+
 // EnsureVmlinux decompresses kernelPath if needed and returns the ELF path.
 func EnsureVmlinux(kernelPath string) (string, error) {
 	elfMagic := []byte{0x7f, 'E', 'L', 'F'}
@@ -162,13 +171,4 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 		DevPath(len(layerDevs)),
 		networkConfigs, vmName, dnsServers,
 	)
-}
-
-// DevPath maps idx to vda..vdz, vdaa..vdaz, vdba..vdbz, ...
-func DevPath(idx int) string {
-	const letters = 26
-	if idx < letters {
-		return fmt.Sprintf("/dev/vd%c", 'a'+idx)
-	}
-	return fmt.Sprintf("/dev/vd%c%c", 'a'+(idx/letters)-1, 'a'+idx%letters)
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-const socketProbeTimeout = 2 * time.Second
+const socketProbeTimeout = 500 * time.Millisecond
 
 // WithRunningVM calls fn if rec still points to a live VM process.
 func (b *Backend) WithRunningVM(ctx context.Context, rec *VMRecord, fn func(pid int) error) error {
@@ -88,10 +88,13 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 	})
 }
 
-// UpdateStates batch-updates State; transitions to Stopped close the compute interval when one is open (covers Error→Stopped from rm --force or recovery stop). Error transitions leave StoppedAt nil because many MarkError paths can't prove the process is dead.
+// UpdateStates flips ids to Stopped or Error and emits compute.stop on Running→Stopped (Error paths can't prove the process is dead so the interval stays open until a confirmed-dead helper closes it). To open a fresh interval, use BatchMarkStarted — UpdateStates intentionally rejects Running to avoid silent ledger drift.
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
+	}
+	if state == types.VMStateRunning {
+		return fmt.Errorf("UpdateStates(Running) not allowed; use BatchMarkStarted")
 	}
 	now := time.Now()
 	var stopped []metering.Entry
@@ -103,15 +106,9 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 			}
 			r.State = state
 			r.UpdatedAt = now
-			switch state {
-			case types.VMStateRunning:
-				r.StartedAt = &now
-				r.StoppedAt = nil
-			case types.VMStateStopped:
-				if hasOpenComputeInterval(r) {
-					r.StoppedAt = &now
-					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopUser, shapeFromConfig(r.Config), now))
-				}
+			if state == types.VMStateStopped && hasOpenComputeInterval(r) {
+				r.StoppedAt = &now
+				stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopUser, shapeFromConfig(r.Config), now))
 			}
 		}
 		return nil
@@ -129,7 +126,7 @@ func (b *Backend) MarkError(ctx context.Context, id string) {
 	}
 }
 
-// BatchMarkStarted flips ids to VMStateRunning; State==Running entrants are stale-running (close stop-crash, then open fresh).
+// BatchMarkStarted flips ids to VMStateRunning; entrants with an open compute interval are stale-running (close stop-crash, then open fresh).
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

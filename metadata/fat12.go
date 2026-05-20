@@ -27,6 +27,19 @@ const (
 	mediaDesc      = 0xF8
 )
 
+// CreateFAT12 streams a 1 MiB FAT12 image with VFAT long-filename support to w.
+// label is the volume label (e.g. "CIDATA"); files maps filename → content.
+func CreateFAT12(w io.Writer, label string, files map[string][]byte) error {
+	b := newFAT12Builder(label)
+
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		if err := b.addFile(name, files[name]); err != nil {
+			return err
+		}
+	}
+	return b.writeTo(w)
+}
+
 type dataEntry struct {
 	data        []byte
 	numClusters int
@@ -187,19 +200,6 @@ func (b *fat12Builder) makeBootSector() []byte {
 	copy(boot[54:62], "FAT12   ")     //nolint:mnd
 	boot[510], boot[511] = 0x55, 0xAA //nolint:mnd
 	return boot
-}
-
-// CreateFAT12 streams a 1 MiB FAT12 image with VFAT long-filename support to w.
-// label is the volume label (e.g. "CIDATA"); files maps filename → content.
-func CreateFAT12(w io.Writer, label string, files map[string][]byte) error {
-	b := newFAT12Builder(label)
-
-	for _, name := range slices.Sorted(maps.Keys(files)) {
-		if err := b.addFile(name, files[name]); err != nil {
-			return err
-		}
-	}
-	return b.writeTo(w)
 }
 
 // setFATEntry writes a 12-bit value into the FAT at the given cluster index.

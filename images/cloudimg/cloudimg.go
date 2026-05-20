@@ -31,6 +31,9 @@ type CloudImg struct {
 }
 
 func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
+	if conf == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
 	cfg := NewConfig(conf)
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
