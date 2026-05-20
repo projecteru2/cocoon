@@ -367,8 +367,8 @@ func TestGCModule_EvictRealRecordEmitsSnapStorageStop(t *testing.T) {
 		}
 	}
 
-	cap := &metering.CaptureRecorder{}
-	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true}, cap)
+	rec := &metering.CaptureRecorder{}
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true}, rec)
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -381,7 +381,7 @@ func TestGCModule_EvictRealRecordEmitsSnapStorageStop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2 (one stop per evicted record)", len(entries))
 	}
@@ -424,8 +424,8 @@ func TestGCModule_OrphanAndStalePendingDoNotEmit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cap := &metering.CaptureRecorder{}
-	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{}, cap)
+	rec := &metering.CaptureRecorder{}
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{}, rec)
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -437,7 +437,7 @@ func TestGCModule_OrphanAndStalePendingDoNotEmit(t *testing.T) {
 	if err := mod.Collect(ctx, ids, snap); err != nil {
 		t.Fatal(err)
 	}
-	if got := cap.Entries(); len(got) != 0 {
+	if got := rec.Entries(); len(got) != 0 {
 		t.Errorf("got %d entries; orphan/stale-pending must not emit stop", len(got))
 	}
 }

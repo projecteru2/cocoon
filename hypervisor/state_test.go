@@ -46,14 +46,14 @@ func newMeteringTestBackend(t *testing.T) (*Backend, *metering.CaptureRecorder) 
 	dir := t.TempDir()
 	locker := flock.New(filepath.Join(dir, "index.lock"))
 	store := storejson.New[VMIndex](filepath.Join(dir, "index.json"), locker)
-	cap := &metering.CaptureRecorder{}
+	rec := &metering.CaptureRecorder{}
 	return &Backend{
 		Typ:      "test-hv",
 		Conf:     stubBackendConfig{},
 		DB:       store,
 		Locker:   locker,
-		Metering: cap,
-	}, cap
+		Metering: rec,
+	}, rec
 }
 
 func seedVMRecord(t *testing.T, b *Backend, id string, cpu int, mem, storage int64, firstBooted bool) {
@@ -74,14 +74,14 @@ func seedVMRecord(t *testing.T, b *Backend, id string, cpu int, mem, storage int
 }
 
 func TestBatchMarkStartedEmitsComputeStart(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 2, 4<<30, 10<<30, false)
 
 	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
 		t.Fatalf("BatchMarkStarted: %v", err)
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
@@ -101,42 +101,42 @@ func TestBatchMarkStartedEmitsComputeStart(t *testing.T) {
 }
 
 func TestBatchMarkStartedReasonRestartWhenAlreadyBooted(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
 
 	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
 		t.Fatalf("BatchMarkStarted: %v", err)
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 || entries[0].Reason != metering.ReasonRestart {
 		t.Errorf("got %+v, want one entry with reason restart", entries)
 	}
 }
 
 func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
 
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped from created): %v", err)
 	}
-	if got := cap.Entries(); len(got) != 0 {
+	if got := rec.Entries(); len(got) != 0 {
 		t.Errorf("Created→Stopped emitted %d; want 0", len(got))
 	}
 
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
 		t.Fatalf("UpdateStates(running): %v", err)
 	}
-	if got := cap.Entries(); len(got) != 0 {
+	if got := rec.Entries(); len(got) != 0 {
 		t.Errorf("Stopped→Running emitted %d; want 0", len(got))
 	}
 
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped): %v", err)
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopUser {
 		t.Fatalf("Running→Stopped: got %+v, want one compute.stop reason=user", entries)
 	}
@@ -144,18 +144,18 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
 		t.Fatalf("UpdateStates(running again): %v", err)
 	}
-	cap.Reset()
+	rec.Reset()
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
 		t.Fatalf("UpdateStates(error): %v", err)
 	}
-	if got := cap.Entries(); len(got) != 0 {
+	if got := rec.Entries(); len(got) != 0 {
 		t.Errorf("Running→Error must not emit; got %d entries", len(got))
 	}
 }
 
 func TestPrepareStartClosesIntervalAfterMarkError(t *testing.T) {
 	// Running→Error must leave the interval open (UpdateStates(Error) doesn't write StoppedAt). The next PrepareStart confirms the process is dead and closes the interval.
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
 	dir := t.TempDir()
@@ -168,7 +168,7 @@ func TestPrepareStartClosesIntervalAfterMarkError(t *testing.T) {
 	}
 
 	b.MarkError(ctx, "vm1")
-	if got := cap.Entries(); len(got) != 0 {
+	if got := rec.Entries(); len(got) != 0 {
 		t.Fatalf("MarkError emitted %d; want 0", len(got))
 	}
 	loaded, _ := b.LoadRecord(ctx, "vm1")
@@ -176,14 +176,14 @@ func TestPrepareStartClosesIntervalAfterMarkError(t *testing.T) {
 		t.Errorf("MarkError must not write StoppedAt; got %v", loaded.StoppedAt)
 	}
 
-	rec, err := b.PrepareStart(ctx, "vm1", nil)
+	prep, err := b.PrepareStart(ctx, "vm1", nil)
 	if err != nil {
 		t.Fatalf("PrepareStart: %v", err)
 	}
-	if rec == nil {
+	if prep == nil {
 		t.Fatal("PrepareStart returned nil")
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopCrash {
 		t.Fatalf("got %+v, want one compute.stop reason=stop-crash", entries)
 	}
@@ -191,16 +191,16 @@ func TestPrepareStartClosesIntervalAfterMarkError(t *testing.T) {
 
 func TestStopAfterMarkErrorEmitsComputeStop(t *testing.T) {
 	// Running→Error→Stopped: MarkError leaves the interval open; the recovery stop confirms the process is dead and must close it.
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
 	b.MarkError(ctx, "vm1")
-	cap.Reset()
+	rec.Reset()
 
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped): %v", err)
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopUser {
 		t.Fatalf("got %+v, want one compute.stop reason=user", entries)
 	}
@@ -212,11 +212,11 @@ func TestStopAfterMarkErrorEmitsComputeStop(t *testing.T) {
 
 func TestDeleteForceClosesIntervalAfterMarkError(t *testing.T) {
 	// rm --force on an Error VM with a still-open interval must emit compute.stop, not just storage.stop.
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
 	b.MarkError(ctx, "vm1")
-	cap.Reset()
+	rec.Reset()
 
 	loaded, _ := b.LoadRecord(ctx, "vm1")
 	if !hasOpenComputeInterval(&loaded) {
@@ -224,14 +224,14 @@ func TestDeleteForceClosesIntervalAfterMarkError(t *testing.T) {
 	}
 
 	b.emitDeleteClose(ctx, "vm1", shapeFromConfig(loaded.Config), metering.ReasonStopCrash, hasOpenComputeInterval(&loaded))
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2 (compute.stop + storage.stop)", len(entries))
 	}
 }
 
 func TestPrepareStartClosesStaleInterval(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
 	dir := t.TempDir()
@@ -242,16 +242,16 @@ func TestPrepareStartClosesStaleInterval(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("set dirs: %v", err)
 	}
-	cap.Reset()
+	rec.Reset()
 
-	rec, err := b.PrepareStart(ctx, "vm1", nil)
+	prep, err := b.PrepareStart(ctx, "vm1", nil)
 	if err != nil {
 		t.Fatalf("PrepareStart: %v", err)
 	}
-	if rec == nil {
+	if prep == nil {
 		t.Fatal("PrepareStart returned nil (treated as already-running)")
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopCrash {
 		t.Fatalf("got %+v, want one compute.stop reason=stop-crash", entries)
 	}
@@ -268,7 +268,7 @@ func TestPrepareStartClosesStaleInterval(t *testing.T) {
 }
 
 func TestFinalizeCloneEmitsCloneEntries(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, false)
 
@@ -281,7 +281,7 @@ func TestFinalizeCloneEmitsCloneEntries(t *testing.T) {
 	if err := b.FinalizeClone(ctx, "vm1", info, nil, nil, "snap-source"); err != nil {
 		t.Fatalf("FinalizeClone: %v", err)
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2 (storage.start + compute.start)", len(entries))
 	}
@@ -312,7 +312,7 @@ func seedRunningVM(t *testing.T, b *Backend, id string, cpu int, mem, storage in
 }
 
 func TestDirectRestoreSequenceEmitsComputeStopThenTransition(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
 
@@ -332,7 +332,7 @@ func TestDirectRestoreSequenceEmitsComputeStopThenTransition(t *testing.T) {
 		t.Fatalf("DirectRestoreSequence: %v", err)
 	}
 
-	entries := cap.Entries()
+	entries := rec.Entries()
 	// compute.stop on kill; storage.stop + storage.start + compute.start on success.
 	if len(entries) != 4 {
 		t.Fatalf("got %d entries, want 4", len(entries))
@@ -368,7 +368,7 @@ func TestDirectRestoreSequenceEmitsComputeStopThenTransition(t *testing.T) {
 func TestDirectRestoreSequenceEmitsOnlyComputeStopOnPopulateFailure(t *testing.T) {
 	// Storage must stay open when restore fails after kill — the on-disk files
 	// are still the old shape and vm rm will close it later with reason vm-rm.
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
 
@@ -387,7 +387,7 @@ func TestDirectRestoreSequenceEmitsOnlyComputeStopOnPopulateFailure(t *testing.T
 	if _, err := b.DirectRestoreSequence(ctx, "vm1", spec); err == nil {
 		t.Fatal("expected error from populate failure")
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1 (compute.stop only; storage stays open)", len(entries))
 	}
@@ -404,7 +404,7 @@ func TestStartAllOnlyEmitsForActuallyLaunched(t *testing.T) {
 	//   - vm-stale:   DB Running, process dead, relaunched → launched=true → emit
 	// The bug being locked down: an earlier impl had BatchMarkStarted skip
 	// anything with r.State==Running, which silently dropped vm-stale.
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm-stopped", 1, 1<<30, 10<<30, false)
 	seedRunningVM(t, b, "vm-running", 1, 1<<30, 10<<30)
@@ -428,7 +428,7 @@ func TestStartAllOnlyEmitsForActuallyLaunched(t *testing.T) {
 		t.Errorf("succeeded %v, want 3", succeeded)
 	}
 
-	entries := cap.Entries()
+	entries := rec.Entries()
 	// vm-stopped → 1 entry (compute.start)
 	// vm-running → 0 entries (no-op)
 	// vm-stale   → 2 entries (compute.stop reason=stop-crash + compute.start reason=restart)
@@ -458,7 +458,7 @@ func TestStartAllOnlyEmitsForActuallyLaunched(t *testing.T) {
 }
 
 func TestFinalizeCreateEmitsStorageStart(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	// FinalizeCreate requires an existing placeholder.
 	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, false)
@@ -471,7 +471,7 @@ func TestFinalizeCreateEmitsStorageStart(t *testing.T) {
 	if err := b.FinalizeCreate(ctx, "vm1", info, nil, nil); err != nil {
 		t.Fatalf("FinalizeCreate: %v", err)
 	}
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
@@ -485,7 +485,7 @@ func TestFinalizeCreateEmitsStorageStart(t *testing.T) {
 }
 
 func TestDeleteAfterErrorEmitsOnlyStorageStop(t *testing.T) {
-	b, cap := newMeteringTestBackend(t)
+	b, rec := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, true)
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
@@ -494,10 +494,10 @@ func TestDeleteAfterErrorEmitsOnlyStorageStop(t *testing.T) {
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
 		t.Fatalf("UpdateStates(error): %v", err)
 	}
-	cap.Reset()
+	rec.Reset()
 
 	b.emitDeleteClose(ctx, "vm1", metering.Shape{CPU: 2, MemBytes: 2 << 30, StorageBytes: 20 << 30}, metering.ReasonStopCrash, false)
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 || entries[0].Kind != metering.KindVMStorageStop {
 		t.Fatalf("post-Error delete: got %+v, want one storage.stop", entries)
 	}

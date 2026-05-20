@@ -88,6 +88,8 @@ func NewBackend(typ string, conf BackendConfig, rec metering.Recorder) (*Backend
 	}, nil
 }
 
+func (b *Backend) Type() string { return b.Typ }
+
 // LaunchSpec is the per-call input to Backend.LaunchVMProcess.
 type LaunchSpec struct {
 	Cmd       *exec.Cmd
@@ -152,5 +154,3 @@ type SnapshotSpec struct {
 	AfterCapture func(rec *VMRecord, tmpDir string) error
 	BuildMeta    func(rec *VMRecord, tmpDir string) (*SnapshotMeta, error)
 }
-
-func (b *Backend) Type() string { return b.Typ }

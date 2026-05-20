@@ -106,6 +106,7 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 			switch state {
 			case types.VMStateRunning:
 				r.StartedAt = &now
+				r.StoppedAt = nil
 			case types.VMStateStopped:
 				if hasOpenComputeInterval(r) {
 					r.StoppedAt = &now
@@ -144,7 +145,6 @@ func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 			shape := shapeFromConfig(r.Config)
 			if hasOpenComputeInterval(r) {
 				emits = append(emits, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopCrash, shape, now))
-				r.StoppedAt = &now
 			}
 			reason := metering.ReasonBoot
 			if r.FirstBooted {
@@ -153,6 +153,7 @@ func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 			emits = append(emits, b.makeEntry(metering.KindVMComputeStart, id, reason, shape, now))
 			r.State = types.VMStateRunning
 			r.StartedAt = &now
+			r.StoppedAt = nil
 			r.UpdatedAt = now
 			r.FirstBooted = true
 		}
@@ -181,9 +182,10 @@ func (b *Backend) CleanStalePlaceholders(_ context.Context, ids []string) error 
 	})
 }
 
-// closeStaleComputeInterval emits stop-crash and writes StoppedAt; precondition: caller confirmed the process is dead.
+// closeStaleComputeInterval emits stop-crash and writes StoppedAt; precondition: caller confirmed the process is dead. Self-healing if the record vanishes (concurrent rm) or was already closed: skip emit.
 func (b *Backend) closeStaleComputeInterval(ctx context.Context, rec *VMRecord) {
 	now := time.Now()
+	closed := false
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		r := idx.VMs[rec.ID]
 		if r == nil || !hasOpenComputeInterval(r) {
@@ -194,18 +196,19 @@ func (b *Backend) closeStaleComputeInterval(ctx context.Context, rec *VMRecord) 
 		}
 		r.StoppedAt = &now
 		r.UpdatedAt = now
+		closed = true
 		return nil
 	}); err != nil {
 		log.WithFunc(b.Typ+".closeStaleComputeInterval").Warnf(ctx, "close interval for %s: %v", rec.ID, err)
 		return
 	}
+	if !closed {
+		return
+	}
 	b.Metering.Emit(ctx, b.makeEntry(metering.KindVMComputeStop, rec.ID, metering.ReasonStopCrash, shapeFromConfig(rec.Config), now))
 }
 
-// hasOpenComputeInterval reports whether the VM still has an unclosed compute interval in the ledger.
+// hasOpenComputeInterval reports whether the VM's record shows an unmatched compute.start (StoppedAt is the ledger-close sentinel; transitions to Running clear it).
 func hasOpenComputeInterval(r *VMRecord) bool {
-	if r == nil || r.StartedAt == nil {
-		return false
-	}
-	return r.StoppedAt == nil || r.StartedAt.After(*r.StoppedAt)
+	return r != nil && r.StartedAt != nil && r.StoppedAt == nil
 }

@@ -90,8 +90,8 @@ func TestNew_NilConfig(t *testing.T) {
 // Create
 
 func TestCreateAndDeleteEmitMetering(t *testing.T) {
-	cap := &metering.CaptureRecorder{}
-	lf := newTestLFWithRecorder(t, cap)
+	rec := &metering.CaptureRecorder{}
+	lf := newTestLFWithRecorder(t, rec)
 	ctx := t.Context()
 
 	id, err := lf.Create(ctx, &types.SnapshotConfig{
@@ -103,7 +103,7 @@ func TestCreateAndDeleteEmitMetering(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 {
 		t.Fatalf("after Create: got %d entries, want 1", len(entries))
 	}
@@ -115,7 +115,7 @@ func TestCreateAndDeleteEmitMetering(t *testing.T) {
 	if _, err := lf.Delete(ctx, []string{id}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	entries = cap.Entries()
+	entries = rec.Entries()
 	if len(entries) != 2 {
 		t.Fatalf("after Delete: got %d entries, want 2", len(entries))
 	}
@@ -132,8 +132,8 @@ func TestDeleteOneIdempotentDoesNotEmitTwice(t *testing.T) {
 	// phantom snap.storage.stop with an empty Hypervisor field. We exercise this
 	// by calling deleteOne twice on the same id (idempotent), simulating the
 	// loser running its loop body after the winner already committed.
-	cap := &metering.CaptureRecorder{}
-	lf := newTestLFWithRecorder(t, cap)
+	rec := &metering.CaptureRecorder{}
+	lf := newTestLFWithRecorder(t, rec)
 	ctx := t.Context()
 
 	id, err := lf.Create(ctx, &types.SnapshotConfig{
@@ -152,7 +152,7 @@ func TestDeleteOneIdempotentDoesNotEmitTwice(t *testing.T) {
 
 	// Ledger should hold exactly 2 entries: Create's start and the FIRST
 	// deleteOne's stop. The second call must not contribute a phantom event.
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2 (start + 1× stop); kinds = %v", len(entries), kinds(entries))
 	}
@@ -176,8 +176,8 @@ func kinds(entries []metering.Entry) []metering.Kind {
 }
 
 func TestImportEmitsSnapStorageStart(t *testing.T) {
-	cap := &metering.CaptureRecorder{}
-	lf := newTestLFWithRecorder(t, cap)
+	rec := &metering.CaptureRecorder{}
+	lf := newTestLFWithRecorder(t, rec)
 	ctx := t.Context()
 
 	envelope, err := snapshot.MarshalEnvelope(types.SnapshotConfig{
@@ -198,7 +198,7 @@ func TestImportEmitsSnapStorageStart(t *testing.T) {
 		t.Fatalf("Import: %v", err)
 	}
 
-	entries := cap.Entries()
+	entries := rec.Entries()
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1 (snap.storage.start)", len(entries))
 	}

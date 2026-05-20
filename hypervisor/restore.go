@@ -50,6 +50,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 		r.Config = *vmCfg
 		r.State = types.VMStateRunning
 		r.StartedAt = &now
+		r.StoppedAt = nil
 		r.UpdatedAt = now
 		return nil
 	}); err != nil {
@@ -157,32 +158,34 @@ func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec 
 	return result, nil
 }
 
-// emitRestoreComputeStop closes the compute interval and flips State→Stopped so a later MarkError won't re-emit; storage stays open until vm rm.
+// emitRestoreComputeStop closes the compute interval after a confirmed kill; fail-closed on DB error and skip on vanished record so the ledger never gets a phantom entry.
 func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldShape metering.Shape, sourceSnapshotID string) {
 	now := time.Now()
+	closed := false
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
-		if r := idx.VMs[vmID]; r != nil {
-			r.State = types.VMStateStopped
-			r.StoppedAt = &now
-			r.UpdatedAt = now
+		r := idx.VMs[vmID]
+		if r == nil || !hasOpenComputeInterval(r) {
+			return nil
 		}
+		r.State = types.VMStateStopped
+		r.StoppedAt = &now
+		r.UpdatedAt = now
+		closed = true
 		return nil
 	}); err != nil {
 		log.WithFunc(b.Typ+".emitRestoreComputeStop").Warnf(ctx, "mark stopped after kill %s: %v", vmID, err)
+		return
 	}
-	b.Metering.Emit(ctx, metering.Entry{
-		Kind: metering.KindVMComputeStop, VMID: vmID, SourceSnapshotID: sourceSnapshotID,
-		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
-	})
+	if !closed {
+		return
+	}
+	b.Metering.Emit(ctx, b.makeSourceEntry(metering.KindVMComputeStop, vmID, sourceSnapshotID, metering.ReasonRestore, oldShape, now))
 }
 
 // emitRestoreSuccess closes old storage and opens fresh storage+compute.
 func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
 	now := time.Now()
-	b.Metering.Emit(ctx, metering.Entry{
-		Kind: metering.KindVMStorageStop, VMID: vm.ID, SourceSnapshotID: sourceSnapshotID,
-		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
-	})
+	b.Metering.Emit(ctx, b.makeSourceEntry(metering.KindVMStorageStop, vm.ID, sourceSnapshotID, metering.ReasonRestore, oldShape, now))
 	b.emitOpenInterval(ctx, vm, metering.ReasonRestore, sourceSnapshotID, now)
 }
 
