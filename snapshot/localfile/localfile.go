@@ -86,6 +86,9 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 	if id == "" {
 		return "", fmt.Errorf("snapshot ID is required (must be set by caller)")
 	}
+	if err = cfg.Validate(); err != nil {
+		return "", err
+	}
 
 	dataDir := lf.conf.SnapshotDataDir(id)
 	now := time.Now()
