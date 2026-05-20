@@ -63,7 +63,7 @@ func (b *Backend) ResolveRefs(ctx context.Context, refs []string) ([]string, err
 	})
 }
 
-// LoadRecord returns a value-copy of the VMRecord.
+// LoadRecord returns a shallow value-copy; pointer/slice/map fields still alias the live record. Treat as read-only outside DB transactions.
 func (b *Backend) LoadRecord(ctx context.Context, id string) (VMRecord, error) {
 	var rec VMRecord
 	return rec, b.DB.With(ctx, func(idx *VMIndex) error {

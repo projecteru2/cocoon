@@ -73,6 +73,9 @@ func PreflightRestore(srcDir, rootDir, runDir string, rec *VMRecord, integrity f
 func CloneStorageConfigs(storageConfigs []*types.StorageConfig) []*types.StorageConfig {
 	out := make([]*types.StorageConfig, 0, len(storageConfigs))
 	for _, sc := range storageConfigs {
+		if sc == nil {
+			continue
+		}
 		cp := *sc
 		out = append(out, &cp)
 	}
