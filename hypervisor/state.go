@@ -88,7 +88,7 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 	})
 }
 
-// UpdateStates batch-updates State + StartedAt/StoppedAt; only Running→Stopped emits compute.stop (Error paths can't prove the process is dead).
+// UpdateStates batch-updates State; transitions to Stopped close the compute interval when one is open (covers Error→Stopped from rm --force or recovery stop). Error transitions leave StoppedAt nil because many MarkError paths can't prove the process is dead.
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
@@ -101,19 +101,16 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 			if r == nil {
 				continue
 			}
-			oldState := r.State
 			r.State = state
 			r.UpdatedAt = now
 			switch state {
 			case types.VMStateRunning:
 				r.StartedAt = &now
 			case types.VMStateStopped:
-				r.StoppedAt = &now
-				if oldState == types.VMStateRunning {
+				if hasOpenComputeInterval(r) {
+					r.StoppedAt = &now
 					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopUser, shapeFromConfig(r.Config), now))
 				}
-			case types.VMStateError:
-				// Don't write StoppedAt — many MarkError paths can't prove the process is dead, so the compute interval stays open in the ledger until a confirmed-dead path (closeStaleComputeInterval / DeleteAll) closes it.
 			}
 		}
 		return nil

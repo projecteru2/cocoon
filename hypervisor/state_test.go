@@ -189,6 +189,27 @@ func TestPrepareStartClosesIntervalAfterMarkError(t *testing.T) {
 	}
 }
 
+func TestStopAfterMarkErrorEmitsComputeStop(t *testing.T) {
+	// Running→Error→Stopped: MarkError leaves the interval open; the recovery stop confirms the process is dead and must close it.
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+	b.MarkError(ctx, "vm1")
+	cap.Reset()
+
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
+		t.Fatalf("UpdateStates(stopped): %v", err)
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopUser {
+		t.Fatalf("got %+v, want one compute.stop reason=user", entries)
+	}
+	loaded, _ := b.LoadRecord(ctx, "vm1")
+	if loaded.StoppedAt == nil {
+		t.Error("StoppedAt nil after Stopped transition")
+	}
+}
+
 func TestDeleteForceClosesIntervalAfterMarkError(t *testing.T) {
 	// rm --force on an Error VM with a still-open interval must emit compute.stop, not just storage.stop.
 	b, cap := newMeteringTestBackend(t)
