@@ -90,24 +90,10 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 	dataDir := lf.conf.SnapshotDataDir(id)
 	now := time.Now()
 
-	if err = lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
-		if cfg.Name != "" {
-			if existingID, ok := idx.Names[cfg.Name]; ok {
-				return fmt.Errorf("snapshot name %q already in use by %s", cfg.Name, existingID)
-			}
-		}
-		idx.Snapshots[id] = &snapshot.SnapshotRecord{
-			Snapshot: types.Snapshot{
-				SnapshotConfig: *cfg,
-				CreatedAt:      now,
-			},
-			Pending: true,
-			DataDir: dataDir,
-		}
-		if cfg.Name != "" {
-			idx.Names[cfg.Name] = id
-		}
-		return nil
+	if err = lf.insertRecord(ctx, id, cfg.Name, &snapshot.SnapshotRecord{
+		Snapshot: types.Snapshot{SnapshotConfig: *cfg, CreatedAt: now},
+		Pending:  true,
+		DataDir:  dataDir,
 	}); err != nil {
 		return "", err
 	}
@@ -233,6 +219,22 @@ func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 		emitSnapStop(ctx, lf.metering, id, hypType)
 	}
 	return nil
+}
+
+// insertRecord adds rec under id with name-collision check; both Create (Pending) and Import (finalized) go through here.
+func (lf *LocalFile) insertRecord(ctx context.Context, id, name string, rec *snapshot.SnapshotRecord) error {
+	return lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		if name != "" {
+			if existingID, ok := idx.Names[name]; ok {
+				return fmt.Errorf("snapshot name %q already in use by %s", name, existingID)
+			}
+		}
+		idx.Snapshots[id] = rec
+		if name != "" {
+			idx.Names[name] = id
+		}
+		return nil
+	})
 }
 
 // rollbackCreate removes a placeholder snapshot record from the DB.

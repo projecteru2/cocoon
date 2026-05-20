@@ -15,12 +15,7 @@ import (
 // Console returns a bidirectional stream to the VM console: console.sock (UEFI) or the CH-allocated PTY (OCI).
 // Caller closes the returned ReadWriteCloser.
 func (ch *CloudHypervisor) Console(ctx context.Context, ref string) (io.ReadWriteCloser, error) {
-	id, err := ch.ResolveRef(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-
-	rec, err := ch.LoadRecord(ctx, id)
+	id, rec, err := ch.ResolveAndLoad(ctx, ref)
 	if err != nil {
 		return nil, err
 	}

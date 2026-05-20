@@ -2,7 +2,6 @@ package snapshot
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -58,11 +57,7 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	}
 	defer stream.Close() //nolint:errcheck
 
-	// Close stream on ctx cancel so Ctrl+C doesn't hang on the pipe.
-	stop := context.AfterFunc(ctx, func() {
-		stream.Close() //nolint:errcheck,gosec
-	})
-	defer stop()
+	defer cmdcore.CloseOnCancel(ctx, stream)()
 
 	cfg.Name = name
 	cfg.Description = description
@@ -199,11 +194,7 @@ func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("export: %w", err)
 	}
 	defer stream.Close() //nolint:errcheck
-
-	stop := context.AfterFunc(ctx, func() {
-		stream.Close() //nolint:errcheck,gosec
-	})
-	defer stop()
+	defer cmdcore.CloseOnCancel(ctx, stream)()
 
 	if output == "-" {
 		if _, err = io.Copy(os.Stdout, stream); err != nil {

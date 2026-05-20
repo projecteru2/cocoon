@@ -112,11 +112,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("open snapshot %s: %w", snapRef, err)
 	}
 	defer stream.Close() //nolint:errcheck
-
-	stop := context.AfterFunc(ctx, func() {
-		stream.Close() //nolint:errcheck,gosec
-	})
-	defer stop()
+	defer cmdcore.CloseOnCancel(ctx, stream)()
 
 	vmCfg, vmID, netProvider, netSetup, err := h.prepareClone(ctx, cmd, conf, cfg)
 	if err != nil {
@@ -191,11 +187,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("open snapshot: %w", err)
 	}
 	defer stream.Close() //nolint:errcheck
-
-	stop := context.AfterFunc(ctx, func() {
-		stream.Close() //nolint:errcheck,gosec
-	})
-	defer stop()
+	defer cmdcore.CloseOnCancel(ctx, stream)()
 
 	logger.Infof(ctx, "restoring VM %s from snapshot %s ...", vmRef, snapRef)
 

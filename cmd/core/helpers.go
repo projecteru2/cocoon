@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -446,6 +447,13 @@ func FormatSize(bytes int64) string {
 
 func IsURL(ref string) bool {
 	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
+}
+
+// CloseOnCancel closes c when ctx is canceled; callers `defer CloseOnCancel(ctx, c)()` to stop the watcher on return.
+func CloseOnCancel(ctx context.Context, c io.Closer) func() bool {
+	return context.AfterFunc(ctx, func() {
+		c.Close() //nolint:errcheck,gosec
+	})
 }
 
 // resolveOwner returns the unique backend where found==true; notFound on zero, ambiguous wrapped on multi-match (lists matched types).
