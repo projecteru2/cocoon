@@ -125,6 +125,56 @@ func TestCreateAndDeleteEmitMetering(t *testing.T) {
 	}
 }
 
+func TestDeleteOneIdempotentDoesNotEmitTwice(t *testing.T) {
+	// Two cocoon processes racing snapshot rm: flock serializes the store.Update
+	// closures, so the loser's closure sees a nil rec. The loser must still
+	// report success to its caller (the data is gone), but must NOT emit a
+	// phantom snap.storage.stop with an empty Hypervisor field. We exercise this
+	// by calling deleteOne twice on the same id (idempotent), simulating the
+	// loser running its loop body after the winner already committed.
+	cap := &metering.CaptureRecorder{}
+	lf := newTestLFWithRecorder(t, cap)
+	ctx := t.Context()
+
+	id, err := lf.Create(ctx, &types.SnapshotConfig{
+		ID: testID(t), Name: "raced", Hypervisor: "cloud-hypervisor",
+	}, makeTar(t, map[string][]byte{"cow.raw": []byte("x")}))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := lf.deleteOne(ctx, id); err != nil {
+		t.Fatalf("first deleteOne: %v", err)
+	}
+	if err := lf.deleteOne(ctx, id); err != nil {
+		t.Fatalf("second deleteOne (idempotent): %v", err)
+	}
+
+	// Ledger should hold exactly 2 entries: Create's start and the FIRST
+	// deleteOne's stop. The second call must not contribute a phantom event.
+	entries := cap.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 (start + 1× stop); kinds = %v", len(entries), kinds(entries))
+	}
+	if entries[0].Kind != metering.KindSnapStorageStart {
+		t.Errorf("entries[0] kind = %s, want snap.storage.start", entries[0].Kind)
+	}
+	if entries[1].Kind != metering.KindSnapStorageStop {
+		t.Errorf("entries[1] kind = %s, want snap.storage.stop", entries[1].Kind)
+	}
+	if entries[1].Hypervisor != "cloud-hypervisor" {
+		t.Errorf("stop entry has Hypervisor=%q; phantom emits leak as empty", entries[1].Hypervisor)
+	}
+}
+
+func kinds(entries []metering.Entry) []metering.Kind {
+	out := make([]metering.Kind, len(entries))
+	for i, e := range entries {
+		out[i] = e.Kind
+	}
+	return out
+}
+
 func TestImportEmitsSnapStorageStart(t *testing.T) {
 	cap := &metering.CaptureRecorder{}
 	lf := newTestLFWithRecorder(t, cap)

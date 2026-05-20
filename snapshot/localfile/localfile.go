@@ -194,24 +194,43 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 
 	var deleted []string
 	for _, id := range ids {
-		if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
-			return deleted, fmt.Errorf("remove data dir %s: %w", id, err)
+		if err := lf.deleteOne(ctx, id); err != nil {
+			return deleted, err
 		}
-		var hypType string
-		if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
-			rec := idx.Snapshots[id]
-			if rec == nil {
-				return nil
-			}
-			hypType = rec.Hypervisor
-			if rec.Name != "" {
-				delete(idx.Names, rec.Name)
-			}
-			delete(idx.Snapshots, id)
+		deleted = append(deleted, id)
+	}
+	return deleted, nil
+}
+
+// deleteOne removes one snapshot's data dir + DB record. Idempotent under
+// concurrent rm of the same id: if a rival process won the race to delete
+// the record, the Update closure sees a nil rec, we still report success to
+// the caller (data is gone), but we skip emit so the rival's stop event is
+// the only one in the ledger (no phantom with an empty Hypervisor).
+func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
+	if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
+		return fmt.Errorf("remove data dir %s: %w", id, err)
+	}
+	var (
+		hypType       string
+		deletedRecord bool
+	)
+	if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		rec := idx.Snapshots[id]
+		if rec == nil {
 			return nil
-		}); err != nil {
-			return deleted, fmt.Errorf("delete DB record %s: %w", id, err)
 		}
+		deletedRecord = true
+		hypType = rec.Hypervisor
+		if rec.Name != "" {
+			delete(idx.Names, rec.Name)
+		}
+		delete(idx.Snapshots, id)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("delete DB record %s: %w", id, err)
+	}
+	if deletedRecord {
 		lf.meter().Emit(ctx, metering.Entry{
 			Kind:       metering.KindSnapStorageStop,
 			SnapshotID: id,
@@ -219,9 +238,8 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 			Hypervisor: hypType,
 			EmittedAt:  time.Now(),
 		})
-		deleted = append(deleted, id)
 	}
-	return deleted, nil
+	return nil
 }
 
 func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotConfig, io.ReadCloser, error) {
