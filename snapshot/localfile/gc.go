@@ -13,6 +13,7 @@ import (
 
 	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/storage"
 	"github.com/cocoonstack/cocoon/utils"
@@ -34,39 +35,9 @@ func (p EvictionPolicy) hasCriteria() bool {
 	return p.KeepLast > 0 || p.MaxAge > 0 || p.MaxSize > 0
 }
 
-func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
-	logger := log.WithFunc("gc.snapshot")
-	var changed bool
-	for id, m := range records {
-		if m.sizeBytes > 0 {
-			continue
-		}
-		actual, err := utils.DirSize(conf.SnapshotDataDir(id))
-		if err != nil {
-			logger.Warnf(ctx, "DirSize for %s: %v", id, err)
-			continue
-		}
-		m.sizeBytes = actual
-		records[id] = m
-		changed = true
-	}
-	if !changed {
-		return
-	}
-	if err := store.WriteRaw(func(idx *snapshot.SnapshotIndex) error {
-		for id, m := range records {
-			if r := idx.Snapshots[id]; r != nil && r.SizeBytes != m.sizeBytes {
-				r.SizeBytes = m.sizeBytes
-			}
-		}
-		return nil
-	}); err != nil {
-		logger.Warnf(ctx, "persist backfilled SizeBytes: %v", err)
-	}
-}
-
 type snapshotMeta struct {
 	name         string
+	hypervisor   string
 	lastAccessed time.Time
 	sizeBytes    int64
 }
@@ -83,7 +54,7 @@ type snapshotGCSnapshot struct {
 
 func (s snapshotGCSnapshot) UsedBlobIDs() map[string]struct{} { return s.blobIDs }
 
-func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy) gc.Module[snapshotGCSnapshot] {
+func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker lock.Locker, policy EvictionPolicy, recorder metering.Recorder) gc.Module[snapshotGCSnapshot] {
 	return gc.Module[snapshotGCSnapshot]{
 		Name:   "snapshot",
 		Locker: locker,
@@ -108,6 +79,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 					}
 					snap.records[id] = snapshotMeta{
 						name:         rec.Name,
+						hypervisor:   rec.Hypervisor,
 						lastAccessed: rec.LastAccessedAt,
 						sizeBytes:    rec.SizeBytes,
 					}
@@ -165,6 +137,10 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 				}
 				logEvictRow(ctx, logger, "collected", id, snap.records[id], snap.reasons[id])
 				removed = append(removed, id)
+				// Skip orphan dirs and stale-pending — they never opened a snap.storage interval.
+				if m, ok := snap.records[id]; ok {
+					emitSnapStop(ctx, recorder, id, m.hypervisor)
+				}
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {
 				errs = append(errs, fmt.Errorf("clean DB records: %w", err))
@@ -246,6 +222,38 @@ func logEvictRow(ctx context.Context, logger *log.Fields, verb, id string, m sna
 	}
 	logger.Infof(ctx, "%s id=%s name=%s bytes=%d last_accessed=%s reason=%s",
 		verb, id, m.name, m.sizeBytes, accessed, reason)
+}
+
+// backfillSizeBytes computes + persists SizeBytes for records missing it so future GC skips du.
+func backfillSizeBytes(ctx context.Context, conf *Config, store storage.Store[snapshot.SnapshotIndex], records map[string]snapshotMeta) {
+	logger := log.WithFunc("gc.snapshot")
+	var changed bool
+	for id, m := range records {
+		if m.sizeBytes > 0 {
+			continue
+		}
+		actual, err := utils.DirSize(conf.SnapshotDataDir(id))
+		if err != nil {
+			logger.Warnf(ctx, "DirSize for %s: %v", id, err)
+			continue
+		}
+		m.sizeBytes = actual
+		records[id] = m
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	if err := store.WriteRaw(func(idx *snapshot.SnapshotIndex) error {
+		for id, m := range records {
+			if r := idx.Snapshots[id]; r != nil && r.SizeBytes != m.sizeBytes {
+				r.SizeBytes = m.sizeBytes
+			}
+		}
+		return nil
+	}); err != nil {
+		logger.Warnf(ctx, "persist backfilled SizeBytes: %v", err)
+	}
 }
 
 // cleanResolvedRecords drops resolved records; pending only past grace.

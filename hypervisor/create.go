@@ -7,6 +7,7 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -35,7 +36,6 @@ func (b *Backend) ReserveVM(ctx context.Context, id string, vmCfg *types.VMConfi
 	})
 }
 
-// RollbackCreate removes a placeholder VM record from the DB.
 func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		delete(idx.VMs, id)
@@ -48,9 +48,9 @@ func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 	}
 }
 
-// FinalizeCreate writes a populated VM record to DB, replacing the placeholder.
+// FinalizeCreate persists the populated VM record (replacing the placeholder) and emits metering vm.storage.start.
 func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}) error {
-	return b.DB.Update(ctx, func(idx *VMIndex) error {
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		existing, err := idx.GetRecord(id)
 		if err != nil {
 			return err
@@ -63,10 +63,14 @@ func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM,
 			LogDir:       existing.LogDir,
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	b.Metering.Emit(ctx, b.makeEntry(metering.KindVMStorageStart, id, metering.ReasonBoot, shapeFromConfig(info.Config), time.Now()))
+	return nil
 }
 
-// CreateSequence is the shared placeholder→finalize create skeleton; a mid-flight crash rolls back DB + rundir so GC has nothing to reconcile.
+// CreateSequence is the shared placeholder→finalize create skeleton.
 func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec) (_ *types.VM, err error) {
 	if err = ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err

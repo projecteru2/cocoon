@@ -5,23 +5,70 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// StartAll runs startOne for each ref and batch-flips the succeeded set to Running so a partial batch doesn't leave half-Running state.
-func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) error) ([]string, error) {
+// StartAll runs startOne per ref; only launched=true ids reach BatchMarkStarted.
+func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) (bool, error)) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
 		return nil, err
 	}
-	succeeded, forEachErr := b.ForEachVM(ctx, ids, "Start", startOne)
-	if batchErr := b.BatchMarkStarted(ctx, succeeded); batchErr != nil {
+	var (
+		mu       sync.Mutex
+		launched []string
+	)
+	wrapped := func(ctx context.Context, id string) error {
+		wasLaunched, sErr := startOne(ctx, id)
+		if sErr != nil {
+			return sErr
+		}
+		if wasLaunched {
+			mu.Lock()
+			launched = append(launched, id)
+			mu.Unlock()
+		}
+		return nil
+	}
+	succeeded, forEachErr := b.ForEachVM(ctx, ids, "Start", wrapped)
+	if batchErr := b.BatchMarkStarted(ctx, launched); batchErr != nil {
 		log.WithFunc(b.Typ+".Start").Warnf(ctx, "batch state update: %v", batchErr)
 	}
 	return succeeded, forEachErr
+}
+
+// StartSequence runs the shared start skeleton; returns whether a fresh process was launched.
+func (b *Backend) StartSequence(ctx context.Context, id string, spec StartSpec) (bool, error) {
+	rec, err := b.PrepareStart(ctx, id, spec.RuntimeFiles)
+	if err != nil {
+		return false, err
+	}
+	if rec == nil {
+		return false, nil
+	}
+	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
+		b.MarkError(ctx, id)
+		return false, fmt.Errorf("storage invariants violated: %w", vErr)
+	}
+	sockPath := SocketPath(rec.RunDir)
+	pid, err := spec.Launch(ctx, rec, sockPath)
+	if err != nil {
+		b.MarkError(ctx, id)
+		return false, fmt.Errorf("launch VM: %w", err)
+	}
+	if spec.PostLaunch != nil {
+		if err := spec.PostLaunch(ctx, rec, sockPath, pid); err != nil {
+			b.AbortLaunch(ctx, pid, sockPath, rec.RunDir, spec.RuntimeFiles)
+			b.MarkError(ctx, id)
+			return false, fmt.Errorf("configure VM: %w", err)
+		}
+	}
+	return true, nil
 }
 
 // PrepareStart loads the record, verifies not-running, ensures dirs exist.
@@ -36,7 +83,9 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	case runErr == nil:
 		return nil, nil // already running
 	case errors.Is(runErr, ErrNotRunning):
-		// expected — proceed to start
+		if hasOpenComputeInterval(&rec) {
+			b.closeStaleComputeInterval(ctx, &rec)
+		}
 	default:
 		return nil, fmt.Errorf("reconcile running VM %s: %w", id, runErr)
 	}
@@ -48,7 +97,7 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	return &rec, nil
 }
 
-// LaunchVMProcess starts spec.Cmd and waits for the API socket; any post-Start error kills the process + removes the PID file. Caller reaps via cmd.Wait().
+// LaunchVMProcess starts spec.Cmd and waits for the API socket; any post-Start error kills the process + removes the PID file.
 func (b *Backend) LaunchVMProcess(ctx context.Context, spec LaunchSpec) (pid int, err error) {
 	started := false
 	pidWritten := false

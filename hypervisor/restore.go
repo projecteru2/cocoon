@@ -8,11 +8,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// KillForRestore stops the running VM via the backend-specific terminate hook and clears runtime files.
 func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord, terminate func(pid int) error, runtimeFiles []string) error {
 	killErr := b.WithRunningVM(ctx, rec, terminate)
 	if killErr != nil && !errors.Is(killErr, ErrNotRunning) {
@@ -23,7 +25,6 @@ func (b *Backend) KillForRestore(ctx context.Context, vmID string, rec *VMRecord
 	return nil
 }
 
-// ResolveForRestore resolves vmRef and validates the VM is running.
 func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, *VMRecord, error) {
 	vmID, err := b.ResolveRef(ctx, vmRef)
 	if err != nil {
@@ -39,7 +40,6 @@ func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, 
 	return vmID, &rec, nil
 }
 
-// FinalizeRestore updates DB and assembles the returned VM after restore.
 func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord, pid int) (*types.VM, error) {
 	now := time.Now()
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
@@ -50,6 +50,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 		r.Config = *vmCfg
 		r.State = types.VMStateRunning
 		r.StartedAt = &now
+		r.StoppedAt = nil
 		r.UpdatedAt = now
 		return nil
 	}); err != nil {
@@ -66,7 +67,7 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	return &info, nil
 }
 
-// RestoreSequence is the shared restore skeleton. Staging happens before the kill so a preflight failure leaves the original VM running.
+// RestoreSequence is the shared restore skeleton (preflight before kill).
 func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec RestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -85,9 +86,11 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	if preflightErr := spec.Preflight(stagingDir, rec); preflightErr != nil {
 		return nil, fmt.Errorf("snapshot preflight: %w", preflightErr)
 	}
+	oldShape := shapeFromConfig(rec.Config)
 	if killErr := spec.Kill(ctx, vmID, rec); killErr != nil {
 		return nil, killErr
 	}
+	b.emitRestoreComputeStop(ctx, vmID, oldShape, spec.SourceSnapshotID)
 
 	var result *types.VM
 	inner := func() error {
@@ -111,10 +114,11 @@ func (b *Backend) RestoreSequence(ctx context.Context, vmRef string, spec Restor
 	} else if err := inner(); err != nil {
 		return nil, err
 	}
+	b.emitRestoreSuccess(ctx, result, oldShape, spec.SourceSnapshotID)
 	return result, nil
 }
 
-// DirectRestoreSequence restores from a local snapshot directory; Populate replaces the tar staging+merge step used by RestoreSequence.
+// DirectRestoreSequence restores from a local snapshot directory.
 func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec DirectRestoreSpec) (*types.VM, error) {
 	if err := ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err
@@ -127,9 +131,11 @@ func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec 
 	if preflightErr := spec.Preflight(spec.SrcDir, rec); preflightErr != nil {
 		return nil, fmt.Errorf("snapshot preflight: %w", preflightErr)
 	}
+	oldShape := shapeFromConfig(rec.Config)
 	if killErr := spec.Kill(ctx, vmID, rec); killErr != nil {
 		return nil, killErr
 	}
+	b.emitRestoreComputeStop(ctx, vmID, oldShape, spec.SourceSnapshotID)
 
 	var result *types.VM
 	inner := func() error {
@@ -148,10 +154,41 @@ func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec 
 	} else if innerErr := inner(); innerErr != nil {
 		return nil, innerErr
 	}
+	b.emitRestoreSuccess(ctx, result, oldShape, spec.SourceSnapshotID)
 	return result, nil
 }
 
-// PrepareStagingDir extracts the snapshot tar into a sibling staging dir.
+// emitRestoreComputeStop closes the compute interval after a confirmed kill; fail-closed on DB error and skip on vanished record so the ledger never gets a phantom entry.
+func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldShape metering.Shape, sourceSnapshotID string) {
+	now := time.Now()
+	closed := false
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		r := idx.VMs[vmID]
+		if r == nil || !hasOpenComputeInterval(r) {
+			return nil
+		}
+		r.State = types.VMStateStopped
+		r.StoppedAt = &now
+		r.UpdatedAt = now
+		closed = true
+		return nil
+	}); err != nil {
+		log.WithFunc(b.Typ+".emitRestoreComputeStop").Warnf(ctx, "mark stopped after kill %s: %v", vmID, err)
+		return
+	}
+	if !closed {
+		return
+	}
+	b.Metering.Emit(ctx, b.makeSourceEntry(metering.KindVMComputeStop, vmID, sourceSnapshotID, metering.ReasonRestore, oldShape, now))
+}
+
+// emitRestoreSuccess closes old storage and opens fresh storage+compute.
+func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
+	now := time.Now()
+	b.Metering.Emit(ctx, b.makeSourceEntry(metering.KindVMStorageStop, vm.ID, sourceSnapshotID, metering.ReasonRestore, oldShape, now))
+	b.emitOpenInterval(ctx, vm, metering.ReasonRestore, sourceSnapshotID, now)
+}
+
 func PrepareStagingDir(runDir string, snapshot io.Reader) (stagingDir string, cleanup func(), err error) {
 	stagingDir = runDir + ".restore-staging"
 	if err = os.RemoveAll(stagingDir); err != nil {

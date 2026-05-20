@@ -34,9 +34,7 @@ const (
 	SnapshotFileMeta
 	// SnapshotFileSkip means the file should not be cloned.
 	SnapshotFileSkip
-)
 
-const (
 	// MinDataDiskSize is the minimum user data disk size; mkfs.ext4 is unstable below this on small sparse files.
 	MinDataDiskSize int64 = 16 << 20
 

@@ -13,12 +13,13 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error) {
+func (ch *CloudHypervisor) Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader, sourceSnapshotID string) (*types.VM, error) {
 	return ch.RestoreSequence(ctx, vmRef, hypervisor.RestoreSpec{
-		VMCfg:     vmCfg,
-		Snapshot:  snapshot,
-		Preflight: ch.preflightRestore,
-		Kill:      ch.killForRestore,
+		VMCfg:            vmCfg,
+		Snapshot:         snapshot,
+		SourceSnapshotID: sourceSnapshotID,
+		Preflight:        ch.preflightRestore,
+		Kill:             ch.killForRestore,
 		AfterExtract: func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *hypervisor.VMRecord) (*types.VM, error) {
 			directBoot := isDirectBoot(rec.BootConfig)
 			return ch.restoreAfterExtract(ctx, vmID, vmCfg, rec, directBoot)

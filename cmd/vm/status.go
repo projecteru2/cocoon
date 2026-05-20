@@ -21,7 +21,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// statusWatchDebounce coalesces fsnotify events on the per-backend index file during `vm status` polling.
 const statusWatchDebounce = 200 * time.Millisecond
 
 type vmEvent struct {
@@ -47,7 +46,7 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -58,23 +57,6 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	sortVMs(vms)
 	format, _ := cmd.Flags().GetString("format")
 	return renderVMList(vms, format)
-}
-
-// renderVMList emits vms as JSON or table; "No VMs found." for empty in table mode.
-func renderVMList(vms []*types.VM, format string) error {
-	if format == "json" {
-		if vms == nil {
-			vms = []*types.VM{}
-		}
-		return cmdcore.OutputJSON(vms)
-	}
-	if len(vms) == 0 {
-		fmt.Println("No VMs found.")
-		return nil
-	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	printVMTable(w, vms)
-	return w.Flush()
 }
 
 func (h Handler) Status(cmd *cobra.Command, args []string) error {
@@ -94,7 +76,7 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	}
 	format, _ := cmd.Flags().GetString("format")
 
-	hypers, hyperErr := cmdcore.InitAllHypervisors(conf)
+	hypers, hyperErr := cmdcore.InitAllHypervisors(ctx, conf)
 	if hyperErr != nil {
 		return hyperErr
 	}
@@ -120,7 +102,7 @@ func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// statusOnce prints a single snapshot then returns; propagates ListAllVMs error (loop callers swallow).
+// statusOnce prints one snapshot; propagates ListAllVMs error (loop callers swallow).
 func statusOnce(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, format string) error {
 	vms, err := cmdcore.ListAllVMs(ctx, hypers)
 	if err != nil {
@@ -129,6 +111,22 @@ func statusOnce(ctx context.Context, hypers []hypervisor.Hypervisor, filters []s
 	vms = applyFilters(vms, filters)
 	sortVMs(vms)
 	return renderVMList(vms, format)
+}
+
+func renderVMList(vms []*types.VM, format string) error {
+	if format == "json" {
+		if vms == nil {
+			vms = []*types.VM{}
+		}
+		return cmdcore.OutputJSON(vms)
+	}
+	if len(vms) == 0 {
+		fmt.Println("No VMs found.")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	printVMTable(w, vms)
+	return w.Flush()
 }
 
 func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-chan struct{} {
@@ -233,7 +231,7 @@ func statusEventLoopJSON(ctx context.Context, hypers []hypervisor.Hypervisor, fi
 	})
 }
 
-// statusEventDiffLoop snapshots every tick, diffs vs previous, emits ADDED/MODIFIED/DELETED. Carries both snap and vm so emitters pick either.
+// statusEventDiffLoop snapshots every tick, diffs vs previous, emits ADDED/MODIFIED/DELETED.
 func statusEventDiffLoop(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string, watchCh <-chan struct{}, tick <-chan time.Time, emitter eventEmitter) {
 	type entry struct {
 		snap vmSnapshot
@@ -292,7 +290,7 @@ func printEventRow(w *tabwriter.Writer, event string, snap vmSnapshot) {
 		snap.ip, snap.image)
 }
 
-// listAndFilter swallows backend errors with a warn so a transient hiccup can't break the polling tick; one-shot callers must use cmdcore.ListAllVMs directly.
+// listAndFilter warns on backend errors so polling ticks don't break; one-shot callers use cmdcore.ListAllVMs directly.
 func listAndFilter(ctx context.Context, hypers []hypervisor.Hypervisor, filters []string) []*types.VM {
 	vms, err := cmdcore.ListAllVMs(ctx, hypers)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/types"
 )
@@ -145,7 +146,7 @@ func TestGCModule_LRUEndToEnd(t *testing.T) {
 	}
 
 	policy := EvictionPolicy{Enabled: true, MaxAge: 24 * time.Hour}
-	mod := gcModule(lf.conf, lf.store, lf.locker, policy)
+	mod := gcModule(lf.conf, lf.store, lf.locker, policy, metering.NopRecorder{})
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatalf("ReadDB: %v", err)
@@ -185,7 +186,7 @@ func TestGCModule_DryRunNoEviction(t *testing.T) {
 	}
 
 	policy := EvictionPolicy{Enabled: true, DryRun: true}
-	mod := gcModule(lf.conf, lf.store, lf.locker, policy)
+	mod := gcModule(lf.conf, lf.store, lf.locker, policy, metering.NopRecorder{})
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +209,7 @@ func TestGCModule_BareSnapshotEvictsAll(t *testing.T) {
 		}
 	}
 
-	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true}, metering.NopRecorder{})
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -303,7 +304,7 @@ func TestGCModule_RemovalFailureKeepsDBRecord(t *testing.T) {
 		}
 	}
 
-	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true})
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true}, metering.NopRecorder{})
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatalf("ReadDB: %v", err)
@@ -334,7 +335,7 @@ func TestGCModule_OrphanDirCleaned(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{})
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{}, metering.NopRecorder{})
 	snap, err := mod.ReadDB(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -348,5 +349,95 @@ func TestGCModule_OrphanDirCleaned(t *testing.T) {
 	}
 	if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
 		t.Errorf("orphan dir should be removed, stat err: %v", err)
+	}
+}
+
+func TestGCModule_EvictRealRecordEmitsSnapStorageStop(t *testing.T) {
+	// Real (non-pending, non-orphan) records that get LRU-evicted must emit
+	// snap.storage.stop so the ledger interval closes; otherwise GC silently
+	// leaks an open snapshot interval forever.
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"snap-a", "snap-b"} {
+		id := testID(t)
+		if _, err := lf.Create(ctx, &types.SnapshotConfig{ID: id, Name: name, Hypervisor: "cloud-hypervisor"},
+			makeTar(t, map[string][]byte{"cow.raw": []byte("x")})); err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+	}
+
+	rec := &metering.CaptureRecorder{}
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{Enabled: true}, rec)
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := mod.Resolve(ctx, snap, map[string]any{})
+	if len(ids) != 2 {
+		t.Fatalf("want 2 ids to evict, got %v", ids)
+	}
+	if err := mod.Collect(ctx, ids, snap); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := rec.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 (one stop per evicted record)", len(entries))
+	}
+	for _, e := range entries {
+		if e.Kind != metering.KindSnapStorageStop {
+			t.Errorf("kind = %s, want snap.storage.stop", e.Kind)
+		}
+		if e.Reason != metering.ReasonSnapRemove {
+			t.Errorf("reason = %q, want snap-rm", e.Reason)
+		}
+		if e.Hypervisor != "cloud-hypervisor" {
+			t.Errorf("hypervisor = %q, want cloud-hypervisor", e.Hypervisor)
+		}
+	}
+}
+
+func TestGCModule_OrphanAndStalePendingDoNotEmit(t *testing.T) {
+	// Neither orphan dirs (no DB record at all) nor stale-pending (record
+	// exists but never reached snap.storage.start) opened a ledger interval;
+	// GC must not emit a phantom snap.storage.stop for them.
+	lf := newTestLF(t)
+	ctx := t.Context()
+
+	orphanDir := filepath.Join(lf.conf.DataDir(), "ORPHAN_ID")
+	if err := os.MkdirAll(orphanDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stalePendingID := testID(t)
+	if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		idx.Snapshots[stalePendingID] = &snapshot.SnapshotRecord{
+			Snapshot: types.Snapshot{
+				SnapshotConfig: types.SnapshotConfig{ID: stalePendingID},
+				CreatedAt:      time.Now().Add(-48 * time.Hour),
+			},
+			Pending: true,
+			DataDir: filepath.Join(lf.conf.DataDir(), stalePendingID),
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := &metering.CaptureRecorder{}
+	mod := gcModule(lf.conf, lf.store, lf.locker, EvictionPolicy{}, rec)
+	snap, err := mod.ReadDB(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := mod.Resolve(ctx, snap, map[string]any{})
+	if !slices.Contains(ids, "ORPHAN_ID") || !slices.Contains(ids, stalePendingID) {
+		t.Fatalf("want both orphan and stale-pending picked, got %v", ids)
+	}
+	if err := mod.Collect(ctx, ids, snap); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.Entries(); len(got) != 0 {
+		t.Errorf("got %d entries; orphan/stale-pending must not emit stop", len(got))
 	}
 }

@@ -30,7 +30,7 @@ func (ch *CloudHypervisor) Clone(ctx context.Context, vmID string, vmCfg *types.
 	return ch.CloneFromStream(ctx, vmID, vmCfg, net, snapshotConfig, snapshot, ch.cloneAfterExtract)
 }
 
-func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time) (*types.VM, error) {
+func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, runDir, logDir string, now time.Time, sourceSnapshotID string) (*types.VM, error) {
 	networkConfigs := net.NetworkConfigs
 	logger := log.WithFunc("cloudhypervisor.Clone")
 
@@ -132,7 +132,7 @@ func (ch *CloudHypervisor) cloneAfterExtract(ctx context.Context, vmID string, v
 		NetSetup:  net,
 		CreatedAt: now, UpdatedAt: now, StartedAt: &now,
 	}
-	if err := ch.FinalizeClone(ctx, vmID, info, bootCfg, nil); err != nil {
+	if err := ch.FinalizeClone(ctx, vmID, info, bootCfg, nil, sourceSnapshotID); err != nil {
 		ch.AbortLaunch(ctx, pid, sockPath, runDir, runtimeFiles)
 		return nil, fmt.Errorf("finalize VM record: %w", err)
 	}
@@ -239,7 +239,7 @@ func hasCidataRole(sc *types.StorageConfig) bool {
 	return sc.Role == types.StorageRoleCidata
 }
 
-// restorePatchStorageConfigs strips ensureCloneCidata's appended cidata when the snapshot lacked one, so patchCHConfig matches chCfg.Disks; cidata gets hot-plugged.
+// restorePatchStorageConfigs drops the appended cidata when the snapshot lacked one (cidata gets hot-plugged).
 func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoot, windows, hadCidataInSnapshot bool) []*types.StorageConfig {
 	if directBoot || windows || hadCidataInSnapshot {
 		return storageConfigs
@@ -285,7 +285,7 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	)
 }
 
-// buildStateReplacements maps source disk paths → clone paths for state.json patching; slices to min length so an appended cidata doesn't desync (MACs go via NIC hot-swap).
+// buildStateReplacements maps source→clone disk paths for state.json; min-length slice keeps appended cidata aligned.
 func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig) map[string]string {
 	n := min(len(chCfg.Disks), len(storageConfigs))
 	m := make(map[string]string, n)

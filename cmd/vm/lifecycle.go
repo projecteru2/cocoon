@@ -27,20 +27,15 @@ import (
 const (
 	// logHeadSigLen spans CH/FC's boot timestamp on line 1.
 	logHeadSigLen = 64
-	// logFollowDebounce coalesces fsnotify events on the log file before
-	// the catch-up io.Copy fires.
+	// logFollowDebounce coalesces fsnotify events before catch-up io.Copy fires.
 	logFollowDebounce = 100 * time.Millisecond
 )
 
-// attachedDevices is the inspect-only view of runtime hot-plugged devices.
-// Cocoon never persists this structure; it is read from CH vm.info on demand.
 type attachedDevices struct {
 	Fs      []fs.Attached   `json:"fs,omitempty"`
 	Devices []vfio.Attached `json:"devices,omitempty"`
 }
 
-// inspectOutput wraps types.VM with an extra runtime field. Defined in the
-// CLI layer to keep types.VM free of inspect-only fields.
 type inspectOutput struct {
 	*types.VM
 	AttachedDevices *attachedDevices `json:"attached_devices,omitempty"`
@@ -52,7 +47,7 @@ func (h Handler) Start(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -61,7 +56,6 @@ func (h Handler) Start(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Recover network for all backends before starting.
 	for hyper, refs := range routed {
 		h.recoverNetwork(ctx, conf, hyper, refs)
 	}
@@ -86,7 +80,7 @@ func (h Handler) Stop(cmd *cobra.Command, args []string) error {
 		conf.StopTimeoutSeconds = timeout
 	}
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -208,7 +202,7 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	hypers, err := cmdcore.InitAllHypervisors(conf)
+	hypers, err := cmdcore.InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -239,7 +233,6 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("vm(s) deleted but network cleanup failed: %w", delErr)
 			}
 		}
-		// Also clean up bridge TAPs (no-op if none exist).
 		bridgenet.CleanupTAPs(allDeleted)
 	}
 
@@ -258,17 +251,15 @@ func (h Handler) RM(cmd *cobra.Command, args []string) error {
 func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper hypervisor.Hypervisor, refs []string) {
 	logger := log.WithFunc("cmd.vm.recoverNetwork")
 
-	// Lazy-init CNI provider (may fail if not configured — OK for bridge-only setups).
+	// Lazy CNI; OK to skip for bridge-only setups.
 	var cniProvider network.Network
 	if p, err := cmdcore.InitNetwork(conf); err == nil {
 		cniProvider = p
 	}
 
-	// Cache bridge providers by device name to avoid redundant netlink lookups.
 	bridgeProviders := map[string]network.Network{}
 
 	// Single List → byID map avoids one Inspect-per-ref under DB lock.
-	// Refs are pre-resolved full IDs (RouteRefs returns vm.ID), so byID is sufficient.
 	all, err := hyper.List(ctx)
 	if err != nil {
 		logger.Warnf(ctx, "list VMs for recovery: %v", err)
@@ -288,7 +279,6 @@ func (h Handler) recoverNetwork(ctx context.Context, conf *config.Config, hyper 
 		if backend == "" {
 			continue
 		}
-		// Bridge 0-NIC: no TAP, no netns — nothing to recover.
 		if backend == types.BackendBridge && len(vm.NetworkConfigs) == 0 {
 			continue
 		}
@@ -371,7 +361,6 @@ func batchRoutedCmd(ctx context.Context, cmd *cobra.Command, name, pastTense str
 }
 
 // collectAttachedDevices reads fs/vfio devices; errors are logged and dropped so inspect tolerates a flaky vm.info.
-// TODO(inspect): each Lister calls vm.info separately; combine via extend/ Lister to halve the round-trips.
 func collectAttachedDevices(ctx context.Context, hyper hypervisor.Hypervisor, ref string) *attachedDevices {
 	logger := log.WithFunc("cmd.vm.inspect")
 	out := &attachedDevices{}
@@ -434,7 +423,7 @@ func streamLog(ctx context.Context, path string, follow bool, tail int) error {
 			if !ok {
 				return nil
 			}
-			// Stop/start re-opens O_TRUNC; head bytes shift because CH/FC stamp a unique boot timestamp on line 1, so sig mismatch catches new generations even at the same length.
+			// Sig mismatch catches O_TRUNC re-opens (CH/FC stamp a unique boot timestamp on line 1).
 			newSig, _ := utils.FileHead(f, logHeadSigLen)
 			if !bytes.Equal(newSig, sig) {
 				if _, err := f.Seek(0, io.SeekStart); err != nil {

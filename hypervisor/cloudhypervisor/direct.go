@@ -15,12 +15,13 @@ func (ch *CloudHypervisor) DirectClone(ctx context.Context, vmID string, vmCfg *
 	return ch.DirectCloneBase(ctx, vmID, vmCfg, net, snapshotConfig, srcDir, cloneSnapshotFiles, ch.cloneAfterExtract)
 }
 
-func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error) {
+func (ch *CloudHypervisor) DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir, sourceSnapshotID string) (*types.VM, error) {
 	return ch.DirectRestoreSequence(ctx, vmRef, hypervisor.DirectRestoreSpec{
-		VMCfg:     vmCfg,
-		SrcDir:    srcDir,
-		Preflight: ch.preflightRestore,
-		Kill:      ch.killForRestore,
+		VMCfg:            vmCfg,
+		SrcDir:           srcDir,
+		SourceSnapshotID: sourceSnapshotID,
+		Preflight:        ch.preflightRestore,
+		Kill:             ch.killForRestore,
 		Populate: func(rec *hypervisor.VMRecord, srcDir string) error {
 			return hypervisor.PopulateFromSrc(rec.RunDir, srcDir, cleanSnapshotFiles, cloneSnapshotFiles)
 		},

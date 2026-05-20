@@ -11,6 +11,7 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -87,13 +88,14 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 	})
 }
 
-// UpdateStates batch-updates the State field for ids; sets StartedAt/StoppedAt as appropriate.
+// UpdateStates batch-updates State; transitions to Stopped close the compute interval when one is open (covers Error→Stopped from rm --force or recovery stop). Error transitions leave StoppedAt nil because many MarkError paths can't prove the process is dead.
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	now := time.Now()
-	return b.DB.Update(ctx, func(idx *VMIndex) error {
+	var stopped []metering.Entry
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		for _, id := range ids {
 			r := idx.VMs[id]
 			if r == nil {
@@ -104,12 +106,20 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 			switch state {
 			case types.VMStateRunning:
 				r.StartedAt = &now
+				r.StoppedAt = nil
 			case types.VMStateStopped:
-				r.StoppedAt = &now
+				if hasOpenComputeInterval(r) {
+					r.StoppedAt = &now
+					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopUser, shapeFromConfig(r.Config), now))
+				}
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	b.emitAll(ctx, stopped)
+	return nil
 }
 
 // MarkError flips a single VM's state to VMStateError, logging on persist failure.
@@ -119,25 +129,40 @@ func (b *Backend) MarkError(ctx context.Context, id string) {
 	}
 }
 
-// BatchMarkStarted flips ids to VMStateRunning and stamps FirstBooted=true in one DB write.
+// BatchMarkStarted flips ids to VMStateRunning; State==Running entrants are stale-running (close stop-crash, then open fresh).
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	now := time.Now()
-	return b.DB.Update(ctx, func(idx *VMIndex) error {
+	var emits []metering.Entry
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		for _, id := range ids {
 			r := idx.VMs[id]
 			if r == nil {
 				continue
 			}
+			shape := shapeFromConfig(r.Config)
+			if hasOpenComputeInterval(r) {
+				emits = append(emits, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopCrash, shape, now))
+			}
+			reason := metering.ReasonBoot
+			if r.FirstBooted {
+				reason = metering.ReasonRestart
+			}
+			emits = append(emits, b.makeEntry(metering.KindVMComputeStart, id, reason, shape, now))
 			r.State = types.VMStateRunning
 			r.StartedAt = &now
+			r.StoppedAt = nil
 			r.UpdatedAt = now
 			r.FirstBooted = true
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	b.emitAll(ctx, emits)
+	return nil
 }
 
 // CleanStalePlaceholders removes "creating" records past GC grace period.
@@ -155,4 +180,35 @@ func (b *Backend) CleanStalePlaceholders(_ context.Context, ids []string) error 
 		)
 		return nil
 	})
+}
+
+// closeStaleComputeInterval emits stop-crash and writes StoppedAt; precondition: caller confirmed the process is dead. Self-healing if the record vanishes (concurrent rm) or was already closed: skip emit.
+func (b *Backend) closeStaleComputeInterval(ctx context.Context, rec *VMRecord) {
+	now := time.Now()
+	closed := false
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		r := idx.VMs[rec.ID]
+		if r == nil || !hasOpenComputeInterval(r) {
+			return nil
+		}
+		if r.State == types.VMStateRunning {
+			r.State = types.VMStateStopped
+		}
+		r.StoppedAt = &now
+		r.UpdatedAt = now
+		closed = true
+		return nil
+	}); err != nil {
+		log.WithFunc(b.Typ+".closeStaleComputeInterval").Warnf(ctx, "close interval for %s: %v", rec.ID, err)
+		return
+	}
+	if !closed {
+		return
+	}
+	b.Metering.Emit(ctx, b.makeEntry(metering.KindVMComputeStop, rec.ID, metering.ReasonStopCrash, shapeFromConfig(rec.Config), now))
+}
+
+// hasOpenComputeInterval reports whether the VM's record shows an unmatched compute.start (StoppedAt is the ledger-close sentinel; transitions to Running clear it).
+func hasOpenComputeInterval(r *VMRecord) bool {
+	return r != nil && r.StartedAt != nil && r.StoppedAt == nil
 }

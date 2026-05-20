@@ -8,6 +8,7 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
@@ -32,6 +33,19 @@ func (b *Backend) GracefulStop(ctx context.Context, vmID string, pid int, timeou
 	return escalate()
 }
 
+// StopOneSequence runs the shared per-id stop skeleton (LoadRecord → WithRunningVM(Shutdown) → HandleStopResult) so backends only express their force-vs-graceful choice.
+func (b *Backend) StopOneSequence(ctx context.Context, id string, spec StopSpec) error {
+	rec, err := b.LoadRecord(ctx, id)
+	if err != nil {
+		return err
+	}
+	sockPath := SocketPath(rec.RunDir)
+	shutdownErr := b.WithRunningVM(ctx, &rec, func(pid int) error {
+		return spec.Shutdown(ctx, &rec, sockPath, pid)
+	})
+	return b.HandleStopResult(ctx, id, rec.RunDir, spec.RuntimeFiles, shutdownErr)
+}
+
 // StopAll mirrors StartAll: stopOne per ref, batch-flip succeeded to Stopped.
 func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
@@ -45,7 +59,7 @@ func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(conte
 	return succeeded, forEachErr
 }
 
-// DeleteAll removes VMs by ref; dir cleanup runs before DB delete so a failed cleanup leaves a retry-able record (vs an orphan rundir with no index entry).
+// DeleteAll removes VMs by ref; dir cleanup before DB delete keeps a failed cleanup retry-able.
 func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stopOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
@@ -57,10 +71,12 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			return loadErr
 		}
 		sockPath := SocketPath(rec.RunDir)
+		stoppedByUs := false
 		if runningErr := b.WithRunningVM(ctx, &rec, func(_ int) error {
 			if !force {
 				return fmt.Errorf("running (force required)")
 			}
+			stoppedByUs = true
 			return stopOne(ctx, id)
 		}); runningErr != nil && !errors.Is(runningErr, ErrNotRunning) {
 			return fmt.Errorf("stop before delete: %w", runningErr)
@@ -89,15 +105,30 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 		if rmErr := RemoveVMDirs(rec.RunDir, rec.LogDir); rmErr != nil {
 			return fmt.Errorf("cleanup VM dirs: %w", rmErr)
 		}
-		return b.DB.Update(ctx, func(idx *VMIndex) error {
+		var (
+			shape              metering.Shape
+			hadRunningInterval bool
+		)
+		// Capture in the same transaction as delete so a concurrent UpdateStates can't shift the truth.
+		if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 			r := idx.VMs[id]
 			if r == nil {
 				return ErrNotFound
 			}
+			hadRunningInterval = hasOpenComputeInterval(r)
+			shape = shapeFromConfig(r.Config)
 			delete(idx.Names, r.Config.Name)
 			delete(idx.VMs, id)
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
+		computeReason := metering.ReasonStopCrash
+		if stoppedByUs {
+			computeReason = metering.ReasonStopUser
+		}
+		b.emitDeleteClose(ctx, id, shape, computeReason, hadRunningInterval)
+		return nil
 	})
 }
 

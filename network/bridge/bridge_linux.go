@@ -21,14 +21,14 @@ const typ = "bridge"
 
 var _ network.Network = (*Bridge)(nil)
 
-// Bridge implements network.Network as TAP-on-bridge. Requires a pre-existing bridge with DHCP + routing (e.g. cocoon-net's cni0).
+// Bridge is TAP-on-bridge; requires a pre-existing bridge with DHCP + routing.
 type Bridge struct {
 	conf      *config.Config
 	bridgeDev string
 	bridgeIdx int
 }
 
-// New creates a Bridge network provider. The bridge device must exist.
+// New: the bridge device must already exist.
 func New(conf *config.Config, bridgeDev string) (*Bridge, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -50,10 +50,8 @@ func New(conf *config.Config, bridgeDev string) (*Bridge, error) {
 	}, nil
 }
 
-// Type returns the provider identifier.
 func (b *Bridge) Type() string { return typ }
 
-// Verify checks whether the TAP for a VM exists.
 func (b *Bridge) Verify(_ context.Context, vmID string) error {
 	if _, err := netlink.LinkByName(tapName(vmID, 0)); err != nil {
 		return fmt.Errorf("tap %s: %w", tapName(vmID, 0), err)
@@ -61,12 +59,11 @@ func (b *Bridge) Verify(_ context.Context, vmID string) error {
 	return nil
 }
 
-// Prepare is a no-op for bridge mode.
+// Prepare is a no-op (bridge has no netns).
 func (b *Bridge) Prepare(_ context.Context, _ string, _ *types.VMConfig) (string, error) {
 	return "", nil
 }
 
-// Add allocates TAP devices on the bridge for the given specs.
 func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, specs ...network.AddSpec) (configs []*types.NetworkConfig, retErr error) {
 	if len(specs) == 0 {
 		return nil, nil
@@ -131,33 +128,30 @@ func (b *Bridge) Add(ctx context.Context, vmID string, vmCfg *types.VMConfig, sp
 	return configs, nil
 }
 
-// Remove deletes the TAP devices for the given indices.
 func (b *Bridge) Remove(_ context.Context, vmID string, indices ...int) error {
 	return tearDownTAPs(vmID, indices, false)
 }
 
-// Delete removes TAP devices for the given VMs.
 func (b *Bridge) Delete(_ context.Context, vmIDs []string) ([]string, error) {
 	return CleanupTAPs(vmIDs), nil
 }
 
-// Inspect is not supported — bridge mode has no persistent records.
+// Inspect: bridge has no persistent records.
 func (b *Bridge) Inspect(_ context.Context, _ string) (*types.Network, error) {
 	return nil, nil
 }
 
-// List is not supported — bridge mode has no persistent records.
+// List: bridge has no persistent records.
 func (b *Bridge) List(_ context.Context) ([]*types.Network, error) {
 	return nil, nil
 }
 
-// RegisterGC registers the bridge GC module that reclaims orphan bt* TAP devices.
+// RegisterGC reclaims orphan bt* TAP devices.
 func (b *Bridge) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, GCModule(b.conf.RootDir))
 }
 
-// CleanupTAPs probes and removes bridge TAP devices for the given VM IDs.
-// No-op per VM if none exist; safe without a Bridge instance.
+// CleanupTAPs removes bridge TAP devices per VM ID; safe without a Bridge instance.
 func CleanupTAPs(vmIDs []string) []string {
 	cleaned := make([]string, 0, len(vmIDs))
 	for _, vmID := range vmIDs {

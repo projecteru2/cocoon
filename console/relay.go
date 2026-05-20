@@ -10,7 +10,7 @@ import (
 	"github.com/moby/term"
 )
 
-// Relay runs bidirectional I/O with escape-sequence detection; caller closes rw after Relay returns to unblock the second goroutine.
+// Relay runs bidirectional I/O with escape-sequence detection. Caller must close rw to unblock the unfinished goroutine.
 func Relay(rw io.ReadWriter, escapeKeys []byte) error {
 	errCh := make(chan error, 2) //nolint:mnd
 
@@ -28,8 +28,6 @@ func Relay(rw io.ReadWriter, escapeKeys []byte) error {
 		errCh <- err
 	}()
 
-	// Wait for the first goroutine to finish. The caller's defer conn.Close()
-	// unblocks the other goroutine after Relay returns.
 	err := <-errCh
 	if isCleanExit(err) {
 		return nil
@@ -37,7 +35,6 @@ func Relay(rw io.ReadWriter, escapeKeys []byte) error {
 	return err
 }
 
-// FormatEscapeChar returns a human-readable representation of the escape byte.
 func FormatEscapeChar(b byte) string {
 	if b >= 1 && b <= 0x1F {
 		return "^" + string(rune(b+'@'))
@@ -77,7 +74,6 @@ func validateEscapeByte(b byte) (byte, error) {
 	return b, nil
 }
 
-// isCleanExit returns true for errors that indicate a normal disconnect.
 func isCleanExit(err error) bool {
 	if err == nil {
 		return true

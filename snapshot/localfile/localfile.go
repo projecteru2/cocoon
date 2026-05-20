@@ -14,6 +14,7 @@ import (
 	"github.com/cocoonstack/cocoon/gc"
 	"github.com/cocoonstack/cocoon/lock"
 	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/storage"
 	storejson "github.com/cocoonstack/cocoon/storage/json"
@@ -43,10 +44,12 @@ type LocalFile struct {
 	conf     *Config
 	store    storage.Store[snapshot.SnapshotIndex]
 	locker   lock.Locker
+	metering metering.Recorder
 	gcPolicy EvictionPolicy
 }
 
-func New(conf *config.Config, opts ...Option) (*LocalFile, error) {
+// New builds a LocalFile snapshot backend; rec may be nil and falls back to NopRecorder on emit.
+func New(conf *config.Config, rec metering.Recorder, opts ...Option) (*LocalFile, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -54,9 +57,12 @@ func New(conf *config.Config, opts ...Option) (*LocalFile, error) {
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
+	if rec == nil {
+		rec = metering.NopRecorder{}
+	}
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[snapshot.SnapshotIndex](cfg.IndexFile(), locker)
-	lf := &LocalFile{conf: cfg, store: store, locker: locker}
+	lf := &LocalFile{conf: cfg, store: store, locker: locker, metering: rec}
 	for _, opt := range opts {
 		opt(lf)
 	}
@@ -74,7 +80,7 @@ func (lf *LocalFile) DataDir(ctx context.Context, ref string) (string, types.Sna
 	return rec.DataDir, snapshotRecordToConfig(rec), nil
 }
 
-// Create stores a snapshot from stream via placeholder→extract→finalize so a mid-flight crash leaves only a pending record for GC.
+// Create stores a snapshot via placeholder→extract→finalize; a mid-flight crash leaves a pending record for GC.
 func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stream io.Reader) (_ string, err error) {
 	id := cfg.ID
 	if id == "" {
@@ -138,6 +144,7 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		return "", fmt.Errorf("finalize snapshot: %w", err)
 	}
 
+	emitSnapStart(ctx, lf.metering, id, cfg.Hypervisor, size, finalizedAt)
 	return id, nil
 }
 
@@ -165,7 +172,7 @@ func (lf *LocalFile) Inspect(ctx context.Context, ref string) (*types.Snapshot, 
 	return &s, nil
 }
 
-// Delete processes each id atomically (rm dir → DB update). A mid-loop failure leaves any rm-OK-then-DB-fail id as a stale DB record; GC reclaims it.
+// Delete removes each ref (rm dir → DB update); a mid-loop rm-OK-then-DB-fail leaves a stale DB record for GC.
 func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	if err := lf.store.With(ctx, func(idx *snapshot.SnapshotIndex) error {
@@ -178,21 +185,8 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 
 	var deleted []string
 	for _, id := range ids {
-		if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
-			return deleted, fmt.Errorf("remove data dir %s: %w", id, err)
-		}
-		if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
-			rec := idx.Snapshots[id]
-			if rec == nil {
-				return nil
-			}
-			if rec.Name != "" {
-				delete(idx.Names, rec.Name)
-			}
-			delete(idx.Snapshots, id)
-			return nil
-		}); err != nil {
-			return deleted, fmt.Errorf("delete DB record %s: %w", id, err)
+		if err := lf.deleteOne(ctx, id); err != nil {
+			return deleted, err
 		}
 		deleted = append(deleted, id)
 	}
@@ -208,7 +202,37 @@ func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotCon
 }
 
 func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
-	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy))
+	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy, lf.metering))
+}
+
+// deleteOne is idempotent under concurrent rm; the rival's emit is skipped so the ledger keeps exactly one stop per snapshot.
+func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
+	if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
+		return fmt.Errorf("remove data dir %s: %w", id, err)
+	}
+	var (
+		hypType       string
+		deletedRecord bool
+	)
+	if err := lf.store.Update(ctx, func(idx *snapshot.SnapshotIndex) error {
+		rec := idx.Snapshots[id]
+		if rec == nil {
+			return nil
+		}
+		deletedRecord = true
+		hypType = rec.Hypervisor
+		if rec.Name != "" {
+			delete(idx.Names, rec.Name)
+		}
+		delete(idx.Snapshots, id)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("delete DB record %s: %w", id, err)
+	}
+	if deletedRecord {
+		emitSnapStop(ctx, lf.metering, id, hypType)
+	}
+	return nil
 }
 
 // rollbackCreate removes a placeholder snapshot record from the DB.

@@ -18,23 +18,17 @@ func (ch *CloudHypervisor) Stop(ctx context.Context, refs []string) ([]string, e
 }
 
 func (ch *CloudHypervisor) stopOne(ctx context.Context, id string) error {
-	rec, err := ch.LoadRecord(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	sockPath := hypervisor.SocketPath(rec.RunDir)
-	hc := utils.NewSocketHTTPClient(sockPath)
 	stopTimeout := time.Duration(ch.conf.StopTimeoutSeconds) * time.Second
-
-	shutdownErr := ch.WithRunningVM(ctx, &rec, func(pid int) error {
-		if isDirectBoot(rec.BootConfig) || stopTimeout < 0 /* --force */ {
-			return ch.forceTerminate(ctx, hc, id, sockPath, pid)
-		}
-		return ch.shutdownUEFI(ctx, hc, id, sockPath, pid, stopTimeout)
+	return ch.StopOneSequence(ctx, id, hypervisor.StopSpec{
+		RuntimeFiles: runtimeFiles,
+		Shutdown: func(ctx context.Context, rec *hypervisor.VMRecord, sockPath string, pid int) error {
+			hc := utils.NewSocketHTTPClient(sockPath)
+			if isDirectBoot(rec.BootConfig) || stopTimeout < 0 /* --force */ {
+				return ch.forceTerminate(ctx, hc, rec.ID, sockPath, pid)
+			}
+			return ch.shutdownUEFI(ctx, hc, rec.ID, sockPath, pid, stopTimeout)
+		},
 	})
-
-	return ch.HandleStopResult(ctx, id, rec.RunDir, runtimeFiles, shutdownErr)
 }
 
 // shutdownUEFI shuts down a UEFI-boot VM via ACPI power-button with poll-and-escalate handled by the shared GracefulStop helper.
@@ -53,7 +47,6 @@ func (ch *CloudHypervisor) forceTerminate(ctx context.Context, hc *http.Client, 
 	return utils.TerminateProcess(ctx, pid, ch.conf.BinaryName(), socketPath, ch.conf.TerminateGracePeriod())
 }
 
-// isDirectBoot returns true when the VM was started with a direct kernel boot (OCI images). False means UEFI boot (cloudimg).
 func isDirectBoot(boot *types.BootConfig) bool {
 	return boot != nil && boot.KernelPath != ""
 }

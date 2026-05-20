@@ -29,7 +29,7 @@ type Hypervisor interface {
 	LogPath(ctx context.Context, ref string) (string, error)
 	Snapshot(ctx context.Context, ref string) (*types.SnapshotConfig, io.ReadCloser, error)
 	Clone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, snapshot io.Reader) (*types.VM, error)
-	Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader) (*types.VM, error)
+	Restore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, snapshot io.Reader, sourceSnapshotID string) (*types.VM, error)
 
 	RegisterGC(*gc.Orchestrator)
 }
@@ -42,5 +42,5 @@ type Watchable interface {
 // Direct is an optional interface for hypervisors that support clone/restore from a local snapshot directory.
 type Direct interface {
 	DirectClone(ctx context.Context, vmID string, vmCfg *types.VMConfig, net types.NetSetup, snapshotConfig *types.SnapshotConfig, srcDir string) (*types.VM, error)
-	DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir string) (*types.VM, error)
+	DirectRestore(ctx context.Context, vmRef string, vmCfg *types.VMConfig, srcDir, sourceSnapshotID string) (*types.VM, error)
 }

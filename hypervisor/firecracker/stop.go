@@ -15,24 +15,16 @@ func (fc *Firecracker) Stop(ctx context.Context, refs []string) ([]string, error
 }
 
 func (fc *Firecracker) stopOne(ctx context.Context, id string) error {
-	rec, err := fc.LoadRecord(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	sockPath := hypervisor.SocketPath(rec.RunDir)
-	hc := utils.NewSocketHTTPClient(sockPath)
 	stopTimeout := time.Duration(fc.conf.StopTimeoutSeconds) * time.Second
-
-	shutdownErr := fc.WithRunningVM(ctx, &rec, func(pid int) error {
-		// --force (StopTimeoutSeconds < 0): skip SendCtrlAltDel, immediate kill.
-		if stopTimeout < 0 {
-			return fc.forceTerminate(ctx, sockPath, pid)
-		}
-		return fc.gracefulStop(ctx, hc, id, sockPath, pid, stopTimeout)
+	return fc.StopOneSequence(ctx, id, hypervisor.StopSpec{
+		RuntimeFiles: runtimeFiles,
+		Shutdown: func(ctx context.Context, rec *hypervisor.VMRecord, sockPath string, pid int) error {
+			if stopTimeout < 0 { // --force
+				return fc.forceTerminate(ctx, sockPath, pid)
+			}
+			return fc.gracefulStop(ctx, utils.NewSocketHTTPClient(sockPath), rec.ID, sockPath, pid, stopTimeout)
+		},
 	})
-
-	return fc.HandleStopResult(ctx, id, rec.RunDir, runtimeFiles, shutdownErr)
 }
 
 // gracefulStop sends SendCtrlAltDel with poll-and-escalate handled by the shared GracefulStop helper.

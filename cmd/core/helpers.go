@@ -33,17 +33,19 @@ import (
 )
 
 var hypervisorFactories = []hypervisorFactory{
-	{config.HypervisorCH, func(c *config.Config) (hypervisor.Hypervisor, error) { return cloudhypervisor.New(c) }},
-	{config.HypervisorFirecracker, func(c *config.Config) (hypervisor.Hypervisor, error) { return firecracker.New(c) }},
+	{config.HypervisorCH, func(ctx context.Context, c *config.Config) (hypervisor.Hypervisor, error) {
+		return cloudhypervisor.New(c, MeteringRecorder(ctx, c))
+	}},
+	{config.HypervisorFirecracker, func(ctx context.Context, c *config.Config) (hypervisor.Hypervisor, error) {
+		return firecracker.New(c, MeteringRecorder(ctx, c))
+	}},
 }
 
-// hypervisorFactory keeps backend lookup and iteration order together.
 type hypervisorFactory struct {
 	typ  config.HypervisorType
-	ctor func(*config.Config) (hypervisor.Hypervisor, error)
+	ctor func(context.Context, *config.Config) (hypervisor.Hypervisor, error)
 }
 
-// BaseHandler provides shared config access for all command handlers.
 type BaseHandler struct {
 	ConfProvider func() *config.Config
 }
@@ -71,7 +73,6 @@ func (h BaseHandler) Conf() (*config.Config, error) {
 	return conf, nil
 }
 
-// CommandContext returns cmd.Context() or Background (test-only fallback).
 func CommandContext(cmd *cobra.Command) context.Context {
 	if cmd != nil && cmd.Context() != nil {
 		return cmd.Context()
@@ -84,7 +85,7 @@ func InitBackends(ctx context.Context, conf *config.Config) ([]imagebackend.Imag
 	if err != nil {
 		return nil, nil, err
 	}
-	hyper, err := InitHypervisor(conf)
+	hyper, err := InitHypervisor(ctx, conf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -111,22 +112,22 @@ func InitImageBackendsForPull(ctx context.Context, conf *config.Config) (*oci.OC
 	return ociStore, cloudimgStore, nil
 }
 
-func InitHypervisor(conf *config.Config) (hypervisor.Hypervisor, error) {
+func InitHypervisor(ctx context.Context, conf *config.Config) (hypervisor.Hypervisor, error) {
 	ctor := findHypervisorFactory(conf.Hypervisor())
 	if ctor == nil {
 		return nil, fmt.Errorf("unknown hypervisor type: %s", conf.Hypervisor())
 	}
-	h, err := ctor(conf)
+	h, err := ctor(ctx, conf)
 	if err != nil {
 		return nil, fmt.Errorf("init hypervisor: %w", err)
 	}
 	return h, nil
 }
 
-func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
+func InitAllHypervisors(ctx context.Context, conf *config.Config) ([]hypervisor.Hypervisor, error) {
 	result := make([]hypervisor.Hypervisor, 0, len(hypervisorFactories))
 	for _, f := range hypervisorFactories {
-		h, err := f.ctor(conf)
+		h, err := f.ctor(ctx, conf)
 		if err != nil {
 			return nil, fmt.Errorf("init %s for GC: %w", f.typ, err)
 		}
@@ -136,7 +137,7 @@ func InitAllHypervisors(conf *config.Config) ([]hypervisor.Hypervisor, error) {
 }
 
 func FindHypervisor(ctx context.Context, conf *config.Config, ref string) (hypervisor.Hypervisor, error) {
-	hypers, err := InitAllHypervisors(conf)
+	hypers, err := InitAllHypervisors(ctx, conf)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +157,7 @@ func ListAllVMs(ctx context.Context, hypers []hypervisor.Hypervisor) ([]*types.V
 	return all, nil
 }
 
-// RouteRefs resolves user refs to (hypervisor → full VM IDs); downstream callers never re-resolve.
+// RouteRefs resolves user refs to (hypervisor → full VM IDs).
 func RouteRefs(ctx context.Context, hypers []hypervisor.Hypervisor, refs []string) (map[hypervisor.Hypervisor][]string, error) {
 	result := map[hypervisor.Hypervisor][]string{}
 	for _, ref := range refs {
@@ -185,8 +186,8 @@ func InitBridgeNetwork(conf *config.Config, bridgeDev string) (network.Network, 
 	return p, nil
 }
 
-func InitSnapshot(conf *config.Config, opts ...localfile.Option) (snapshot.Snapshot, error) {
-	s, err := localfile.New(conf, opts...)
+func InitSnapshot(ctx context.Context, conf *config.Config, opts ...localfile.Option) (snapshot.Snapshot, error) {
+	s, err := localfile.New(conf, MeteringRecorder(ctx, conf), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("init snapshot backend: %w", err)
 	}
@@ -334,7 +335,6 @@ func VMConfigFromFlags(cmd *cobra.Command, image string) (*types.VMConfig, error
 	return cfg, nil
 }
 
-// CloneVMConfigFromFlags builds VMConfig for clone (inherits from snapshot).
 func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*types.VMConfig, error) {
 	vmName, _ := cmd.Flags().GetString("name")
 	flagNetwork, _ := cmd.Flags().GetString("network")
@@ -350,7 +350,6 @@ func CloneVMConfigFromFlags(cmd *cobra.Command, snapCfg types.SnapshotConfig) (*
 
 	onDemand, _ := cmd.Flags().GetBool("on-demand")
 
-	// Validate runs in prepareClone, after the default name is filled in.
 	return &types.VMConfig{
 		Name: vmName,
 		Config: types.Config{
@@ -385,7 +384,6 @@ func RestoreVMConfigFromFlags(cmd *cobra.Command, vm *types.VM, snapCfg types.Sn
 		Name:     vm.Config.Name,
 		OnDemand: onDemand,
 	}
-	// Guard against tampered --from-dir --force envelopes.
 	if err := result.Validate(); err != nil {
 		return nil, fmt.Errorf("snapshot config: %w", err)
 	}
@@ -398,7 +396,6 @@ func EnsureFirmwarePath(conf *config.Config, bootCfg *types.BootConfig) {
 	}
 }
 
-// ReconcileState detects stale running records via process liveness.
 func ReconcileState(vm *types.VM) string {
 	if vm.State == types.VMStateRunning && !utils.IsProcessAlive(vm.PID) {
 		return "stopped (stale)"
@@ -416,18 +413,16 @@ func AddFormatFlag(cmd *cobra.Command) {
 	cmd.Flags().StringP("format", "o", "table", `output format: "table" or "json"`)
 }
 
-// AddOutputFlag adds --output/-o for lifecycle commands. Empty default keeps the human-readable log output; "json" emits a parseable result on stdout.
 func AddOutputFlag(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", `emit "json" for machine-readable output`)
 }
 
-// WantJSON reports whether --output=json was requested.
 func WantJSON(cmd *cobra.Command) bool {
 	out, _ := cmd.Flags().GetString("output")
 	return out == "json"
 }
 
-// MaybeOutputJSON emits JSON iff --output=json; (true, _) means handled and the caller should stop logging.
+// MaybeOutputJSON emits JSON iff --output=json; (true, _) means caller should stop logging.
 func MaybeOutputJSON(cmd *cobra.Command, v any) (bool, error) {
 	if !WantJSON(cmd) {
 		return false, nil
@@ -435,7 +430,6 @@ func MaybeOutputJSON(cmd *cobra.Command, v any) (bool, error) {
 	return true, OutputJSON(v)
 }
 
-// OutputFormatted outputs as JSON or table based on --format flag.
 func OutputFormatted(cmd *cobra.Command, data any, tableFn func(w *tabwriter.Writer)) error {
 	format, _ := cmd.Flags().GetString("format")
 	if format == "json" {
@@ -509,7 +503,7 @@ func digestPullRef(image, digest, imageType string) string {
 	return ref.Context().String() + "@" + digest
 }
 
-func findHypervisorFactory(typ config.HypervisorType) func(*config.Config) (hypervisor.Hypervisor, error) {
+func findHypervisorFactory(typ config.HypervisorType) func(context.Context, *config.Config) (hypervisor.Hypervisor, error) {
 	for _, f := range hypervisorFactories {
 		if f.typ == typ {
 			return f.ctor
@@ -538,11 +532,9 @@ func resolveVMOwner(ctx context.Context, hypers []hypervisor.Hypervisor, ref str
 	return owner, resolved, err
 }
 
-// sanitizeVMName derives a safe VM name from an image reference.
 func sanitizeVMName(image string) string {
 	ref, err := name.ParseReference(image)
 	if err != nil {
-		// Unparseable — fall back to simple replace.
 		n := strings.ReplaceAll(image, "/", "-")
 		n = strings.ReplaceAll(n, ":", "-")
 		n = "cocoon-" + n
@@ -552,14 +544,10 @@ func sanitizeVMName(image string) string {
 		return n
 	}
 
-	// RepositoryStr() strips the registry hostname.
-	// Docker Hub official images get "library/" prepended — strip it.
-	repo := ref.Context().RepositoryStr()
-	repo = strings.TrimPrefix(repo, "library/")
-
+	repo := strings.TrimPrefix(ref.Context().RepositoryStr(), "library/")
 	n := "cocoon-" + strings.ReplaceAll(repo, "/", "-")
 
-	// Append tag (but not digest — it's too long and not human-readable).
+	// Skip digest (too long); use tag if not latest.
 	if tag, ok := ref.(name.Tag); ok && tag.TagStr() != "latest" {
 		n += "-" + tag.TagStr()
 	}

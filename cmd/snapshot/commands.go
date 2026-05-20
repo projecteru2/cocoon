@@ -6,7 +6,6 @@ import (
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 )
 
-// Actions defines snapshot management operations.
 type Actions interface {
 	Save(cmd *cobra.Command, args []string) error
 	List(cmd *cobra.Command, args []string) error
@@ -16,7 +15,6 @@ type Actions interface {
 	Import(cmd *cobra.Command, args []string) error
 }
 
-// Command builds the "snapshot" parent command with all subcommands.
 func Command(h Actions) *cobra.Command {
 	snapshotCmd := &cobra.Command{
 		Use:   "snapshot",

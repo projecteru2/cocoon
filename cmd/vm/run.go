@@ -53,7 +53,6 @@ func (h Handler) Run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("start VM %s: %w", vm.ID, err)
 	}
 	if wantJSON {
-		// Re-inspect for post-start state; on err, fall back to pre-start vm so JSON isn't silently stale.
 		info, inspectErr := hyper.Inspect(ctx, vm.ID)
 		switch {
 		case inspectErr != nil:
@@ -84,12 +83,11 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		return h.cloneFromDir(ctx, cmd, conf, fromDir, logger)
 	}
 
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
 
-	// Infer hypervisor backend from the snapshot's Hypervisor field.
 	snapInfo, err := snapBackend.Inspect(ctx, snapRef)
 	if err != nil {
 		return fmt.Errorf("inspect snapshot %s: %w", snapRef, err)
@@ -98,7 +96,7 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		conf.UseFirecracker = snapInfo.Hypervisor == string(config.HypervisorFirecracker)
 	}
 
-	hyper, err := cmdcore.InitHypervisor(conf)
+	hyper, err := cmdcore.InitHypervisor(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -161,7 +159,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("find VM %s: %w", vmRef, err)
 	}
-	snapBackend, err := cmdcore.InitSnapshot(conf)
+	snapBackend, err := cmdcore.InitSnapshot(ctx, conf)
 	if err != nil {
 		return err
 	}
@@ -201,7 +199,7 @@ func (h Handler) Restore(cmd *cobra.Command, args []string) error {
 
 	logger.Infof(ctx, "restoring VM %s from snapshot %s ...", vmRef, snapRef)
 
-	result, err := hyper.Restore(ctx, vmRef, vmCfg, stream)
+	result, err := hyper.Restore(ctx, vmRef, vmCfg, stream, snapInfo.ID)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
@@ -242,7 +240,7 @@ func (h Handler) restoreFromDir(ctx context.Context, cmd *cobra.Command, conf *c
 	if err != nil {
 		return err
 	}
-	return h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dir,
+	return h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dir, cfg.ID,
 		fmt.Sprintf("dir %s", dir), logger)
 }
 
@@ -261,13 +259,12 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if err != nil {
 		return fmt.Errorf("load envelope: %w", err)
 	}
-	// Local copy so flipping the backend selection doesn't leak to the caller's
-	// shared *config.Config (CLI is fine, daemons embedding cocoon would notice).
+	// Local copy keeps backend flip from leaking to the caller's shared *config.Config.
 	localConf := *conf
 	if cfg.Hypervisor != "" {
 		localConf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
 	}
-	hyper, err := cmdcore.InitHypervisor(&localConf)
+	hyper, err := cmdcore.InitHypervisor(ctx, &localConf)
 	if err != nil {
 		return err
 	}
@@ -304,21 +301,6 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 	return nil
 }
 
-// snapshotSource picks the clone/restore source: --from-dir or args[baseArgs]. Exactly one of (fromDir, snapRef) is non-empty.
-func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
-	fromDir, _ := cmd.Flags().GetString("from-dir")
-	if fromDir != "" {
-		if len(args) > baseArgs {
-			return "", "", fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
-		}
-		return fromDir, "", nil
-	}
-	if len(args) <= baseArgs {
-		return "", "", fmt.Errorf("snapshot is required (or use --from-dir)")
-	}
-	return "", args[baseArgs], nil
-}
-
 func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, types.NetSetup, error) {
 	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
 	if err != nil {
@@ -332,7 +314,6 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		return nil, "", nil, types.NetSetup{}, err
 	}
 
-	// Auto-pull base image if --pull is set (cross-node clone).
 	if pull, _ := cmd.Flags().GetBool("pull"); pull && vmCfg.Image != "" && vmCfg.ImageType != "" {
 		backends, initErr := cmdcore.InitImageBackends(ctx, conf)
 		if initErr != nil {
@@ -366,21 +347,21 @@ func (h Handler) restoreDirect(ctx context.Context, cmd *cobra.Command, snapRef,
 	if !ok {
 		return false, nil
 	}
-	dataDir, _, err := da.DataDir(ctx, snapRef)
+	dataDir, snapCfg, err := da.DataDir(ctx, snapRef)
 	if err != nil {
 		return true, fmt.Errorf("open snapshot: %w", err)
 	}
-	return true, h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dataDir,
+	return true, h.runDirectRestore(ctx, cmd, dcr, vmRef, vmCfg, dataDir, snapCfg.ID,
 		fmt.Sprintf("snapshot %s", snapRef), logger)
 }
 
 // runDirectRestore is the shared tail for the snapshot-DB and --from-dir restore paths: log, DirectRestore, output.
-func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceLabel string, logger *log.Fields) error {
+func (h Handler) runDirectRestore(ctx context.Context, cmd *cobra.Command, dcr hypervisor.Direct, vmRef string, vmCfg *types.VMConfig, srcDir, sourceSnapshotID, sourceLabel string, logger *log.Fields) error {
 	wantJSON := cmdcore.WantJSON(cmd)
 	if !wantJSON {
 		logger.Infof(ctx, "restoring VM %s from %s (direct) ...", vmRef, sourceLabel)
 	}
-	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, srcDir)
+	result, err := dcr.DirectRestore(ctx, vmRef, vmCfg, srcDir, sourceSnapshotID)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
@@ -406,7 +387,6 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 		return nil, nil, nil, err
 	}
 
-	// Validate backend/boot-mode constraints before initializing backends.
 	if conf.UseFirecracker && vmCfg.Windows {
 		return nil, nil, nil, fmt.Errorf("--fc and --windows are mutually exclusive: Firecracker does not support Windows guests")
 	}
@@ -451,6 +431,21 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 	return ctx, info, hyper, nil
 }
 
+// snapshotSource picks the clone/restore source: --from-dir or args[baseArgs]. Exactly one of (fromDir, snapRef) is non-empty.
+func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
+	fromDir, _ := cmd.Flags().GetString("from-dir")
+	if fromDir != "" {
+		if len(args) > baseArgs {
+			return "", "", fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
+		}
+		return fromDir, "", nil
+	}
+	if len(args) <= baseArgs {
+		return "", "", fmt.Errorf("snapshot is required (or use --from-dir)")
+	}
+	return "", args[baseArgs], nil
+}
+
 // tapQueues: FC=1, CH=CPU count.
 func tapQueues(cpu int, useFC bool) int {
 	if useFC {
@@ -484,7 +479,7 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	if nics <= 0 {
 		return netProvider, setup, nil
 	}
-	// Override CPU for TAP queue count (FC=1, CH=per-vCPU); network reads vmCfg.CPU.
+	// FC needs 1 TAP queue, CH needs per-vCPU; network reads vmCfg.CPU.
 	origCPU := vmCfg.CPU
 	vmCfg.CPU = queues
 	configs, err := netProvider.Add(ctx, vmID, vmCfg, network.AddRange(0, nics)...)
@@ -529,8 +524,7 @@ func printPostCloneHints(vm *types.VM) {
 	fmt.Println("  # Release memory for balloon")
 	fmt.Println("  echo 3 > /proc/sys/vm/drop_caches")
 
-	// FC clone: guest MAC is baked in vmstate (source VM's MAC).
-	// Must change guest MAC before networkd config takes effect.
+	// FC clone: guest MAC is baked in vmstate; change it before networkd config.
 	if vm.Hypervisor == string(config.HypervisorFirecracker) {
 		printFCMACHints(vm.NetworkConfigs)
 	}

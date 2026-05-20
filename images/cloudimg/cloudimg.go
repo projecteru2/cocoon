@@ -30,7 +30,6 @@ type CloudImg struct {
 	ops       images.Ops[imageIndex, imageEntry]
 }
 
-// New creates a new cloud image backend.
 func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 	cfg := NewConfig(conf)
 	if err := cfg.EnsureDirs(); err != nil {
@@ -55,10 +54,8 @@ func New(ctx context.Context, conf *config.Config) (*CloudImg, error) {
 	return c, nil
 }
 
-// Type returns the image backend identifier.
 func (c *CloudImg) Type() string { return typ }
 
-// Pull downloads a cloud image and stores it in the blob cache.
 func (c *CloudImg) Pull(ctx context.Context, url string, force bool, tracker progress.Tracker) error {
 	_, err, _ := c.pullGroup.Do(url, func() (any, error) {
 		return nil, pull(ctx, c.conf, c.store, url, force, tracker)
@@ -66,7 +63,6 @@ func (c *CloudImg) Pull(ctx context.Context, url string, force bool, tracker pro
 	return err
 }
 
-// Import imports local qcow2 file(s) as a cloud image.
 func (c *CloudImg) Import(ctx context.Context, name string, tracker progress.Tracker, file ...string) error {
 	if len(file) == 1 {
 		return importQcow2File(ctx, c.conf, c.store, name, tracker, file[0])
@@ -74,22 +70,19 @@ func (c *CloudImg) Import(ctx context.Context, name string, tracker progress.Tra
 	return importQcow2Concat(ctx, c.conf, c.store, name, tracker, file...)
 }
 
-// ImportFromReader imports a qcow2 image from a reader (stdin, gzip stream, etc.).
 func (c *CloudImg) ImportFromReader(ctx context.Context, name string, tracker progress.Tracker, r io.Reader) error {
 	return importQcow2Reader(ctx, c.conf, c.store, name, tracker, r)
 }
 
-// Inspect returns the record for a single image. Returns (nil, nil) if not found.
+// Inspect returns (nil, nil) if not found.
 func (c *CloudImg) Inspect(ctx context.Context, id string) (*types.Image, error) {
 	return c.ops.Inspect(ctx, id)
 }
 
-// List returns all locally stored cloud images.
 func (c *CloudImg) List(ctx context.Context) ([]*types.Image, error) {
 	return c.ops.List(ctx)
 }
 
-// Delete removes images from the index.
 func (c *CloudImg) Delete(ctx context.Context, ids []string) ([]string, error) {
 	return c.ops.Delete(ctx, ids)
 }

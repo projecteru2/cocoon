@@ -19,12 +19,11 @@ type Store[T any] struct {
 	locker   lock.Locker
 }
 
-// New creates a JSON file-backed store with the given lock.
 func New[T any](filePath string, locker lock.Locker) *Store[T] {
 	return &Store[T]{filePath: filePath, locker: locker}
 }
 
-// ReadRaw loads the JSON file and passes the decoded data to fn without locking.
+// ReadRaw loads the JSON file unlocked.
 func (s *Store[T]) ReadRaw(fn func(*T) error) error {
 	data, err := s.load()
 	if err != nil {
@@ -33,7 +32,7 @@ func (s *Store[T]) ReadRaw(fn func(*T) error) error {
 	return fn(data)
 }
 
-// WriteRaw loads, mutates via fn, and atomically writes back without locking.
+// WriteRaw loads, mutates, atomically writes back — unlocked.
 func (s *Store[T]) WriteRaw(fn func(*T) error) error {
 	data, err := s.load()
 	if err != nil {
@@ -48,22 +47,20 @@ func (s *Store[T]) WriteRaw(fn func(*T) error) error {
 	return nil
 }
 
-// With acquires the lock, loads the data, and passes it to fn read-only.
+// With runs fn read-only under the store lock.
 func (s *Store[T]) With(ctx context.Context, fn func(*T) error) error {
 	return s.withLocked(ctx, func() error { return s.ReadRaw(fn) })
 }
 
-// Update acquires the lock, loads, mutates via fn, and atomically writes back.
+// Update runs fn read-modify-write under the store lock.
 func (s *Store[T]) Update(ctx context.Context, fn func(*T) error) error {
 	return s.withLocked(ctx, func() error { return s.WriteRaw(fn) })
 }
 
-// TryLock attempts to acquire the store lock without blocking.
 func (s *Store[T]) TryLock(ctx context.Context) (bool, error) {
 	return s.locker.TryLock(ctx)
 }
 
-// Unlock releases the store lock.
 func (s *Store[T]) Unlock(ctx context.Context) error {
 	return s.locker.Unlock(ctx)
 }

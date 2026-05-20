@@ -6,8 +6,7 @@ import (
 
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
-	"github.com/cocoonstack/cocoon/lock/flock"
-	storejson "github.com/cocoonstack/cocoon/storage/json"
+	"github.com/cocoonstack/cocoon/metering"
 )
 
 const typ = "cloud-hypervisor"
@@ -25,26 +24,17 @@ type CloudHypervisor struct {
 	conf *Config
 }
 
-// New creates a CloudHypervisor backend.
-func New(conf *config.Config) (*CloudHypervisor, error) {
+// New creates a CloudHypervisor backend. rec may be nil; the backend falls back to NopRecorder for emit calls.
+func New(conf *config.Config, rec metering.Recorder) (*CloudHypervisor, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
 	cfg := NewConfig(conf)
-	if err := cfg.EnsureDirs(); err != nil {
-		return nil, fmt.Errorf("ensure dirs: %w", err)
+	backend, err := hypervisor.NewBackend(typ, cfg, rec)
+	if err != nil {
+		return nil, err
 	}
-	locker := flock.New(cfg.IndexLock())
-	store := storejson.New[hypervisor.VMIndex](cfg.IndexFile(), locker)
-	return &CloudHypervisor{
-		Backend: &hypervisor.Backend{
-			Typ:    typ,
-			Conf:   cfg,
-			DB:     store,
-			Locker: locker,
-		},
-		conf: cfg,
-	}, nil
+	return &CloudHypervisor{Backend: backend, conf: cfg}, nil
 }
 
 // Delete removes VMs. Running VMs require force=true (stops them first).

@@ -2,13 +2,17 @@ package hypervisor
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os/exec"
 	"time"
 
 	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock/flock"
+	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/storage"
+	storejson "github.com/cocoonstack/cocoon/storage/json"
 	"github.com/cocoonstack/cocoon/types"
 )
 
@@ -49,6 +53,8 @@ type BackendConfig interface {
 	SocketWaitTimeout() time.Duration
 	EffectivePoolSize() int
 	IndexFile() string
+	IndexLock() string
+	EnsureDirs() error
 	RunDir() string
 	LogDir() string
 	VMRunDir(id string) string
@@ -57,45 +63,80 @@ type BackendConfig interface {
 
 // Backend provides shared store operations for hypervisor backends.
 type Backend struct {
-	Typ    string
-	Conf   BackendConfig
-	DB     storage.Store[VMIndex]
-	Locker lock.Locker
+	Typ      string
+	Conf     BackendConfig
+	DB       storage.Store[VMIndex]
+	Locker   lock.Locker
+	Metering metering.Recorder
 }
 
-// LaunchSpec is the per-call input to Backend.LaunchVMProcess. Shared
-// BinaryName / SocketWaitTimeout come from BackendConfig.
+// NewBackend wires shared init: EnsureDirs, flock, JSON store, nil-recorder fallback.
+func NewBackend(typ string, conf BackendConfig, rec metering.Recorder) (*Backend, error) {
+	if err := conf.EnsureDirs(); err != nil {
+		return nil, fmt.Errorf("ensure dirs: %w", err)
+	}
+	if rec == nil {
+		rec = metering.NopRecorder{}
+	}
+	locker := flock.New(conf.IndexLock())
+	return &Backend{
+		Typ:      typ,
+		Conf:     conf,
+		DB:       storejson.New[VMIndex](conf.IndexFile(), locker),
+		Locker:   locker,
+		Metering: rec,
+	}, nil
+}
+
+func (b *Backend) Type() string { return b.Typ }
+
+// LaunchSpec is the per-call input to Backend.LaunchVMProcess.
 type LaunchSpec struct {
 	Cmd       *exec.Cmd
 	PIDPath   string
 	SockPath  string
-	NetnsPath string // empty = host netns
-	OnFail    func() // optional cleanup on any error path
+	NetnsPath string
+	OnFail    func()
 }
 
-// RestoreSpec carries the backend-specific hooks for Backend.RestoreSequence.
+// RestoreSpec carries backend hooks for Backend.RestoreSequence.
 type RestoreSpec struct {
-	VMCfg        *types.VMConfig
-	Snapshot     io.Reader
-	Preflight    func(stagingDir string, rec *VMRecord) error
-	Kill         func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap         func(rec *VMRecord, fn func() error) error // optional disk lock around merge+afterExtract
-	BeforeMerge  func(rec *VMRecord) error                  // e.g. FC removes stale COW
-	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+	VMCfg            *types.VMConfig
+	Snapshot         io.Reader
+	SourceSnapshotID string
+	Preflight        func(stagingDir string, rec *VMRecord) error
+	Kill             func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap             func(rec *VMRecord, fn func() error) error
+	BeforeMerge      func(rec *VMRecord) error
+	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// DirectRestoreSpec is RestoreSpec for a local srcDir rather than a tar; Populate replaces staging+merge.
+// DirectRestoreSpec is RestoreSpec for a local srcDir; Populate replaces staging+merge.
 type DirectRestoreSpec struct {
-	VMCfg        *types.VMConfig
-	SrcDir       string
-	Preflight    func(srcDir string, rec *VMRecord) error
-	Kill         func(ctx context.Context, vmID string, rec *VMRecord) error
-	Wrap         func(rec *VMRecord, fn func() error) error
-	Populate     func(rec *VMRecord, srcDir string) error
-	AfterExtract func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+	VMCfg            *types.VMConfig
+	SrcDir           string
+	SourceSnapshotID string
+	Preflight        func(srcDir string, rec *VMRecord) error
+	Kill             func(ctx context.Context, vmID string, rec *VMRecord) error
+	Wrap             func(rec *VMRecord, fn func() error) error
+	Populate         func(rec *VMRecord, srcDir string) error
+	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
 }
 
-// CreateSpec carries CreateSequence inputs; Prepare returns final storage configs (COW + data disks).
+// StartSpec carries StartSequence inputs.
+type StartSpec struct {
+	RuntimeFiles []string
+	Launch       func(ctx context.Context, rec *VMRecord, sockPath string) (int, error)
+	PostLaunch   func(ctx context.Context, rec *VMRecord, sockPath string, pid int) error
+}
+
+// StopSpec carries StopOneSequence inputs.
+type StopSpec struct {
+	RuntimeFiles []string
+	Shutdown     func(ctx context.Context, rec *VMRecord, sockPath string, pid int) error
+}
+
+// CreateSpec carries CreateSequence inputs.
 type CreateSpec struct {
 	VMCfg          *types.VMConfig
 	StorageConfigs []*types.StorageConfig
@@ -113,5 +154,3 @@ type SnapshotSpec struct {
 	AfterCapture func(rec *VMRecord, tmpDir string) error
 	BuildMeta    func(rec *VMRecord, tmpDir string) (*SnapshotMeta, error)
 }
-
-func (b *Backend) Type() string { return b.Typ }

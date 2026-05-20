@@ -8,7 +8,6 @@ import (
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 )
 
-// Actions defines VM lifecycle operations.
 type Actions interface {
 	Create(cmd *cobra.Command, args []string) error
 	Run(cmd *cobra.Command, args []string) error
@@ -31,7 +30,6 @@ type Actions interface {
 	NetResize(cmd *cobra.Command, args []string) error
 }
 
-// Command builds the "vm" parent command with all subcommands.
 func Command(h Actions) *cobra.Command {
 	vmCmd := &cobra.Command{
 		Use:   "vm",

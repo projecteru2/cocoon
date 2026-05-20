@@ -82,6 +82,7 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 		return "", err
 	}
 
+	emitSnapStart(ctx, lf.metering, id, cfg.Hypervisor, size, now)
 	return id, nil
 }
 
