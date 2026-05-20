@@ -81,7 +81,10 @@ func (b *Backend) PrepareStart(ctx context.Context, id string, runtimeFiles []st
 	runErr := b.WithRunningVM(ctx, &rec, func(_ int) error { return nil })
 	switch {
 	case runErr == nil:
-		return nil, nil // already running
+		if rec.State != types.VMStateRunning {
+			b.reconcileToRunning(ctx, id)
+		}
+		return nil, nil
 	case errors.Is(runErr, ErrNotRunning):
 		if hasOpenComputeInterval(&rec) {
 			b.closeStaleComputeInterval(ctx, &rec)
