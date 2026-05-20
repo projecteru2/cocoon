@@ -6,7 +6,6 @@ import (
 	cmdcore "github.com/cocoonstack/cocoon/cmd/core"
 )
 
-// Actions defines image management operations.
 type Actions interface {
 	Pull(cmd *cobra.Command, args []string) error
 	Import(cmd *cobra.Command, args []string) error
@@ -15,7 +14,6 @@ type Actions interface {
 	Inspect(cmd *cobra.Command, args []string) error
 }
 
-// Command builds the "image" parent command with all subcommands.
 func Command(h Actions) *cobra.Command {
 	imageCmd := &cobra.Command{
 		Use:   "image",

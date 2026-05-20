@@ -115,7 +115,7 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			if r == nil {
 				return ErrNotFound
 			}
-			hadRunningInterval = r.State == types.VMStateRunning
+			hadRunningInterval = hasOpenComputeInterval(r)
 			shape = shapeFromConfig(r.Config)
 			delete(idx.Names, r.Config.Name)
 			delete(idx.VMs, id)

@@ -25,7 +25,7 @@ const (
 
 var _ images.Images = (*OCI)(nil)
 
-// OCI implements the images.Images interface using OCI container images converted to EROFS filesystems for use with Cloud Hypervisor.
+// OCI converts OCI container layers to EROFS for Cloud Hypervisor.
 type OCI struct {
 	conf      *Config
 	store     storage.Store[imageIndex]
@@ -34,7 +34,6 @@ type OCI struct {
 	ops       images.Ops[imageIndex, imageEntry]
 }
 
-// New creates a new OCI image backend.
 func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -62,10 +61,9 @@ func New(ctx context.Context, conf *config.Config) (*OCI, error) {
 	return o, nil
 }
 
-// Type returns the image backend identifier.
 func (o *OCI) Type() string { return typ }
 
-// Pull downloads an OCI image from a container registry, extracts boot files (kernel, initrd), and converts each layer to EROFS concurrently.
+// Pull downloads an OCI image, extracts boot files, and converts each layer to EROFS concurrently.
 func (o *OCI) Pull(ctx context.Context, image string, _ bool, tracker progress.Tracker) error {
 	_, err, _ := o.pullGroup.Do(image, func() (any, error) {
 		return nil, pull(ctx, o.conf, o.store, image, tracker)
@@ -73,34 +71,30 @@ func (o *OCI) Pull(ctx context.Context, image string, _ bool, tracker progress.T
 	return err
 }
 
-// Import imports local tar files as an OCI image.
-// Each tar file becomes one EROFS layer (ordered by the files slice).
+// Import: each tar file becomes one EROFS layer in the order of the files slice.
 func (o *OCI) Import(ctx context.Context, name string, tracker progress.Tracker, file ...string) error {
 	return importTarLayers(ctx, o.conf, o.store, name, tracker, file...)
 }
 
-// ImportFromReader imports a single tar layer from a reader (stdin, gzip stream, etc.).
 func (o *OCI) ImportFromReader(ctx context.Context, name string, tracker progress.Tracker, r io.Reader) error {
 	return importTarFromReader(ctx, o.conf, o.store, name, tracker, r)
 }
 
-// Inspect returns the record for a single image. Returns (nil, nil) if not found.
+// Inspect returns (nil, nil) if not found.
 func (o *OCI) Inspect(ctx context.Context, id string) (*types.Image, error) {
 	return o.ops.Inspect(ctx, id)
 }
 
-// List returns all locally stored images.
 func (o *OCI) List(ctx context.Context) ([]*types.Image, error) {
 	return o.ops.List(ctx)
 }
 
-// Delete removes images from the index.
-// Returns the list of actually deleted refs. Images not found are logged and skipped.
+// Delete returns actually-deleted refs; not-found ids are logged and skipped.
 func (o *OCI) Delete(ctx context.Context, ids []string) ([]string, error) {
 	return o.ops.Delete(ctx, ids)
 }
 
-// Config generates StorageConfig + BootConfig for the given VMs; paths derive from layer digests, refs are normalized, errors if a blob is missing.
+// Config builds StorageConfig + BootConfig from layer digests; errors if any blob is missing.
 func (o *OCI) Config(ctx context.Context, vms []*types.VMConfig) (result [][]*types.StorageConfig, boot []*types.BootConfig, err error) {
 	err = o.store.With(ctx, func(idx *imageIndex) error {
 		result = make([][]*types.StorageConfig, len(vms))

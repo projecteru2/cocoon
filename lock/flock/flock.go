@@ -21,12 +21,10 @@ type Lock struct {
 	fl   *flock.Flock // active flock fd, non-nil while held
 }
 
-// New creates a Lock for the given path.
 func New(path string) *Lock {
 	return &Lock{path: path, ch: make(chan struct{}, 1)}
 }
 
-// Lock acquires the lock, blocking until available or ctx is canceled.
 func (l *Lock) Lock(ctx context.Context) error {
 	select {
 	case l.ch <- struct{}{}:
@@ -45,8 +43,7 @@ func (l *Lock) Lock(ctx context.Context) error {
 	return nil
 }
 
-// TryLock attempts a non-blocking acquisition.
-// Returns (false, nil) if the lock is currently held by another caller.
+// TryLock returns (false, nil) if the lock is currently held by another caller.
 func (l *Lock) TryLock(_ context.Context) (bool, error) {
 	select {
 	case l.ch <- struct{}{}:
@@ -58,7 +55,6 @@ func (l *Lock) TryLock(_ context.Context) (bool, error) {
 	})
 }
 
-// Unlock releases the lock.
 func (l *Lock) Unlock(_ context.Context) error {
 	var err error
 	if l.fl != nil {

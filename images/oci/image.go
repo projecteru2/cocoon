@@ -12,14 +12,14 @@ type imageIndex struct {
 	images.Index[imageEntry]
 }
 
-// Paths are not stored; they are derived from digests and config at runtime.
+// Paths derive from digests at runtime; not stored.
 type imageEntry struct {
 	Ref            string        `json:"ref"`
 	ManifestDigest images.Digest `json:"manifest_digest"`
 	Layers         []layerEntry  `json:"layers"`
-	KernelLayer    images.Digest `json:"kernel_layer"` // digest of layer containing vmlinuz
-	InitrdLayer    images.Digest `json:"initrd_layer"` // digest of layer containing initrd.img
-	Size           int64         `json:"size"`         // total on-disk size of all artifacts
+	KernelLayer    images.Digest `json:"kernel_layer"`
+	InitrdLayer    images.Digest `json:"initrd_layer"`
+	Size           int64         `json:"size"`
 	CreatedAt      time.Time     `json:"created_at"`
 }
 
@@ -27,13 +27,11 @@ type layerEntry struct {
 	Digest images.Digest `json:"digest"`
 }
 
-// Lookup finds an image entry by ref (exact or normalized) or manifest digest.
-// Returns the ref key, entry, and whether it was found.
+// Lookup finds an entry by ref (exact or normalized) or manifest digest.
 func (idx *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
 	if entry, ok := idx.Images[id]; ok && entry != nil {
 		return id, entry, true
 	}
-	// Try normalizing as an image reference (e.g., "ubuntu:24.04" -> "docker.io/library/ubuntu:24.04").
 	if parsed, err := name.ParseReference(id); err == nil {
 		normalized := parsed.String()
 		if entry, ok := idx.Images[normalized]; ok && entry != nil {
@@ -48,8 +46,6 @@ func (idx *imageIndex) Lookup(id string) (string, *imageEntry, bool) {
 	return "", nil, false
 }
 
-// LookupRefs returns all ref keys matching id for DeleteByID.
-// Delegates to shared images.LookupRefs with OCI reference normalization.
 func (idx *imageIndex) LookupRefs(id string) []string {
 	return images.LookupRefs(idx.Images, id, func(s string) (string, bool) {
 		parsed, err := name.ParseReference(s)
@@ -60,16 +56,10 @@ func (idx *imageIndex) LookupRefs(id string) []string {
 	})
 }
 
-// EntryID returns manifest digest as unique entry identifier.
-func (e imageEntry) EntryID() string { return e.ManifestDigest.String() }
-
-// EntryRef returns image reference string.
-func (e imageEntry) EntryRef() string { return e.Ref }
-
-// EntryCreatedAt returns when this entry was created.
+func (e imageEntry) EntryID() string           { return e.ManifestDigest.String() }
+func (e imageEntry) EntryRef() string          { return e.Ref }
 func (e imageEntry) EntryCreatedAt() time.Time { return e.CreatedAt }
 
-// DigestHexes returns hex-encoded digests of all layers.
 func (e imageEntry) DigestHexes() []string {
 	hexes := make([]string, len(e.Layers))
 	for i, l := range e.Layers {

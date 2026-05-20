@@ -153,6 +153,62 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 	}
 }
 
+func TestPrepareStartClosesIntervalAfterMarkError(t *testing.T) {
+	// Running→Error must leave the interval open (UpdateStates(Error) doesn't write StoppedAt). The next PrepareStart confirms the process is dead and closes the interval.
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+	dir := t.TempDir()
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		idx.VMs["vm1"].RunDir = dir
+		idx.VMs["vm1"].LogDir = dir
+		return nil
+	}); err != nil {
+		t.Fatalf("set dirs: %v", err)
+	}
+
+	b.MarkError(ctx, "vm1")
+	if got := cap.Entries(); len(got) != 0 {
+		t.Fatalf("MarkError emitted %d; want 0", len(got))
+	}
+	loaded, _ := b.LoadRecord(ctx, "vm1")
+	if loaded.StoppedAt != nil {
+		t.Errorf("MarkError must not write StoppedAt; got %v", loaded.StoppedAt)
+	}
+
+	rec, err := b.PrepareStart(ctx, "vm1", nil)
+	if err != nil {
+		t.Fatalf("PrepareStart: %v", err)
+	}
+	if rec == nil {
+		t.Fatal("PrepareStart returned nil")
+	}
+	entries := cap.Entries()
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopCrash {
+		t.Fatalf("got %+v, want one compute.stop reason=stop-crash", entries)
+	}
+}
+
+func TestDeleteForceClosesIntervalAfterMarkError(t *testing.T) {
+	// rm --force on an Error VM with a still-open interval must emit compute.stop, not just storage.stop.
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+	b.MarkError(ctx, "vm1")
+	cap.Reset()
+
+	loaded, _ := b.LoadRecord(ctx, "vm1")
+	if !hasOpenComputeInterval(&loaded) {
+		t.Fatal("interval should still be open after MarkError")
+	}
+
+	b.emitDeleteClose(ctx, "vm1", shapeFromConfig(loaded.Config), metering.ReasonStopCrash, hasOpenComputeInterval(&loaded))
+	entries := cap.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 (compute.stop + storage.stop)", len(entries))
+	}
+}
+
 func TestPrepareStartClosesStaleInterval(t *testing.T) {
 	b, cap := newMeteringTestBackend(t)
 	ctx := t.Context()
@@ -225,7 +281,9 @@ func seedRunningVM(t *testing.T, b *Backend, id string, cpu int, mem, storage in
 	t.Helper()
 	seedVMRecord(t, b, id, cpu, mem, storage, true)
 	if err := b.DB.Update(t.Context(), func(idx *VMIndex) error {
+		now := time.Now()
 		idx.VMs[id].State = types.VMStateRunning
+		idx.VMs[id].StartedAt = &now
 		return nil
 	}); err != nil {
 		t.Fatalf("set running: %v", err)

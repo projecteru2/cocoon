@@ -25,7 +25,6 @@ var (
 	_ netresize.Resizer = (*CloudHypervisor)(nil)
 )
 
-// FsAttach hot-plugs a vhost-user-fs device onto a running CH VM.
 func (ch *CloudHypervisor) FsAttach(ctx context.Context, vmRef string, spec fs.Spec) (string, error) {
 	if err := spec.Normalize(); err != nil {
 		return "", err
@@ -53,7 +52,6 @@ func (ch *CloudHypervisor) FsAttach(ctx context.Context, vmRef string, spec fs.S
 	})
 }
 
-// FsDetach removes a previously attached vhost-user-fs device by tag.
 func (ch *CloudHypervisor) FsDetach(ctx context.Context, vmRef, tag string) error {
 	if tag == "" {
 		return fmt.Errorf("tag is required")
@@ -68,7 +66,6 @@ func (ch *CloudHypervisor) FsDetach(ctx context.Context, vmRef, tag string) erro
 	})
 }
 
-// FsList enumerates currently attached vhost-user-fs devices.
 func (ch *CloudHypervisor) FsList(ctx context.Context, vmRef string) ([]fs.Attached, error) {
 	return listWith(ctx, ch, vmRef, func(info *chVMInfoResponse) []fs.Attached {
 		out := make([]fs.Attached, 0, len(info.Config.Fs))
@@ -79,7 +76,6 @@ func (ch *CloudHypervisor) FsList(ctx context.Context, vmRef string) ([]fs.Attac
 	})
 }
 
-// DeviceAttach hot-plugs a VFIO PCI passthrough device onto a running CH VM.
 func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec vfio.Spec) (string, error) {
 	path, err := spec.NormalizedPath()
 	if err != nil {
@@ -109,7 +105,6 @@ func (ch *CloudHypervisor) DeviceAttach(ctx context.Context, vmRef string, spec 
 	})
 }
 
-// DeviceDetach removes a previously attached VFIO device by id.
 func (ch *CloudHypervisor) DeviceDetach(ctx context.Context, vmRef, id string) error {
 	if id == "" {
 		return fmt.Errorf("id is required")
@@ -124,7 +119,6 @@ func (ch *CloudHypervisor) DeviceDetach(ctx context.Context, vmRef, id string) e
 	})
 }
 
-// DeviceList enumerates currently attached VFIO PCI passthrough devices.
 func (ch *CloudHypervisor) DeviceList(ctx context.Context, vmRef string) ([]vfio.Attached, error) {
 	return listWith(ctx, ch, vmRef, func(info *chVMInfoResponse) []vfio.Attached {
 		out := make([]vfio.Attached, 0, len(info.Config.Devices))
@@ -148,7 +142,6 @@ func (ch *CloudHypervisor) inspectRunning(ctx context.Context, vmRef string) (*h
 	return hc, info, nil
 }
 
-// attachWith is the shared skeleton for hot-add operations.
 func (ch *CloudHypervisor) attachWith(
 	ctx context.Context, vmRef, endpoint string,
 	body any, fallbackID string,
@@ -184,7 +177,6 @@ func (ch *CloudHypervisor) attachWith(
 	return fallbackID, nil
 }
 
-// detachWith is the shared skeleton for hot-remove operations.
 func (ch *CloudHypervisor) detachWith(
 	ctx context.Context, vmRef string,
 	findID func(*chVMInfoResponse) (string, error),
@@ -203,13 +195,12 @@ func (ch *CloudHypervisor) detachWith(
 	return nil
 }
 
-// runningVMClient resolves vmRef, asserts the CH process is alive (matches Backend.WithRunningVM), and returns an http.Client on its API socket.
+// runningVMClient asserts the CH process is alive and returns an http.Client on its API socket.
 func (ch *CloudHypervisor) runningVMClient(ctx context.Context, vmRef string) (*http.Client, error) {
 	hc, _, _, err := ch.runningVMClientWithRecord(ctx, vmRef)
 	return hc, err
 }
 
-// runningVMClientWithRecord is runningVMClient + the resolved vmID and record.
 func (ch *CloudHypervisor) runningVMClientWithRecord(ctx context.Context, vmRef string) (*http.Client, string, hypervisor.VMRecord, error) {
 	vmID, err := ch.ResolveRef(ctx, vmRef)
 	if err != nil {
@@ -233,7 +224,7 @@ func (ch *CloudHypervisor) runningVMClientWithRecord(ctx context.Context, vmRef 
 	return utils.NewSocketHTTPClient(sockPath), vmID, rec, nil
 }
 
-// listWith is the inspect-time enumeration skeleton; stopped VMs return nil (not an error) so inspect can omit the field cleanly.
+// listWith returns nil (not error) for stopped VMs so inspect can omit the field.
 func listWith[A any](
 	ctx context.Context, ch *CloudHypervisor, vmRef string,
 	extract func(*chVMInfoResponse) []A,

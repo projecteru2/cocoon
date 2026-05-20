@@ -9,7 +9,6 @@ import (
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// Inspect returns VM info for a single VM by ref (ID, name, or prefix).
 func (b *Backend) Inspect(ctx context.Context, ref string) (*types.VM, error) {
 	var result *types.VM
 	return result, b.DB.With(ctx, func(idx *VMIndex) error {
@@ -22,7 +21,6 @@ func (b *Backend) Inspect(ctx context.Context, ref string) (*types.VM, error) {
 	})
 }
 
-// List returns VM info for all known VMs.
 func (b *Backend) List(ctx context.Context) ([]*types.VM, error) {
 	var result []*types.VM
 	return result, b.DB.With(ctx, func(idx *VMIndex) error {
@@ -31,7 +29,6 @@ func (b *Backend) List(ctx context.Context) ([]*types.VM, error) {
 	})
 }
 
-// ToVM converts a stored VMRecord into the runtime types.VM exposed to callers.
 func (b *Backend) ToVM(rec *VMRecord) *types.VM {
 	info := rec.VM // value copy
 	info.Hypervisor = b.Typ
@@ -47,7 +44,6 @@ func (b *Backend) ToVM(rec *VMRecord) *types.VM {
 	return &info
 }
 
-// ResolveRef resolves a single ref (ID, name, or prefix) to an exact VM ID.
 func (b *Backend) ResolveRef(ctx context.Context, ref string) (string, error) {
 	var id string
 	return id, b.DB.With(ctx, func(idx *VMIndex) error {
@@ -57,7 +53,7 @@ func (b *Backend) ResolveRef(ctx context.Context, ref string) (string, error) {
 	})
 }
 
-// ResolveRefs batch-resolves refs to exact VM IDs under a single lock.
+// ResolveRefs batch-resolves under a single lock.
 func (b *Backend) ResolveRefs(ctx context.Context, refs []string) ([]string, error) {
 	var ids []string
 	return ids, b.DB.With(ctx, func(idx *VMIndex) error {
@@ -67,7 +63,7 @@ func (b *Backend) ResolveRefs(ctx context.Context, refs []string) ([]string, err
 	})
 }
 
-// LoadRecord returns a value-copy of the VMRecord for an exact VM ID.
+// LoadRecord returns a value-copy of the VMRecord.
 func (b *Backend) LoadRecord(ctx context.Context, id string) (VMRecord, error) {
 	var rec VMRecord
 	return rec, b.DB.With(ctx, func(idx *VMIndex) error {

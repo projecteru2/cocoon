@@ -7,13 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Actions defines cross-cutting system operations.
 type Actions interface {
 	GC(cmd *cobra.Command, args []string) error
 	Version(cmd *cobra.Command, args []string) error
 }
 
-// Commands builds system command set (gc, version, completion).
 func Commands(h Actions) []*cobra.Command {
 	gcCmd := &cobra.Command{
 		Use:   "gc",
