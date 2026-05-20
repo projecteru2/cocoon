@@ -33,6 +33,19 @@ func (b *Backend) GracefulStop(ctx context.Context, vmID string, pid int, timeou
 	return escalate()
 }
 
+// StopOneSequence runs the shared per-id stop skeleton (LoadRecord → WithRunningVM(Shutdown) → HandleStopResult) so backends only express their force-vs-graceful choice.
+func (b *Backend) StopOneSequence(ctx context.Context, id string, spec StopSpec) error {
+	rec, err := b.LoadRecord(ctx, id)
+	if err != nil {
+		return err
+	}
+	sockPath := SocketPath(rec.RunDir)
+	shutdownErr := b.WithRunningVM(ctx, &rec, func(pid int) error {
+		return spec.Shutdown(ctx, &rec, sockPath, pid)
+	})
+	return b.HandleStopResult(ctx, id, rec.RunDir, spec.RuntimeFiles, shutdownErr)
+}
+
 // StopAll mirrors StartAll: stopOne per ref, batch-flip succeeded to Stopped.
 func (b *Backend) StopAll(ctx context.Context, refs []string, stopOne func(context.Context, string) error) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)

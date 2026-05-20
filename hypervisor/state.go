@@ -130,9 +130,7 @@ func (b *Backend) MarkError(ctx context.Context, id string) {
 	}
 }
 
-// BatchMarkStarted flips ids to VMStateRunning. Caller MUST pass only actually-launched ids;
-// an id arriving here with DB State==Running is a stale-running record (process had crashed) —
-// close that orphan with reason stop-crash before opening the fresh interval.
+// BatchMarkStarted flips ids to VMStateRunning; caller MUST filter no-op already-running. An id arriving here with DB State==Running is treated as stale-running (process crashed) and gets a stop-crash close before the fresh start.
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

@@ -2,7 +2,6 @@ package cloudhypervisor
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -10,7 +9,6 @@ import (
 	"github.com/projecteru2/core/log"
 
 	"github.com/cocoonstack/cocoon/hypervisor"
-	"github.com/cocoonstack/cocoon/types"
 )
 
 func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, error) {
@@ -18,30 +16,15 @@ func (ch *CloudHypervisor) Start(ctx context.Context, refs []string) ([]string, 
 }
 
 func (ch *CloudHypervisor) startOne(ctx context.Context, id string) (bool, error) {
-	rec, err := ch.PrepareStart(ctx, id, runtimeFiles)
-	if err != nil {
-		return false, err
-	}
-	if rec == nil {
-		return false, nil // already running — no-op
-	}
-	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
-		ch.MarkError(ctx, id)
-		return false, fmt.Errorf("storage invariants violated: %w", vErr)
-	}
-
-	sockPath := hypervisor.SocketPath(rec.RunDir)
-	consoleSock := hypervisor.ConsoleSockPath(rec.RunDir)
-
-	vmCfg := buildVMConfig(ctx, rec, consoleSock)
-	args := buildCLIArgs(vmCfg, sockPath)
-	ch.saveCmdline(ctx, rec, args)
-
-	if _, err = ch.launchProcess(ctx, rec, sockPath, args, rec.ResolvedNetnsPath()); err != nil {
-		ch.MarkError(ctx, id)
-		return false, fmt.Errorf("launch VM: %w", err)
-	}
-	return true, nil
+	return ch.StartSequence(ctx, id, hypervisor.StartSpec{
+		RuntimeFiles: runtimeFiles,
+		Launch: func(ctx context.Context, rec *hypervisor.VMRecord, sockPath string) (int, error) {
+			vmCfg := buildVMConfig(ctx, rec, hypervisor.ConsoleSockPath(rec.RunDir))
+			args := buildCLIArgs(vmCfg, sockPath)
+			ch.saveCmdline(ctx, rec, args)
+			return ch.launchProcess(ctx, rec, sockPath, args, rec.ResolvedNetnsPath())
+		},
+	})
 }
 
 func (ch *CloudHypervisor) launchProcess(ctx context.Context, rec *hypervisor.VMRecord, socketPath string, args []string, netnsPath string) (int, error) {

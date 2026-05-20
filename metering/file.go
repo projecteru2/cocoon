@@ -9,8 +9,7 @@ import (
 	"github.com/projecteru2/core/log"
 )
 
-// FileRecorder appends JSON-encoded entries (one per line) to a file under sync.Mutex.
-// POSIX guarantees single write(2) to O_APPEND is atomic across processes; the mutex serializes the in-process writes.
+// FileRecorder appends JSON-encoded entries one per line; POSIX makes single write(2) to O_APPEND atomic across processes, so the mutex only serializes in-process writes.
 type FileRecorder struct {
 	mu sync.Mutex
 	f  *os.File

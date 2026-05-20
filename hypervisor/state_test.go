@@ -28,6 +28,8 @@ func (stubBackendConfig) SocketWaitTimeout() time.Duration {
 }
 func (stubBackendConfig) EffectivePoolSize() int { return 1 }
 func (stubBackendConfig) IndexFile() string      { panic("IndexFile: not implemented in stub") }
+func (stubBackendConfig) IndexLock() string      { panic("IndexLock: not implemented in stub") }
+func (stubBackendConfig) EnsureDirs() error      { panic("EnsureDirs: not implemented in stub") }
 func (stubBackendConfig) RunDir() string         { panic("RunDir: not implemented in stub") }
 func (stubBackendConfig) LogDir() string         { panic("LogDir: not implemented in stub") }
 func (stubBackendConfig) VMRunDir(string) string { panic("VMRunDir: not implemented in stub") }

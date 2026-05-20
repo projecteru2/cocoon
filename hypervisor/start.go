@@ -9,11 +9,11 @@ import (
 
 	"github.com/projecteru2/core/log"
 
+	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
 )
 
-// StartAll runs startOne per ref; only ids that returned launched=true reach BatchMarkStarted,
-// so already-running no-ops don't open duplicate intervals.
+// StartAll runs startOne per ref; only ids that returned launched=true reach BatchMarkStarted, so already-running no-ops don't open duplicate intervals.
 func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(context.Context, string) (bool, error)) ([]string, error) {
 	ids, err := b.ResolveRefs(ctx, refs)
 	if err != nil {
@@ -40,6 +40,35 @@ func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(con
 		log.WithFunc(b.Typ+".Start").Warnf(ctx, "batch state update: %v", batchErr)
 	}
 	return succeeded, forEachErr
+}
+
+// StartSequence runs the shared start skeleton (PrepareStart → validate → Launch → optional PostLaunch with AbortLaunch rollback) and returns whether a fresh process was launched.
+func (b *Backend) StartSequence(ctx context.Context, id string, spec StartSpec) (bool, error) {
+	rec, err := b.PrepareStart(ctx, id, spec.RuntimeFiles)
+	if err != nil {
+		return false, err
+	}
+	if rec == nil {
+		return false, nil
+	}
+	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
+		b.MarkError(ctx, id)
+		return false, fmt.Errorf("storage invariants violated: %w", vErr)
+	}
+	sockPath := SocketPath(rec.RunDir)
+	pid, err := spec.Launch(ctx, rec, sockPath)
+	if err != nil {
+		b.MarkError(ctx, id)
+		return false, fmt.Errorf("launch VM: %w", err)
+	}
+	if spec.PostLaunch != nil {
+		if err := spec.PostLaunch(ctx, rec, sockPath, pid); err != nil {
+			b.AbortLaunch(ctx, pid, sockPath, rec.RunDir, spec.RuntimeFiles)
+			b.MarkError(ctx, id)
+			return false, fmt.Errorf("configure VM: %w", err)
+		}
+	}
+	return true, nil
 }
 
 // PrepareStart loads the record, verifies not-running, ensures dirs exist.

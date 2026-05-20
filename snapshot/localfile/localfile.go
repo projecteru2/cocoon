@@ -145,13 +145,7 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		return "", fmt.Errorf("finalize snapshot: %w", err)
 	}
 
-	lf.meter().Emit(ctx, metering.Entry{
-		Kind:       metering.KindSnapStorageStart,
-		SnapshotID: id,
-		Hypervisor: cfg.Hypervisor,
-		Shape:      metering.Shape{StorageBytes: size},
-		EmittedAt:  finalizedAt,
-	})
+	emitSnapStart(ctx, lf.meter(), id, cfg.Hypervisor, size, finalizedAt)
 	return id, nil
 }
 
@@ -225,13 +219,7 @@ func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 		return fmt.Errorf("delete DB record %s: %w", id, err)
 	}
 	if deletedRecord {
-		lf.meter().Emit(ctx, metering.Entry{
-			Kind:       metering.KindSnapStorageStop,
-			SnapshotID: id,
-			Reason:     metering.ReasonSnapRemove,
-			Hypervisor: hypType,
-			EmittedAt:  time.Now(),
-		})
+		emitSnapStop(ctx, lf.meter(), id, hypType)
 	}
 	return nil
 }

@@ -138,16 +138,9 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 				}
 				logEvictRow(ctx, logger, "collected", id, snap.records[id], snap.reasons[id])
 				removed = append(removed, id)
-				// Only emit stop for real records that had a corresponding start;
-				// orphan dirs and stale-pending IDs never opened a snap.storage interval.
+				// Skip orphan dirs and stale-pending — they never opened a snap.storage interval.
 				if m, ok := snap.records[id]; ok {
-					meter.Emit(ctx, metering.Entry{
-						Kind:       metering.KindSnapStorageStop,
-						SnapshotID: id,
-						Reason:     metering.ReasonSnapRemove,
-						Hypervisor: m.hypervisor,
-						EmittedAt:  time.Now(),
-					})
+					emitSnapStop(ctx, meter, id, m.hypervisor)
 				}
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {

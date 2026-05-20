@@ -2,14 +2,17 @@ package hypervisor
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os/exec"
 	"time"
 
 	"github.com/cocoonstack/cocoon/lock"
+	"github.com/cocoonstack/cocoon/lock/flock"
 	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/storage"
+	storejson "github.com/cocoonstack/cocoon/storage/json"
 	"github.com/cocoonstack/cocoon/types"
 )
 
@@ -50,6 +53,8 @@ type BackendConfig interface {
 	SocketWaitTimeout() time.Duration
 	EffectivePoolSize() int
 	IndexFile() string
+	IndexLock() string
+	EnsureDirs() error
 	RunDir() string
 	LogDir() string
 	VMRunDir(id string) string
@@ -63,6 +68,21 @@ type Backend struct {
 	DB       storage.Store[VMIndex]
 	Locker   lock.Locker
 	Metering metering.Recorder
+}
+
+// NewBackend wires the shared init boilerplate: EnsureDirs, flock, JSON store. Each backend's New just builds its Config and forwards it here.
+func NewBackend(typ string, conf BackendConfig, rec metering.Recorder) (*Backend, error) {
+	if err := conf.EnsureDirs(); err != nil {
+		return nil, fmt.Errorf("ensure dirs: %w", err)
+	}
+	locker := flock.New(conf.IndexLock())
+	return &Backend{
+		Typ:      typ,
+		Conf:     conf,
+		DB:       storejson.New[VMIndex](conf.IndexFile(), locker),
+		Locker:   locker,
+		Metering: rec,
+	}, nil
 }
 
 // LaunchSpec is the per-call input to Backend.LaunchVMProcess. Shared
@@ -97,6 +117,19 @@ type DirectRestoreSpec struct {
 	Wrap             func(rec *VMRecord, fn func() error) error
 	Populate         func(rec *VMRecord, srcDir string) error
 	AfterExtract     func(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord) (*types.VM, error)
+}
+
+// StartSpec carries StartSequence inputs: Launch builds + exec the VMM, PostLaunch is optional config-via-REST that the backend rolls back via AbortLaunch on failure.
+type StartSpec struct {
+	RuntimeFiles []string
+	Launch       func(ctx context.Context, rec *VMRecord, sockPath string) (int, error)
+	PostLaunch   func(ctx context.Context, rec *VMRecord, sockPath string, pid int) error
+}
+
+// StopSpec carries StopOneSequence inputs: Shutdown picks the backend-specific path (force vs graceful) once WithRunningVM confirms the process is live.
+type StopSpec struct {
+	RuntimeFiles []string
+	Shutdown     func(ctx context.Context, rec *VMRecord, sockPath string, pid int) error
 }
 
 // CreateSpec carries CreateSequence inputs; Prepare returns final storage configs (COW + data disks).

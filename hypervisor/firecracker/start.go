@@ -24,32 +24,15 @@ func (fc *Firecracker) Start(ctx context.Context, refs []string) ([]string, erro
 }
 
 func (fc *Firecracker) startOne(ctx context.Context, id string) (bool, error) {
-	rec, err := fc.PrepareStart(ctx, id, runtimeFiles)
-	if err != nil {
-		return false, err
-	}
-	if rec == nil {
-		return false, nil // already running — no-op
-	}
-	if vErr := types.ValidateStorageConfigs(rec.StorageConfigs); vErr != nil {
-		fc.MarkError(ctx, id)
-		return false, fmt.Errorf("storage invariants violated: %w", vErr)
-	}
-
-	sockPath := hypervisor.SocketPath(rec.RunDir)
-
-	pid, err := fc.launchProcess(ctx, rec, sockPath, rec.ResolvedNetnsPath())
-	if err != nil {
-		fc.MarkError(ctx, id)
-		return false, fmt.Errorf("launch VM: %w", err)
-	}
-
-	if err := fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), rec); err != nil {
-		fc.AbortLaunch(ctx, pid, sockPath, rec.RunDir, runtimeFiles)
-		fc.MarkError(ctx, id)
-		return false, fmt.Errorf("configure VM: %w", err)
-	}
-	return true, nil
+	return fc.StartSequence(ctx, id, hypervisor.StartSpec{
+		RuntimeFiles: runtimeFiles,
+		Launch: func(ctx context.Context, rec *hypervisor.VMRecord, sockPath string) (int, error) {
+			return fc.launchProcess(ctx, rec, sockPath, rec.ResolvedNetnsPath())
+		},
+		PostLaunch: func(ctx context.Context, rec *hypervisor.VMRecord, sockPath string, _ int) error {
+			return fc.configureVM(ctx, utils.NewSocketHTTPClient(sockPath), rec)
+		},
+	})
 }
 
 // configureVM sends pre-boot config via REST then InstanceStart.

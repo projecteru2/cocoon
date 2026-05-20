@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/snapshot"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
@@ -83,13 +82,7 @@ func (lf *LocalFile) Import(ctx context.Context, r io.Reader, name, description 
 		return "", err
 	}
 
-	lf.meter().Emit(ctx, metering.Entry{
-		Kind:       metering.KindSnapStorageStart,
-		SnapshotID: id,
-		Hypervisor: cfg.Hypervisor,
-		Shape:      metering.Shape{StorageBytes: size},
-		EmittedAt:  now,
-	})
+	emitSnapStart(ctx, lf.meter(), id, cfg.Hypervisor, size, now)
 	return id, nil
 }
 

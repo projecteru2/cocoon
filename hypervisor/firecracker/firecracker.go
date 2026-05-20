@@ -6,9 +6,7 @@ import (
 
 	"github.com/cocoonstack/cocoon/config"
 	"github.com/cocoonstack/cocoon/hypervisor"
-	"github.com/cocoonstack/cocoon/lock/flock"
 	"github.com/cocoonstack/cocoon/metering"
-	storejson "github.com/cocoonstack/cocoon/storage/json"
 )
 
 const typ = "firecracker"
@@ -33,21 +31,11 @@ func New(conf *config.Config, rec metering.Recorder) (*Firecracker, error) {
 		return nil, fmt.Errorf("config is nil")
 	}
 	cfg := NewConfig(conf)
-	if err := cfg.EnsureDirs(); err != nil {
-		return nil, fmt.Errorf("ensure dirs: %w", err)
+	backend, err := hypervisor.NewBackend(typ, cfg, rec)
+	if err != nil {
+		return nil, err
 	}
-	locker := flock.New(cfg.IndexLock())
-	store := storejson.New[hypervisor.VMIndex](cfg.IndexFile(), locker)
-	return &Firecracker{
-		Backend: &hypervisor.Backend{
-			Typ:      typ,
-			Conf:     cfg,
-			DB:       store,
-			Locker:   locker,
-			Metering: rec,
-		},
-		conf: cfg,
-	}, nil
+	return &Firecracker{Backend: backend, conf: cfg}, nil
 }
 
 // Delete removes VMs. Running VMs require force=true (stops them first).
