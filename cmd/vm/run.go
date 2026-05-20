@@ -53,7 +53,6 @@ func (h Handler) Run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("start VM %s: %w", vm.ID, err)
 	}
 	if wantJSON {
-		// Re-inspect for post-start state; on err, fall back to pre-start vm so JSON isn't silently stale.
 		info, inspectErr := hyper.Inspect(ctx, vm.ID)
 		switch {
 		case inspectErr != nil:
@@ -89,7 +88,6 @@ func (h Handler) Clone(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Infer hypervisor backend from the snapshot's Hypervisor field.
 	snapInfo, err := snapBackend.Inspect(ctx, snapRef)
 	if err != nil {
 		return fmt.Errorf("inspect snapshot %s: %w", snapRef, err)
@@ -261,8 +259,7 @@ func (h Handler) cloneFromDir(ctx context.Context, cmd *cobra.Command, conf *con
 	if err != nil {
 		return fmt.Errorf("load envelope: %w", err)
 	}
-	// Local copy so flipping the backend selection doesn't leak to the caller's
-	// shared *config.Config (CLI is fine, daemons embedding cocoon would notice).
+	// Local copy keeps backend flip from leaking to the caller's shared *config.Config.
 	localConf := *conf
 	if cfg.Hypervisor != "" {
 		localConf.UseFirecracker = cfg.Hypervisor == string(config.HypervisorFirecracker)
@@ -317,7 +314,6 @@ func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *con
 		return nil, "", nil, types.NetSetup{}, err
 	}
 
-	// Auto-pull base image if --pull is set (cross-node clone).
 	if pull, _ := cmd.Flags().GetBool("pull"); pull && vmCfg.Image != "" && vmCfg.ImageType != "" {
 		backends, initErr := cmdcore.InitImageBackends(ctx, conf)
 		if initErr != nil {
@@ -391,7 +387,6 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 		return nil, nil, nil, err
 	}
 
-	// Validate backend/boot-mode constraints before initializing backends.
 	if conf.UseFirecracker && vmCfg.Windows {
 		return nil, nil, nil, fmt.Errorf("--fc and --windows are mutually exclusive: Firecracker does not support Windows guests")
 	}
@@ -484,7 +479,7 @@ func initNetwork(ctx context.Context, conf *config.Config, vmID string, nics int
 	if nics <= 0 {
 		return netProvider, setup, nil
 	}
-	// Override CPU for TAP queue count (FC=1, CH=per-vCPU); network reads vmCfg.CPU.
+	// FC needs 1 TAP queue, CH needs per-vCPU; network reads vmCfg.CPU.
 	origCPU := vmCfg.CPU
 	vmCfg.CPU = queues
 	configs, err := netProvider.Add(ctx, vmID, vmCfg, network.AddRange(0, nics)...)
@@ -529,8 +524,7 @@ func printPostCloneHints(vm *types.VM) {
 	fmt.Println("  # Release memory for balloon")
 	fmt.Println("  echo 3 > /proc/sys/vm/drop_caches")
 
-	// FC clone: guest MAC is baked in vmstate (source VM's MAC).
-	// Must change guest MAC before networkd config takes effect.
+	// FC clone: guest MAC is baked in vmstate; change it before networkd config.
 	if vm.Hypervisor == string(config.HypervisorFirecracker) {
 		printFCMACHints(vm.NetworkConfigs)
 	}

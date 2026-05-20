@@ -239,7 +239,7 @@ func hasCidataRole(sc *types.StorageConfig) bool {
 	return sc.Role == types.StorageRoleCidata
 }
 
-// restorePatchStorageConfigs strips ensureCloneCidata's appended cidata when the snapshot lacked one, so patchCHConfig matches chCfg.Disks; cidata gets hot-plugged.
+// restorePatchStorageConfigs drops the appended cidata when the snapshot lacked one (cidata gets hot-plugged).
 func restorePatchStorageConfigs(storageConfigs []*types.StorageConfig, directBoot, windows, hadCidataInSnapshot bool) []*types.StorageConfig {
 	if directBoot || windows || hadCidataInSnapshot {
 		return storageConfigs
@@ -285,7 +285,7 @@ func buildCmdline(storageConfigs []*types.StorageConfig, networkConfigs []*types
 	)
 }
 
-// buildStateReplacements maps source disk paths → clone paths for state.json patching; slices to min length so an appended cidata doesn't desync (MACs go via NIC hot-swap).
+// buildStateReplacements maps source→clone disk paths for state.json; min-length slice keeps appended cidata aligned.
 func buildStateReplacements(chCfg *chVMConfig, storageConfigs []*types.StorageConfig) map[string]string {
 	n := min(len(chCfg.Disks), len(storageConfigs))
 	m := make(map[string]string, n)

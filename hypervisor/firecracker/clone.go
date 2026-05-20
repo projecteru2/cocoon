@@ -70,7 +70,7 @@ func (fc *Firecracker) cloneAfterExtract(ctx context.Context, vmID string, vmCfg
 		bootCfg.Cmdline = buildCmdline(storageConfigs, networkConfigs, vmCfg.Name, dns)
 	}
 
-	// FC's snapshot/load wants source-absolute drive paths; symlink-redirect the source COW until upstream supports drive overrides.
+	// FC snapshot/load wants source-absolute drive paths; symlink-redirect the source COW.
 	sockPath := hypervisor.SocketPath(runDir)
 	var pid int
 	if cloneErr := withSourceWritableDisksLocked(meta.StorageConfigs, func() error {
@@ -123,7 +123,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 		}
 	}()
 
-	// network_overrides repoints FC at the clone's TAP (FC recreates from vmstate); vsock_override retargets the snapshot UDS.
+	// network_overrides repoints FC at the clone's TAP; vsock_override retargets the snapshot UDS.
 	netOverrides := buildNetworkOverrides(networkConfigs)
 	if err = loadSnapshotFC(ctx, sockPath, runDir, netOverrides, hypervisor.VsockSockPath(runDir)); err != nil {
 		return fmt.Errorf("snapshot/load: %w", err)
@@ -135,7 +135,7 @@ func (fc *Firecracker) restoreAndResumeClone(
 	return nil
 }
 
-// rebuildCloneStorage rewrites paths per role: Layer→source (shared), COW→cowPath, Data→clone runDir; cidata rejected (FC has no cloudimg).
+// rebuildCloneStorage rewrites paths per role (Layer→source, COW→cowPath, Data→runDir); cidata rejected.
 func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*types.StorageConfig, error) {
 	runDir := filepath.Dir(cowPath)
 	configs := hypervisor.CloneStorageConfigs(meta.StorageConfigs)
@@ -155,7 +155,6 @@ func rebuildCloneStorage(meta *hypervisor.SnapshotMeta, cowPath string) ([]*type
 	return configs, nil
 }
 
-// createDriveRedirects symlinks source COW → clone COW so FC snapshot/load finds the drive at the expected source path.
 func createDriveRedirects(srcConfigs, dstConfigs []*types.StorageConfig) ([]driveRedirect, error) {
 	var redirects []driveRedirect
 	for i, src := range srcConfigs {
@@ -205,8 +204,7 @@ func cleanupDriveRedirects(redirects []driveRedirect) {
 	}
 }
 
-// recoverStaleBackup restores a backup file left by a crashed clone.
-// Caller must hold the COW lock.
+// recoverStaleBackup restores a crashed-clone backup; caller must hold the COW lock.
 func recoverStaleBackup(cowPath string) {
 	backup := cowPath + cloneBackupSuffix
 	if _, err := os.Stat(backup); err != nil {

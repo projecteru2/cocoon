@@ -42,7 +42,6 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	description, _ := cmd.Flags().GetString("description")
 
-	// Pre-check: reject if the snapshot name is already taken.
 	if name != "" {
 		if _, inspectErr := snapBackend.Inspect(ctx, name); inspectErr == nil {
 			return fmt.Errorf("snapshot name %q already exists", name)
@@ -59,8 +58,7 @@ func (h Handler) Save(cmd *cobra.Command, args []string) error {
 	}
 	defer stream.Close() //nolint:errcheck
 
-	// Close stream on context cancellation to unblock the pipe immediately,
-	// so Ctrl+C doesn't hang while streaming large snapshot data.
+	// Close stream on ctx cancel so Ctrl+C doesn't hang on the pipe.
 	stop := context.AfterFunc(ctx, func() {
 		stream.Close() //nolint:errcheck,gosec
 	})
@@ -90,7 +88,6 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Optional: filter by VM ownership.
 	vmRef, _ := cmd.Flags().GetString("vm")
 	var filterIDs map[string]struct{}
 	if vmRef != "" {
@@ -114,7 +111,6 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("list: %w", err)
 	}
 
-	// Apply VM filter if specified.
 	if filterIDs != nil {
 		filtered := snapshots[:0]
 		for _, s := range snapshots {
@@ -209,7 +205,6 @@ func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
 	})
 	defer stop()
 
-	// Stream to stdout when output is "-".
 	if output == "-" {
 		if _, err = io.Copy(os.Stdout, stream); err != nil {
 			return fmt.Errorf("write archive: %w", err)
@@ -217,7 +212,6 @@ func (h Handler) Export(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
-	// Derive default output filename from snapshot name or ID.
 	if output == "" {
 		snap, inspectErr := snapBackend.Inspect(ctx, ref)
 		if inspectErr != nil {
