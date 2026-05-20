@@ -208,6 +208,46 @@ func (b *Backend) closeStaleComputeInterval(ctx context.Context, rec *VMRecord) 
 	b.Metering.Emit(ctx, b.makeEntry(metering.KindVMComputeStop, rec.ID, metering.ReasonStopCrash, shapeFromConfig(rec.Config), now))
 }
 
+// reconcileToRunning flips State→Running for a drifted record whose process is alive. With an open compute interval (Error after Running) the ledger already matches; without one (rare orphan: BatchMarkStarted's DB write failed after a successful launch) we emit a fresh compute.start so a later stop doesn't fire an unmatched compute.stop.
+func (b *Backend) reconcileToRunning(ctx context.Context, id string) {
+	now := time.Now()
+	var (
+		emit   bool
+		shape  metering.Shape
+		reason metering.Reason
+	)
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		r := idx.VMs[id]
+		if r == nil || r.State == types.VMStateRunning {
+			return nil
+		}
+		if hasOpenComputeInterval(r) {
+			r.State = types.VMStateRunning
+			r.StoppedAt = nil
+			r.UpdatedAt = now
+			return nil
+		}
+		emit = true
+		shape = shapeFromConfig(r.Config)
+		reason = metering.ReasonBoot
+		if r.FirstBooted {
+			reason = metering.ReasonRestart
+		}
+		r.State = types.VMStateRunning
+		r.StartedAt = &now
+		r.StoppedAt = nil
+		r.UpdatedAt = now
+		r.FirstBooted = true
+		return nil
+	}); err != nil {
+		log.WithFunc(b.Typ+".reconcileToRunning").Warnf(ctx, "flip %s to running: %v", id, err)
+		return
+	}
+	if emit {
+		b.Metering.Emit(ctx, b.makeEntry(metering.KindVMComputeStart, id, reason, shape, now))
+	}
+}
+
 // hasOpenComputeInterval reports whether the VM's record shows an unmatched compute.start (StoppedAt is the ledger-close sentinel; transitions to Running clear it).
 func hasOpenComputeInterval(r *VMRecord) bool {
 	return r != nil && r.StartedAt != nil && r.StoppedAt == nil

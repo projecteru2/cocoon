@@ -503,6 +503,88 @@ func TestDeleteAfterErrorEmitsOnlyStorageStop(t *testing.T) {
 	}
 }
 
+func TestReconcileToRunningFromError(t *testing.T) {
+	b, rec := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+	b.MarkError(ctx, "vm1")
+	rec.Reset()
+
+	b.reconcileToRunning(ctx, "vm1")
+
+	loaded, err := b.LoadRecord(ctx, "vm1")
+	if err != nil {
+		t.Fatalf("LoadRecord: %v", err)
+	}
+	if loaded.State != types.VMStateRunning {
+		t.Errorf("State=%s, want Running", loaded.State)
+	}
+	if loaded.StoppedAt != nil {
+		t.Errorf("StoppedAt=%v, want nil", loaded.StoppedAt)
+	}
+	if !hasOpenComputeInterval(&loaded) {
+		t.Error("compute interval should be open after reconcile")
+	}
+	if got := rec.Entries(); len(got) != 0 {
+		t.Errorf("reconcile must not emit ledger entries; got %d", len(got))
+	}
+}
+
+func TestReconcileToRunningOrphanLaunchEmitsStart(t *testing.T) {
+	// BatchMarkStarted's DB write failed after a successful launch: process is alive but record is still Created (StartedAt=nil, no ledger compute.start). reconcile must emit a fresh start so a later stop has a matching open interval.
+	b, rec := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, false)
+
+	b.reconcileToRunning(ctx, "vm1")
+
+	loaded, _ := b.LoadRecord(ctx, "vm1")
+	if loaded.State != types.VMStateRunning {
+		t.Errorf("State=%s, want Running", loaded.State)
+	}
+	if !loaded.FirstBooted {
+		t.Error("FirstBooted should be true after orphan reconcile")
+	}
+	if !hasOpenComputeInterval(&loaded) {
+		t.Error("compute interval should be open after orphan reconcile")
+	}
+	entries := rec.Entries()
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStart || entries[0].Reason != metering.ReasonBoot {
+		t.Fatalf("got %+v, want one compute.start reason=boot", entries)
+	}
+}
+
+func TestReconcileToRunningOrphanLaunchAfterFirstBoot(t *testing.T) {
+	// Same orphan, but the VM was booted before: reconcile uses reason=restart.
+	b, rec := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
+
+	b.reconcileToRunning(ctx, "vm1")
+
+	entries := rec.Entries()
+	if len(entries) != 1 || entries[0].Reason != metering.ReasonRestart {
+		t.Fatalf("got %+v, want one compute.start reason=restart", entries)
+	}
+}
+
+func TestReconcileToRunningIdempotent(t *testing.T) {
+	b, rec := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedRunningVM(t, b, "vm1", 2, 2<<30, 20<<30)
+	rec.Reset()
+
+	b.reconcileToRunning(ctx, "vm1")
+
+	if got := rec.Entries(); len(got) != 0 {
+		t.Errorf("idempotent reconcile must not emit; got %d", len(got))
+	}
+	loaded, _ := b.LoadRecord(ctx, "vm1")
+	if loaded.State != types.VMStateRunning {
+		t.Errorf("State=%s, want Running (unchanged)", loaded.State)
+	}
+}
+
 func TestNewBackendNilRecorderDefaultsToNop(t *testing.T) {
 	b, err := NewBackend("test-hv", newDiskStubConfig(t), nil)
 	if err != nil {
