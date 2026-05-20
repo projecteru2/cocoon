@@ -66,10 +66,6 @@ func New(conf *config.Config, rec metering.Recorder, opts ...Option) (*LocalFile
 	return lf, nil
 }
 
-func (lf *LocalFile) meter() metering.Recorder {
-	return metering.OrNop(lf.metering)
-}
-
 func (lf *LocalFile) Type() string { return typ }
 
 // DataDir returns the local data directory and snapshot config for direct file access.
@@ -194,6 +190,22 @@ func (lf *LocalFile) Delete(ctx context.Context, refs []string) ([]string, error
 	return deleted, nil
 }
 
+func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotConfig, io.ReadCloser, error) {
+	rec, err := lf.lookupRecord(ctx, ref, true)
+	if err != nil {
+		return types.SnapshotConfig{}, nil, err
+	}
+	return snapshotRecordToConfig(rec), utils.TarDirStream(rec.DataDir, nil), nil
+}
+
+func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
+	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy, lf.metering))
+}
+
+func (lf *LocalFile) meter() metering.Recorder {
+	return metering.OrNop(lf.metering)
+}
+
 // deleteOne removes one snapshot atomically; idempotent under concurrent rm — if the rival wins the DB race we report success (data is gone) but skip emit, so the ledger holds exactly one stop event per snapshot.
 func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 	if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
@@ -222,18 +234,6 @@ func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 		emitSnapStop(ctx, lf.meter(), id, hypType)
 	}
 	return nil
-}
-
-func (lf *LocalFile) Restore(ctx context.Context, ref string) (types.SnapshotConfig, io.ReadCloser, error) {
-	rec, err := lf.lookupRecord(ctx, ref, true)
-	if err != nil {
-		return types.SnapshotConfig{}, nil, err
-	}
-	return snapshotRecordToConfig(rec), utils.TarDirStream(rec.DataDir, nil), nil
-}
-
-func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
-	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy, lf.metering))
 }
 
 // rollbackCreate removes a placeholder snapshot record from the DB.

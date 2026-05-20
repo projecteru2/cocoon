@@ -12,15 +12,6 @@ func (b *Backend) meter() metering.Recorder {
 	return metering.OrNop(b.Metering)
 }
 
-func shapeFromConfig(c types.VMConfig) metering.Shape {
-	return metering.Shape{
-		CPU:          c.CPU,
-		MemBytes:     c.Memory,
-		StorageBytes: c.Storage,
-	}
-}
-
-// makeEntry builds a VM-scoped entry stamped with this backend's Hypervisor type; emit sites that don't need SourceSnapshotID use it to skip the field-by-field boilerplate.
 func (b *Backend) makeEntry(kind metering.Kind, vmID string, reason metering.Reason, shape metering.Shape, now time.Time) metering.Entry {
 	return metering.Entry{
 		Kind: kind, VMID: vmID, Reason: reason,
@@ -28,7 +19,6 @@ func (b *Backend) makeEntry(kind metering.Kind, vmID string, reason metering.Rea
 	}
 }
 
-// emitAll fans out a batch of entries through one Recorder lookup.
 func (b *Backend) emitAll(ctx context.Context, entries []metering.Entry) {
 	rec := b.meter()
 	for _, e := range entries {
@@ -48,7 +38,7 @@ func (b *Backend) emitOpenInterval(ctx context.Context, vm *types.VM, reason met
 	}
 }
 
-// emitDeleteClose emits storage.stop unconditionally and compute.stop when the record had an open Running interval.
+// emitDeleteClose emits storage.stop unconditionally and compute.stop only when the record had an open Running interval.
 func (b *Backend) emitDeleteClose(ctx context.Context, vmID string, shape metering.Shape, computeReason metering.Reason, hadRunningInterval bool) {
 	now := time.Now()
 	rec := b.meter()
@@ -62,4 +52,12 @@ func (b *Backend) emitDeleteClose(ctx context.Context, vmID string, shape meteri
 		Kind: metering.KindVMStorageStop, VMID: vmID, Reason: metering.ReasonVMRemove,
 		Hypervisor: b.Typ, Shape: shape, EmittedAt: now,
 	})
+}
+
+func shapeFromConfig(c types.VMConfig) metering.Shape {
+	return metering.Shape{
+		CPU:          c.CPU,
+		MemBytes:     c.Memory,
+		StorageBytes: c.Storage,
+	}
 }

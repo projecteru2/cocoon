@@ -108,12 +108,11 @@ func TestBatchMarkStartedReasonRestartWhenAlreadyBooted(t *testing.T) {
 	}
 }
 
-func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
+func TestUpdateStatesEmitsOnRunningToStoppedOrError(t *testing.T) {
 	b, cap := newMeteringTestBackend(t)
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, true)
 
-	// Created→Stopped: no Running interval to close, must not emit.
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped from created): %v", err)
 	}
@@ -121,7 +120,6 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 		t.Errorf("Created→Stopped emitted %d; want 0 (no Running interval to close)", len(got))
 	}
 
-	// Stopped→Running: not a stop, must not emit.
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
 		t.Fatalf("UpdateStates(running): %v", err)
 	}
@@ -129,16 +127,14 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 		t.Errorf("Stopped→Running emitted %d; want 0", len(got))
 	}
 
-	// Running→Stopped: this is the only path that closes a Running interval.
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped): %v", err)
 	}
 	entries := cap.Entries()
-	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop {
-		t.Fatalf("got %+v, want one compute.stop", entries)
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMComputeStop || entries[0].Reason != metering.ReasonStopUser {
+		t.Fatalf("Running→Stopped: got %+v, want one compute.stop reason=user", entries)
 	}
 
-	// Stopped→Stopped: idempotent, must not duplicate the event.
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateStopped); err != nil {
 		t.Fatalf("UpdateStates(stopped idempotent): %v", err)
 	}
@@ -146,15 +142,29 @@ func TestUpdateStatesEmitsOnlyOnRunningToStopped(t *testing.T) {
 		t.Errorf("Stopped→Stopped should not re-emit; got %d entries total", len(got))
 	}
 
-	// Set Running again, then go through Error (not Stopped). Error must not emit.
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
 		t.Fatalf("UpdateStates(running again): %v", err)
 	}
 	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
 		t.Fatalf("UpdateStates(error): %v", err)
 	}
-	if got := cap.Entries(); len(got) != 1 {
-		t.Errorf("Error state must not emit; got %d entries total", len(got))
+	entries = cap.Entries()
+	if len(entries) != 2 || entries[1].Kind != metering.KindVMComputeStop || entries[1].Reason != metering.ReasonStopCrash {
+		t.Fatalf("Running→Error: got %+v, want compute.stop reason=stop-crash as 2nd entry", entries)
+	}
+
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
+		t.Fatalf("UpdateStates(error idempotent): %v", err)
+	}
+	if got := cap.Entries(); len(got) != 2 {
+		t.Errorf("Error→Error must not re-emit; got %d entries total", len(got))
+	}
+	seedVMRecord(t, b, "vm2", 1, 1<<30, 10<<30, false)
+	if err := b.UpdateStates(ctx, []string{"vm2"}, types.VMStateError); err != nil {
+		t.Fatalf("UpdateStates(vm2 error from created): %v", err)
+	}
+	if got := cap.Entries(); len(got) != 2 {
+		t.Errorf("Created→Error must not emit; got %d entries total", len(got))
 	}
 }
 
@@ -370,6 +380,25 @@ func TestFinalizeCreateEmitsStorageStart(t *testing.T) {
 	}
 	if e.Shape.StorageBytes != 20<<30 {
 		t.Errorf("got storage %d, want %d", e.Shape.StorageBytes, int64(20<<30))
+	}
+}
+
+func TestDeleteAfterErrorEmitsOnlyStorageStop(t *testing.T) {
+	b, cap := newMeteringTestBackend(t)
+	ctx := t.Context()
+	seedVMRecord(t, b, "vm1", 2, 2<<30, 20<<30, true)
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateRunning); err != nil {
+		t.Fatalf("UpdateStates(running): %v", err)
+	}
+	if err := b.UpdateStates(ctx, []string{"vm1"}, types.VMStateError); err != nil {
+		t.Fatalf("UpdateStates(error): %v", err)
+	}
+	cap.Reset()
+
+	b.emitDeleteClose(ctx, "vm1", metering.Shape{CPU: 2, MemBytes: 2 << 30, StorageBytes: 20 << 30}, metering.ReasonStopCrash, false)
+	entries := cap.Entries()
+	if len(entries) != 1 || entries[0].Kind != metering.KindVMStorageStop {
+		t.Fatalf("post-Error delete: got %+v, want one storage.stop", entries)
 	}
 }
 

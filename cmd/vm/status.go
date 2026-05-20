@@ -60,23 +60,6 @@ func (h Handler) List(cmd *cobra.Command, _ []string) error {
 	return renderVMList(vms, format)
 }
 
-// renderVMList emits vms as JSON or table; "No VMs found." for empty in table mode.
-func renderVMList(vms []*types.VM, format string) error {
-	if format == "json" {
-		if vms == nil {
-			vms = []*types.VM{}
-		}
-		return cmdcore.OutputJSON(vms)
-	}
-	if len(vms) == 0 {
-		fmt.Println("No VMs found.")
-		return nil
-	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	printVMTable(w, vms)
-	return w.Flush()
-}
-
 func (h Handler) Status(cmd *cobra.Command, args []string) error {
 	ctx, conf, err := h.Init(cmd)
 	if err != nil {
@@ -129,6 +112,23 @@ func statusOnce(ctx context.Context, hypers []hypervisor.Hypervisor, filters []s
 	vms = applyFilters(vms, filters)
 	sortVMs(vms)
 	return renderVMList(vms, format)
+}
+
+// renderVMList emits vms as JSON or table; "No VMs found." for empty in table mode.
+func renderVMList(vms []*types.VM, format string) error {
+	if format == "json" {
+		if vms == nil {
+			vms = []*types.VM{}
+		}
+		return cmdcore.OutputJSON(vms)
+	}
+	if len(vms) == 0 {
+		fmt.Println("No VMs found.")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	printVMTable(w, vms)
+	return w.Flush()
 }
 
 func mergeWatchChannels(ctx context.Context, hypers []hypervisor.Hypervisor) <-chan struct{} {

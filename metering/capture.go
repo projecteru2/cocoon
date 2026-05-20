@@ -25,3 +25,10 @@ func (r *CaptureRecorder) Entries() []Entry {
 	copy(out, r.entries)
 	return out
 }
+
+// Reset drops buffered entries.
+func (r *CaptureRecorder) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries = nil
+}

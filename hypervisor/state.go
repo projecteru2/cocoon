@@ -88,7 +88,7 @@ func (b *Backend) WithPausedVM(ctx context.Context, rec *VMRecord, pause, resume
 	})
 }
 
-// UpdateStates batch-updates State + StartedAt/StoppedAt; emits metering vm.compute.stop only on Running→Stopped.
+// UpdateStates batch-updates State + StartedAt/StoppedAt; emits vm.compute.stop on Running→{Stopped,Error}.
 func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VMState) error {
 	if len(ids) == 0 {
 		return nil
@@ -109,9 +109,13 @@ func (b *Backend) UpdateStates(ctx context.Context, ids []string, state types.VM
 				r.StartedAt = &now
 			case types.VMStateStopped:
 				r.StoppedAt = &now
-				// Only Running→Stopped closes a real interval; idempotent stops would emit a phantom.
 				if oldState == types.VMStateRunning {
 					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopUser, shapeFromConfig(r.Config), now))
+				}
+			case types.VMStateError:
+				r.StoppedAt = &now
+				if oldState == types.VMStateRunning {
+					stopped = append(stopped, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopCrash, shapeFromConfig(r.Config), now))
 				}
 			}
 		}

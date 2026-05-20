@@ -304,21 +304,6 @@ func (h Handler) cloneFromSrcDir(ctx context.Context, cmd *cobra.Command, conf *
 	return nil
 }
 
-// snapshotSource picks the clone/restore source: --from-dir or args[baseArgs]. Exactly one of (fromDir, snapRef) is non-empty.
-func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
-	fromDir, _ := cmd.Flags().GetString("from-dir")
-	if fromDir != "" {
-		if len(args) > baseArgs {
-			return "", "", fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
-		}
-		return fromDir, "", nil
-	}
-	if len(args) <= baseArgs {
-		return "", "", fmt.Errorf("snapshot is required (or use --from-dir)")
-	}
-	return "", args[baseArgs], nil
-}
-
 func (h Handler) prepareClone(ctx context.Context, cmd *cobra.Command, conf *config.Config, cfg types.SnapshotConfig) (*types.VMConfig, string, network.Network, types.NetSetup, error) {
 	vmCfg, err := cmdcore.CloneVMConfigFromFlags(cmd, cfg)
 	if err != nil {
@@ -449,6 +434,21 @@ func (h Handler) createVM(cmd *cobra.Command, image string) (context.Context, *t
 		return nil, nil, nil, fmt.Errorf("create VM: %w", createErr)
 	}
 	return ctx, info, hyper, nil
+}
+
+// snapshotSource picks the clone/restore source: --from-dir or args[baseArgs]. Exactly one of (fromDir, snapRef) is non-empty.
+func snapshotSource(cmd *cobra.Command, args []string, baseArgs int) (string, string, error) {
+	fromDir, _ := cmd.Flags().GetString("from-dir")
+	if fromDir != "" {
+		if len(args) > baseArgs {
+			return "", "", fmt.Errorf("--from-dir and positional SNAPSHOT are mutually exclusive")
+		}
+		return fromDir, "", nil
+	}
+	if len(args) <= baseArgs {
+		return "", "", fmt.Errorf("snapshot is required (or use --from-dir)")
+	}
+	return "", args[baseArgs], nil
 }
 
 // tapQueues: FC=1, CH=CPU count.

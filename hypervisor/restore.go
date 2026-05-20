@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/projecteru2/core/log"
+
 	"github.com/cocoonstack/cocoon/metering"
 	"github.com/cocoonstack/cocoon/types"
 	"github.com/cocoonstack/cocoon/utils"
@@ -65,24 +67,6 @@ func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types
 	info.StartedAt = &now
 	info.UpdatedAt = now
 	return &info, nil
-}
-
-// emitRestoreComputeStop closes only the compute interval at the kill boundary; storage stays open so a restore failure leaves on-disk files intact for vm rm to close later.
-func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldShape metering.Shape, sourceSnapshotID string) {
-	b.meter().Emit(ctx, metering.Entry{
-		Kind: metering.KindVMComputeStop, VMID: vmID, SourceSnapshotID: sourceSnapshotID,
-		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: time.Now(),
-	})
-}
-
-// emitRestoreSuccess closes the old storage interval and opens fresh storage+compute; called only after restore fully succeeds.
-func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
-	now := time.Now()
-	b.meter().Emit(ctx, metering.Entry{
-		Kind: metering.KindVMStorageStop, VMID: vm.ID, SourceSnapshotID: sourceSnapshotID,
-		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
-	})
-	b.emitOpenInterval(ctx, vm, metering.ReasonRestore, sourceSnapshotID, now)
 }
 
 // RestoreSequence is the shared restore skeleton. Staging happens before the kill so a preflight failure leaves the original VM running.
@@ -174,6 +158,35 @@ func (b *Backend) DirectRestoreSequence(ctx context.Context, vmRef string, spec 
 	}
 	b.emitRestoreSuccess(ctx, result, oldShape, spec.SourceSnapshotID)
 	return result, nil
+}
+
+// emitRestoreComputeStop closes the compute interval and flips State→Stopped so a later MarkError won't re-emit; storage stays open until vm rm.
+func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldShape metering.Shape, sourceSnapshotID string) {
+	now := time.Now()
+	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
+		if r := idx.VMs[vmID]; r != nil {
+			r.State = types.VMStateStopped
+			r.StoppedAt = &now
+			r.UpdatedAt = now
+		}
+		return nil
+	}); err != nil {
+		log.WithFunc(b.Typ+".emitRestoreComputeStop").Warnf(ctx, "mark stopped after kill %s: %v", vmID, err)
+	}
+	b.meter().Emit(ctx, metering.Entry{
+		Kind: metering.KindVMComputeStop, VMID: vmID, SourceSnapshotID: sourceSnapshotID,
+		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
+	})
+}
+
+// emitRestoreSuccess closes the old storage interval and opens fresh storage+compute; called only after restore fully succeeds.
+func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
+	now := time.Now()
+	b.meter().Emit(ctx, metering.Entry{
+		Kind: metering.KindVMStorageStop, VMID: vm.ID, SourceSnapshotID: sourceSnapshotID,
+		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
+	})
+	b.emitOpenInterval(ctx, vm, metering.ReasonRestore, sourceSnapshotID, now)
 }
 
 // PrepareStagingDir extracts the snapshot tar into a sibling staging dir.
