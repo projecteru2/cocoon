@@ -42,7 +42,7 @@ func (b *Backend) StartAll(ctx context.Context, refs []string, startOne func(con
 	return succeeded, forEachErr
 }
 
-// StartSequence runs the shared start skeleton (PrepareStart → validate → Launch → optional PostLaunch with AbortLaunch rollback) and returns whether a fresh process was launched.
+// StartSequence runs the shared start skeleton; returns whether a fresh process was launched.
 func (b *Backend) StartSequence(ctx context.Context, id string, spec StartSpec) (bool, error) {
 	rec, err := b.PrepareStart(ctx, id, spec.RuntimeFiles)
 	if err != nil {

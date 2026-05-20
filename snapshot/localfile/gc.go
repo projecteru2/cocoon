@@ -122,7 +122,6 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 		},
 		Collect: func(ctx context.Context, ids []string, snap snapshotGCSnapshot) error {
 			logger := log.WithFunc("gc.snapshot")
-			meter := metering.OrNop(recorder)
 			var (
 				errs    []error
 				removed = make([]string, 0, len(ids))
@@ -140,7 +139,7 @@ func gcModule(conf *Config, store storage.Store[snapshot.SnapshotIndex], locker 
 				removed = append(removed, id)
 				// Skip orphan dirs and stale-pending — they never opened a snap.storage interval.
 				if m, ok := snap.records[id]; ok {
-					emitSnapStop(ctx, meter, id, m.hypervisor)
+					emitSnapStop(ctx, recorder, id, m.hypervisor)
 				}
 			}
 			if err := cleanResolvedRecords(store, removed); err != nil {

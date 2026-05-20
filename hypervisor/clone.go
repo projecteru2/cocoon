@@ -85,7 +85,7 @@ func (b *Backend) CloneFromStream(
 	return afterExtract(ctx, vmID, vmCfg, net, runDir, logDir, now, snapshotConfig.ID)
 }
 
-// FinalizeClone persists the cloned VM record and emits the open-interval pair (storage.start + compute.start, reason=clone).
+// FinalizeClone persists the record and emits the clone open-interval pair.
 func (b *Backend) FinalizeClone(ctx context.Context, vmID string, info *types.VM, bootCfg *types.BootConfig, blobIDs map[string]struct{}, sourceSnapshotID string) error {
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		r, err := idx.GetRecord(vmID)

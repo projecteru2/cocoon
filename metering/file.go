@@ -15,7 +15,7 @@ type FileRecorder struct {
 	f  *os.File
 }
 
-// NewFileRecorder opens path append-only; on open failure logs a warning and returns NopRecorder so callers never see nil.
+// NewFileRecorder opens path append-only; returns NopRecorder on failure.
 func NewFileRecorder(ctx context.Context, path string) Recorder {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // internal runtime path
 	if err != nil {

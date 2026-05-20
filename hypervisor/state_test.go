@@ -13,9 +13,20 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
+func newDiskStubConfig(t *testing.T) stubBackendConfig {
+	dir := t.TempDir()
+	return stubBackendConfig{
+		indexFile: filepath.Join(dir, "index.json"),
+		indexLock: filepath.Join(dir, "index.lock"),
+	}
+}
+
 // stubBackendConfig satisfies BackendConfig for tests that only exercise the
 // metering wiring; unused methods panic so accidental dependence shows up loud.
-type stubBackendConfig struct{}
+type stubBackendConfig struct {
+	indexFile string
+	indexLock string
+}
 
 func (stubBackendConfig) BinaryName() string  { panic("BinaryName: not implemented in stub") }
 func (stubBackendConfig) PIDFileName() string { panic("PIDFileName: not implemented in stub") }
@@ -27,9 +38,9 @@ func (stubBackendConfig) SocketWaitTimeout() time.Duration {
 	panic("SocketWaitTimeout: not implemented in stub")
 }
 func (stubBackendConfig) EffectivePoolSize() int { return 1 }
-func (stubBackendConfig) IndexFile() string      { panic("IndexFile: not implemented in stub") }
-func (stubBackendConfig) IndexLock() string      { panic("IndexLock: not implemented in stub") }
-func (stubBackendConfig) EnsureDirs() error      { panic("EnsureDirs: not implemented in stub") }
+func (c stubBackendConfig) IndexFile() string    { return c.indexFile }
+func (c stubBackendConfig) IndexLock() string    { return c.indexLock }
+func (stubBackendConfig) EnsureDirs() error      { return nil }
 func (stubBackendConfig) RunDir() string         { panic("RunDir: not implemented in stub") }
 func (stubBackendConfig) LogDir() string         { panic("LogDir: not implemented in stub") }
 func (stubBackendConfig) VMRunDir(string) string { panic("VMRunDir: not implemented in stub") }
@@ -402,16 +413,17 @@ func TestDeleteAfterErrorEmitsOnlyStorageStop(t *testing.T) {
 	}
 }
 
-func TestEmitNilSafeWithoutRecorder(t *testing.T) {
-	// b.Metering left nil — meter() must return NopRecorder so emit doesn't panic.
-	dir := t.TempDir()
-	locker := flock.New(filepath.Join(dir, "index.lock"))
-	store := storejson.New[VMIndex](filepath.Join(dir, "index.json"), locker)
-	b := &Backend{Typ: "test-hv", DB: store, Locker: locker}
-
+func TestNewBackendNilRecorderDefaultsToNop(t *testing.T) {
+	b, err := NewBackend("test-hv", newDiskStubConfig(t), nil)
+	if err != nil {
+		t.Fatalf("NewBackend(rec=nil): %v", err)
+	}
+	if _, ok := b.Metering.(metering.NopRecorder); !ok {
+		t.Fatalf("nil recorder should default to NopRecorder, got %T", b.Metering)
+	}
 	ctx := t.Context()
 	seedVMRecord(t, b, "vm1", 1, 1<<30, 10<<30, false)
 	if err := b.BatchMarkStarted(ctx, []string{"vm1"}); err != nil {
-		t.Errorf("BatchMarkStarted with nil Metering panicked/failed: %v", err)
+		t.Errorf("BatchMarkStarted with NopRecorder: %v", err)
 	}
 }

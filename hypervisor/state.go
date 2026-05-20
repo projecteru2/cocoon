@@ -134,7 +134,7 @@ func (b *Backend) MarkError(ctx context.Context, id string) {
 	}
 }
 
-// BatchMarkStarted flips ids to VMStateRunning; caller MUST filter no-op already-running. An id arriving here with DB State==Running is treated as stale-running (process crashed) and gets a stop-crash close before the fresh start.
+// BatchMarkStarted flips ids to VMStateRunning; State==Running entrants are stale-running (close stop-crash, then open fresh).
 func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -150,6 +150,7 @@ func (b *Backend) BatchMarkStarted(ctx context.Context, ids []string) error {
 			shape := shapeFromConfig(r.Config)
 			if r.State == types.VMStateRunning {
 				emits = append(emits, b.makeEntry(metering.KindVMComputeStop, id, metering.ReasonStopCrash, shape, now))
+				r.StoppedAt = &now
 			}
 			reason := metering.ReasonBoot
 			if r.FirstBooted {

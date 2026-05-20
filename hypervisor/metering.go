@@ -8,10 +8,6 @@ import (
 	"github.com/cocoonstack/cocoon/types"
 )
 
-func (b *Backend) meter() metering.Recorder {
-	return metering.OrNop(b.Metering)
-}
-
 func (b *Backend) makeEntry(kind metering.Kind, vmID string, reason metering.Reason, shape metering.Shape, now time.Time) metering.Entry {
 	return metering.Entry{
 		Kind: kind, VMID: vmID, Reason: reason,
@@ -20,15 +16,14 @@ func (b *Backend) makeEntry(kind metering.Kind, vmID string, reason metering.Rea
 }
 
 func (b *Backend) emitAll(ctx context.Context, entries []metering.Entry) {
-	rec := b.meter()
 	for _, e := range entries {
-		rec.Emit(ctx, e)
+		b.Metering.Emit(ctx, e)
 	}
 }
 
-// emitOpenInterval emits the storage.start + compute.start pair that opens a fresh interval for cloned or restored VMs; the caller's now keeps the timestamp consistent with adjacent close events.
+// emitOpenInterval fires the storage.start + compute.start pair; caller-provided now keeps adjacent stop/start timestamps aligned.
 func (b *Backend) emitOpenInterval(ctx context.Context, vm *types.VM, reason metering.Reason, sourceSnapshotID string, now time.Time) {
-	rec := b.meter()
+	rec := b.Metering
 	shape := shapeFromConfig(vm.Config)
 	for _, kind := range []metering.Kind{metering.KindVMStorageStart, metering.KindVMComputeStart} {
 		rec.Emit(ctx, metering.Entry{
@@ -38,10 +33,10 @@ func (b *Backend) emitOpenInterval(ctx context.Context, vm *types.VM, reason met
 	}
 }
 
-// emitDeleteClose emits storage.stop unconditionally and compute.stop only when the record had an open Running interval.
+// emitDeleteClose fires storage.stop unconditionally; compute.stop only when an interval was open.
 func (b *Backend) emitDeleteClose(ctx context.Context, vmID string, shape metering.Shape, computeReason metering.Reason, hadRunningInterval bool) {
 	now := time.Now()
-	rec := b.meter()
+	rec := b.Metering
 	if hadRunningInterval {
 		rec.Emit(ctx, metering.Entry{
 			Kind: metering.KindVMComputeStop, VMID: vmID, Reason: computeReason,

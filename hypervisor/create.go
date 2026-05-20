@@ -36,7 +36,6 @@ func (b *Backend) ReserveVM(ctx context.Context, id string, vmCfg *types.VMConfi
 	})
 }
 
-// RollbackCreate removes a placeholder VM record from the DB.
 func (b *Backend) RollbackCreate(ctx context.Context, id, name string) {
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
 		delete(idx.VMs, id)
@@ -67,11 +66,11 @@ func (b *Backend) FinalizeCreate(ctx context.Context, id string, info *types.VM,
 	}); err != nil {
 		return err
 	}
-	b.meter().Emit(ctx, b.makeEntry(metering.KindVMStorageStart, id, metering.ReasonBoot, shapeFromConfig(info.Config), time.Now()))
+	b.Metering.Emit(ctx, b.makeEntry(metering.KindVMStorageStart, id, metering.ReasonBoot, shapeFromConfig(info.Config), time.Now()))
 	return nil
 }
 
-// CreateSequence is the shared placeholder→finalize create skeleton; a mid-flight crash rolls back DB + rundir so GC has nothing to reconcile.
+// CreateSequence is the shared placeholder→finalize create skeleton.
 func (b *Backend) CreateSequence(ctx context.Context, id string, spec CreateSpec) (_ *types.VM, err error) {
 	if err = ValidateHostCPU(spec.VMCfg.CPU); err != nil {
 		return nil, err

@@ -57,6 +57,9 @@ func New(conf *config.Config, rec metering.Recorder, opts ...Option) (*LocalFile
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
 	}
+	if rec == nil {
+		rec = metering.NopRecorder{}
+	}
 	locker := flock.New(cfg.IndexLock())
 	store := storejson.New[snapshot.SnapshotIndex](cfg.IndexFile(), locker)
 	lf := &LocalFile{conf: cfg, store: store, locker: locker, metering: rec}
@@ -141,7 +144,7 @@ func (lf *LocalFile) Create(ctx context.Context, cfg *types.SnapshotConfig, stre
 		return "", fmt.Errorf("finalize snapshot: %w", err)
 	}
 
-	emitSnapStart(ctx, lf.meter(), id, cfg.Hypervisor, size, finalizedAt)
+	emitSnapStart(ctx, lf.metering, id, cfg.Hypervisor, size, finalizedAt)
 	return id, nil
 }
 
@@ -202,10 +205,6 @@ func (lf *LocalFile) RegisterGC(orch *gc.Orchestrator) {
 	gc.Register(orch, gcModule(lf.conf, lf.store, lf.locker, lf.gcPolicy, lf.metering))
 }
 
-func (lf *LocalFile) meter() metering.Recorder {
-	return metering.OrNop(lf.metering)
-}
-
 // deleteOne removes one snapshot atomically; idempotent under concurrent rm — if the rival wins the DB race we report success (data is gone) but skip emit, so the ledger holds exactly one stop event per snapshot.
 func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 	if err := os.RemoveAll(lf.conf.SnapshotDataDir(id)); err != nil {
@@ -231,7 +230,7 @@ func (lf *LocalFile) deleteOne(ctx context.Context, id string) error {
 		return fmt.Errorf("delete DB record %s: %w", id, err)
 	}
 	if deletedRecord {
-		emitSnapStop(ctx, lf.meter(), id, hypType)
+		emitSnapStop(ctx, lf.metering, id, hypType)
 	}
 	return nil
 }

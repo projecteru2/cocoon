@@ -71,7 +71,6 @@ func (b *Backend) DeleteAll(ctx context.Context, refs []string, force bool, stop
 			return loadErr
 		}
 		sockPath := SocketPath(rec.RunDir)
-		// stoppedByUs distinguishes user-stop (ReasonStopUser) from orphan-crash cleanup (ReasonStopCrash).
 		stoppedByUs := false
 		if runningErr := b.WithRunningVM(ctx, &rec, func(_ int) error {
 			if !force {

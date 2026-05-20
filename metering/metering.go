@@ -61,11 +61,3 @@ type Recorder interface {
 type NopRecorder struct{}
 
 func (NopRecorder) Emit(context.Context, Entry) {}
-
-// OrNop returns r unchanged when non-nil, NopRecorder otherwise so emit sites never have to nil-check.
-func OrNop(r Recorder) Recorder {
-	if r == nil {
-		return NopRecorder{}
-	}
-	return r
-}

@@ -42,7 +42,7 @@ func (b *Backend) ResolveForRestore(ctx context.Context, vmRef string) (string, 
 	return vmID, &rec, nil
 }
 
-// FinalizeRestore updates DB and assembles the returned VM; metering lives in (Direct)RestoreSequence so the close fires at the kill boundary, not only on full success.
+// FinalizeRestore updates DB and assembles the returned VM.
 func (b *Backend) FinalizeRestore(ctx context.Context, vmID string, vmCfg *types.VMConfig, rec *VMRecord, pid int) (*types.VM, error) {
 	now := time.Now()
 	if err := b.DB.Update(ctx, func(idx *VMIndex) error {
@@ -173,7 +173,7 @@ func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldSh
 	}); err != nil {
 		log.WithFunc(b.Typ+".emitRestoreComputeStop").Warnf(ctx, "mark stopped after kill %s: %v", vmID, err)
 	}
-	b.meter().Emit(ctx, metering.Entry{
+	b.Metering.Emit(ctx, metering.Entry{
 		Kind: metering.KindVMComputeStop, VMID: vmID, SourceSnapshotID: sourceSnapshotID,
 		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
 	})
@@ -182,7 +182,7 @@ func (b *Backend) emitRestoreComputeStop(ctx context.Context, vmID string, oldSh
 // emitRestoreSuccess closes the old storage interval and opens fresh storage+compute; called only after restore fully succeeds.
 func (b *Backend) emitRestoreSuccess(ctx context.Context, vm *types.VM, oldShape metering.Shape, sourceSnapshotID string) {
 	now := time.Now()
-	b.meter().Emit(ctx, metering.Entry{
+	b.Metering.Emit(ctx, metering.Entry{
 		Kind: metering.KindVMStorageStop, VMID: vm.ID, SourceSnapshotID: sourceSnapshotID,
 		Reason: metering.ReasonRestore, Hypervisor: b.Typ, Shape: oldShape, EmittedAt: now,
 	})

@@ -70,10 +70,13 @@ type Backend struct {
 	Metering metering.Recorder
 }
 
-// NewBackend wires the shared init boilerplate: EnsureDirs, flock, JSON store. Each backend's New just builds its Config and forwards it here.
+// NewBackend wires shared init: EnsureDirs, flock, JSON store, nil-recorder fallback.
 func NewBackend(typ string, conf BackendConfig, rec metering.Recorder) (*Backend, error) {
 	if err := conf.EnsureDirs(); err != nil {
 		return nil, fmt.Errorf("ensure dirs: %w", err)
+	}
+	if rec == nil {
+		rec = metering.NopRecorder{}
 	}
 	locker := flock.New(conf.IndexLock())
 	return &Backend{
